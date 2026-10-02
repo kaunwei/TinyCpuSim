@@ -3,9 +3,9 @@
 ## Agent Skills & Engineering Operating Guidelines
 
 ### 1. Skill Library & Automatic Discovery
-All engineering and productivity skills are tracked directly in `.agents/skills/skills/` (originally credited to Matt Pocock with domain-specific extensions):
-- **Core Engineering**: `.agents/skills/skills/engineering/` (`tdd`, `implement`, `codebase-design`, `code-review`, `diagnosing-bugs`, `domain-modeling`, `wayfinder`, `uarch-perf-correlation`, `setup-unattended-workflow`).
-- **Productivity & Review**: `.agents/skills/skills/productivity/` (`grilling`, `handoff`, `teach`, `to-questionnaire`, `wait-what`).
+All engineering and productivity skills are tracked directly in `.agents/skills/` (originally credited to Matt Pocock with domain-specific extensions):
+- **Core Engineering**: `.agents/skills/engineering/` (`tdd`, `implement`, `codebase-design`, `code-review`, `diagnosing-bugs`, `domain-modeling`, `wayfinder`, `uarch-perf-correlation`, `setup-unattended-workflow`).
+- **Productivity & Review**: `.agents/skills/productivity/` (`grilling`, `handoff`, `teach`, `to-questionnaire`, `wait-what`).
 
 ### 2. Microarchitectural Performance Correlation (`uarch-perf-correlation`)
 - **Layer A Focus**: Performance calibration is conducted exclusively via isolated C++ subsystem microbenchmarks (`tests/uarch/*_ubench_test.cpp`). Full ELF binaries are NOT used for component invariant calibration due to pipeline noise.

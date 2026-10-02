@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "path": ".agents/skills/engineering"
+    },
+    {
+      "path": ".agents/skills/productivity"
+    },
+    {
+      "path": ".agents/skills/misc"
+    }
+  ]
+}
