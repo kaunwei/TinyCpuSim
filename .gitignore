@@ -81,4 +81,15 @@ reports/ubench/*.txt
 !reports/ubench/default/
 !reports/ubench/default/*.txt
 
+# 24h Unattended Worker Artifacts
+worker.status
+.worker.log
+.worker.pid
+PAUSE
+.worker.env
+.scratch/
+!progress.log
+
+
+
 
