@@ -291,3 +291,22 @@ TEST(PerfSliceTest, IsaInterpreterPeriodicInstructionSliceTrigger) {
     EXPECT_EQ(slices[1].slice_instructions(), 5);
     EXPECT_EQ(slices[2].slice_instructions(), 5);
 }
+
+TEST(PerfSliceTest, SliceConfigResetAndFormatOptions) {
+    SliceConfig cfg;
+    cfg.enabled = true;
+    cfg.interval_instructions = 100;
+    cfg.reset_after_slice = true;
+    cfg.format = SliceFormat::Gem5;
+
+    EXPECT_TRUE(cfg.is_active());
+    EXPECT_TRUE(cfg.reset_after_slice);
+    EXPECT_EQ(cfg.format, SliceFormat::Gem5);
+
+    cfg.format = SliceFormat::JSON;
+    EXPECT_EQ(cfg.format, SliceFormat::JSON);
+
+    cfg.format = SliceFormat::Text;
+    EXPECT_EQ(cfg.format, SliceFormat::Text);
+}
+

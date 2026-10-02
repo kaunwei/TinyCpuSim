@@ -1,5 +1,23 @@
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
+[SUCCESS] TASK-003: Add CLI flags for periodic performance slicing and wire to engine
+Time: 2026-10-03 01:26:30 | Commit: PENDING | Duration: 40s
+Changes: Added --slice-insts, --slice-ticks, --slice-file, --slice-reset, --slice-format to main.cpp & tests
+Verification: Build PASS, Tests PASS (176/176 passed)
+Notes: Fully wired CLI options to IsaInterpreter and MultiCoreSystem simulation engines
+================================================================================
+[SUCCESS] TASK-002: Integrate periodic slice triggers into simulation loops
+Time: 2026-10-03 01:24:34 | Commit: 6911584 | Duration: 55s
+Changes: Added slice triggers to MultiCoreSystem, OoOCore, IsaInterpreter, perf_slice_test
+Verification: Build PASS, Tests PASS (175/175 passed), Invariant PASS (<1% delta)
+Notes: Lockstep multi-core & interpreter periodic instruction/tick slicing enabled
+================================================================================
+[SUCCESS] TASK-001: Implement SliceConfig, PerfSlice, and SliceManager
+Time: 2026-10-03 01:16:10 | Commit: 1e1e4bb | Duration: 45s
+Changes: Added slice_manager.hpp, perf_slice_test.cpp, delta/format_gem5 in stats.hpp
+Verification: Build PASS, Tests PASS (172/172 passed), Invariant PASS (<1% delta)
+Notes: Support multi-format slicing (Text, Gem5, JSON) with interval triggers
+================================================================================
 [INIT] WORKER_INIT: 24h Unattended Dual-Terminal Workflow Initialized
 Time: 2026-10-03 00:53:00 | Commit: INITIAL | Duration: 0s
 Changes: Initialized worker.sh, .worker.env, tasks queue, and .skills

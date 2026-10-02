@@ -29,13 +29,19 @@ void print_usage(const char* prog_name) {
               << "  -u, --uarch-config <file> Load uArch configuration file (default: OoO medium)\n"
               << "  --uarch-stats <file>     Export hardware performance counters to report file\n"
               << "  --topdown [file]         Enable Top-Down microarchitectural profiler (default: stdout)\n"
-              << "  --topdown-format <fmt>   Set Top-Down export format (text, json, csv; default: text)\n\n"
+              << "  --topdown-format <fmt>   Set Top-Down export format (text, json, csv; default: text)\n"
+              << "  --slice-insts <N>        Enable periodic performance slicing every N instructions\n"
+              << "  --slice-ticks <N>        Enable periodic performance slicing every N clock cycles/ticks\n"
+              << "  --slice-file <file>      Export performance slice stream to file (default: stdout)\n"
+              << "  --slice-format <fmt>     Set performance slice export format (text, gem5, json; default: text)\n"
+              << "  --slice-reset            Reset performance counters after each slice snapshot\n\n"
               << "Examples:\n"
               << "  " << prog_name << " app.elf\n"
               << "  " << prog_name << " --log --coverage cov.csv app.elf\n"
               << "  " << prog_name << " --uarch --uarch-config configs/default/default.cfg app.elf\n"
               << "  " << prog_name << " --uarch --uarch-stats stats.txt app.elf\n"
               << "  " << prog_name << " --uarch --topdown report.json --topdown-format json app.elf\n"
+              << "  " << prog_name << " --uarch --slice-insts 100000 --slice-file slices.txt --slice-format gem5 app.elf\n"
               << std::endl;
 }
 
@@ -75,6 +81,8 @@ int main(int argc, char* argv[]) {
     bool enable_topdown = false;
     uint64_t max_steps = 1000000000;
 
+    tinyarmsim::uarch::SliceConfig slice_cfg;
+
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") {
@@ -106,6 +114,56 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg.rfind("--topdown-format=", 0) == 0) {
             topdown_format = arg.substr(17);
+        } else if (arg == "--slice-insts" || arg == "--slice-instructions") {
+            slice_cfg.enabled = true;
+            if (i + 1 < argc) {
+                slice_cfg.interval_instructions = std::stoull(argv[++i]);
+            } else {
+                std::cerr << "Error: --slice-insts requires a number argument.\n";
+                return 1;
+            }
+        } else if (arg.rfind("--slice-insts=", 0) == 0) {
+            slice_cfg.enabled = true;
+            slice_cfg.interval_instructions = std::stoull(arg.substr(14));
+        } else if (arg == "--slice-ticks" || arg == "--slice-cycles") {
+            slice_cfg.enabled = true;
+            if (i + 1 < argc) {
+                slice_cfg.interval_ticks = std::stoull(argv[++i]);
+            } else {
+                std::cerr << "Error: --slice-ticks requires a number argument.\n";
+                return 1;
+            }
+        } else if (arg.rfind("--slice-ticks=", 0) == 0) {
+            slice_cfg.enabled = true;
+            slice_cfg.interval_ticks = std::stoull(arg.substr(14));
+        } else if (arg == "--slice-file" || arg == "--slice-output") {
+            slice_cfg.enabled = true;
+            if (i + 1 < argc) {
+                slice_cfg.output_file = argv[++i];
+            } else {
+                std::cerr << "Error: --slice-file requires a file path argument.\n";
+                return 1;
+            }
+        } else if (arg.rfind("--slice-file=", 0) == 0) {
+            slice_cfg.enabled = true;
+            slice_cfg.output_file = arg.substr(13);
+        } else if (arg == "--slice-reset") {
+            slice_cfg.enabled = true;
+            slice_cfg.reset_after_slice = true;
+        } else if (arg == "--slice-format") {
+            slice_cfg.enabled = true;
+            if (i + 1 < argc) {
+                std::string fmt_str = argv[++i];
+                if (fmt_str == "gem5") slice_cfg.format = tinyarmsim::uarch::SliceFormat::Gem5;
+                else if (fmt_str == "json") slice_cfg.format = tinyarmsim::uarch::SliceFormat::JSON;
+                else slice_cfg.format = tinyarmsim::uarch::SliceFormat::Text;
+            }
+        } else if (arg.rfind("--slice-format=", 0) == 0) {
+            slice_cfg.enabled = true;
+            std::string fmt_str = arg.substr(15);
+            if (fmt_str == "gem5") slice_cfg.format = tinyarmsim::uarch::SliceFormat::Gem5;
+            else if (fmt_str == "json") slice_cfg.format = tinyarmsim::uarch::SliceFormat::JSON;
+            else slice_cfg.format = tinyarmsim::uarch::SliceFormat::Text;
         } else if (arg == "--all-perf" || arg == "--verbose-perf") {
             enable_all_perf = true;
         } else if (arg == "-u" || arg == "--uarch-config") {
@@ -186,6 +244,11 @@ int main(int argc, char* argv[]) {
     tinyarmsim::IsaInterpreter interpreter(state, bus);
     interpreter.set_logging(enable_log);
 
+    tinyarmsim::uarch::SliceManager slice_manager(slice_cfg);
+    if (slice_cfg.is_active()) {
+        interpreter.set_slice_manager(&slice_manager);
+    }
+
     std::cout << "TinyCpuSim v" << tinyarmsim::get_version_string() << "\n"
               << "Loading ELF: " << elf_path << "...\n";
 
@@ -230,6 +293,9 @@ int main(int argc, char* argv[]) {
 
     if (enable_uarch) {
         tinyarmsim::uarch::MultiCoreSystem uarch_sys(uarch_cfg, 64 * 1024 * 1024);
+        if (slice_cfg.is_active()) {
+            uarch_sys.set_slice_manager(&slice_manager);
+        }
         // Load ELF into uArch bus
         std::ifstream uarch_elf_file(elf_path, std::ios::binary);
         if (uarch_elf_file.is_open()) {
