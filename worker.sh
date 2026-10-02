@@ -197,13 +197,17 @@ PROMPT_EOF
       done
     fi
 
+    echo "[WORKER] Launching $AI_CLI (Model: $AI_MODEL)..."
     timeout "$TASK_TIMEOUT" agy -p "$PROMPT_PAYLOAD" \
       --dangerously-skip-permissions \
       --model "$AI_MODEL" \
       --effort "$AI_EFFORT" \
-      "${EXTRA_CLI_ARGS[@]}" > "$CMD_OUTPUT_TMP" 2>&1 || EXIT_CODE=$?
+      "${EXTRA_CLI_ARGS[@]}" 2>&1 | tee "$CMD_OUTPUT_TMP"
+    EXIT_CODE="${PIPESTATUS[0]}"
   else
-    timeout "$TASK_TIMEOUT" "$AI_CLI" "$PROMPT_PAYLOAD" > "$CMD_OUTPUT_TMP" 2>&1 || EXIT_CODE=$?
+    echo "[WORKER] Launching $AI_CLI..."
+    timeout "$TASK_TIMEOUT" "$AI_CLI" "$PROMPT_PAYLOAD" 2>&1 | tee "$CMD_OUTPUT_TMP"
+    EXIT_CODE="${PIPESTATUS[0]}"
   fi
 
   END_TIME=$(date +%s)
