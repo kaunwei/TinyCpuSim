@@ -153,6 +153,9 @@ echo "==========================================================================
 
 update_status "IDLE" "" "0" "0" "0" "0" "0%" "[------------------------------] 0%"
 
+WAS_BUSY=0
+IDLE_HEARTBEAT_COUNT=0
+
 # ------------------------------------------------------------------------------
 # Main Polling Loop
 # ------------------------------------------------------------------------------
@@ -175,9 +178,30 @@ while true; do
   if [ -z "$RAW_TASK" ]; then
     BAR=$(render_progress_bar "$DONE_COUNT" "$TOTAL_COUNT" 30)
     update_status "IDLE" "" "0" "$DONE_COUNT" "$TOTAL_COUNT" "0" "100%" "$BAR"
+
+    if [ $WAS_BUSY -eq 1 ]; then
+      echo ""
+      echo "=============================================================================="
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🎉 [ALL TASKS COMPLETED] $BAR"
+      echo "[IDLE] Queue is empty (Total completed: $DONE_COUNT tasks)."
+      echo "[IDLE] Waiting for new tasks in $TASKS_FILE... (Polling every ${POLL_INTERVAL}s)"
+      echo "=============================================================================="
+      WAS_BUSY=0
+      IDLE_HEARTBEAT_COUNT=0
+    else
+      IDLE_HEARTBEAT_COUNT=$(( IDLE_HEARTBEAT_COUNT + 1 ))
+      # Print a heartbeat line every 60 seconds (12 intervals of 5s)
+      if [ $(( IDLE_HEARTBEAT_COUNT % 12 )) -eq 0 ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [IDLE] Waiting for tasks in $TASKS_FILE... (Done: $DONE_COUNT | Heartbeat OK)"
+      fi
+    fi
+
     sleep "$POLL_INTERVAL"
     continue
   fi
+
+  WAS_BUSY=1
+  IDLE_HEARTBEAT_COUNT=0
 
   CURRENT_IDX=$(( DONE_COUNT + 1 ))
   PERCENT=$(( (CURRENT_IDX * 100) / TOTAL_COUNT ))
