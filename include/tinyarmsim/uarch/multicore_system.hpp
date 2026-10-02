@@ -12,6 +12,7 @@
 #include "tinyarmsim/uarch/coherence.hpp"
 #include "tinyarmsim/uarch/memory_hierarchy.hpp"
 #include "tinyarmsim/uarch/ooo_core.hpp"
+#include "tinyarmsim/uarch/slice_manager.hpp"
 
 namespace tinyarmsim::uarch {
 
@@ -39,6 +40,14 @@ public:
         cores_[core_id]->set_profiler(&profiler_);
     }
 
+    void set_slice_manager(SliceManager* sm) noexcept {
+        slice_manager_ = sm;
+    }
+
+    [[nodiscard]] SliceManager* get_slice_manager() const noexcept {
+        return slice_manager_;
+    }
+
     // Step entire multi-core system by 1 clock cycle (Lockstep Round-Robin)
     void tick() {
         if (all_halted()) return;
@@ -50,6 +59,8 @@ public:
                 core->tick();
             }
         }
+
+        check_and_trigger_slice();
     }
 
     // Run simulation until all cores halt or max_cycles is reached
@@ -119,6 +130,26 @@ public:
     }
 
 private:
+    void check_and_trigger_slice() {
+        if (!slice_manager_ || !slice_manager_->get_config().is_active()) return;
+        
+        bool trigger = false;
+        if (slice_manager_->get_config().interval_ticks > 0) {
+            trigger = slice_manager_->should_trigger_tick(simulated_cycles_);
+        }
+        if (!trigger && slice_manager_->get_config().interval_instructions > 0) {
+            uint64_t total_insts = 0;
+            for (const auto& core : cores_) {
+                if (core) total_insts += core->get_committed_instructions();
+            }
+            trigger = slice_manager_->should_trigger_instruction(total_insts);
+        }
+
+        if (trigger) {
+            slice_manager_->capture_slice(collect_stats());
+        }
+    }
+
     void init_cores() {
         size_t n = config_.num_cores > 0 ? config_.num_cores : 1;
         uint32_t issue_w = config_.default_core.issue_width > 0 ? config_.default_core.issue_width : 2;
@@ -144,6 +175,7 @@ private:
     CoherentMemoryHierarchy mem_hierarchy_;
     std::vector<std::unique_ptr<OoOCore>> cores_;
     TopDownProfiler profiler_;
+    SliceManager* slice_manager_{nullptr};
     uint64_t simulated_cycles_{0};
     double wall_time_seconds_{0.0};
 };

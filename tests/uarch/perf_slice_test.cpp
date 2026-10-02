@@ -3,6 +3,10 @@
 #include <fstream>
 #include <filesystem>
 #include "tinyarmsim/uarch/slice_manager.hpp"
+#include "tinyarmsim/uarch/multicore_system.hpp"
+#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/state.hpp"
+#include "tinyarmsim/memory_bus.hpp"
 
 using namespace tinyarmsim::uarch;
 
@@ -192,4 +196,98 @@ TEST(PerfSliceTest, OutputFileStreamingAppendsSlices) {
     EXPECT_EQ(count, 2);
 
     std::filesystem::remove(temp_file);
+}
+
+TEST(PerfSliceTest, MultiCoreSystemPeriodicTickSliceTrigger) {
+    UArchConfig cfg = UArchConfig::make_multicore_default(2);
+    MultiCoreSystem sys(cfg);
+
+    SliceConfig slice_cfg;
+    slice_cfg.enabled = true;
+    slice_cfg.interval_ticks = 50;
+    slice_cfg.format = SliceFormat::JSON;
+
+    SliceManager slice_mgr(slice_cfg);
+    sys.set_slice_manager(&slice_mgr);
+
+    EXPECT_EQ(sys.get_slice_manager(), &slice_mgr);
+
+    // Run for 120 cycles
+    for (int i = 0; i < 120; ++i) {
+        sys.tick();
+    }
+
+    // At cycle 50 and 100, slices should trigger
+    EXPECT_EQ(slice_mgr.num_slices(), 2);
+    const auto& slices = slice_mgr.get_slices();
+    EXPECT_EQ(slices[0].slice_id, 0);
+    EXPECT_EQ(slices[0].start_cycle, 0);
+    EXPECT_EQ(slices[0].end_cycle, 50);
+
+    EXPECT_EQ(slices[1].slice_id, 1);
+    EXPECT_EQ(slices[1].start_cycle, 50);
+    EXPECT_EQ(slices[1].end_cycle, 100);
+}
+
+TEST(PerfSliceTest, MultiCoreSystemPeriodicInstructionSliceTrigger) {
+    UArchConfig cfg = UArchConfig::make_ooo_default();
+    MultiCoreSystem sys(cfg);
+
+    tinyarmsim::MemoryBus& bus = sys.get_bus();
+    uint32_t base_pc = 0x1000;
+    // Write 20 instructions: MOV R0, #1, ADD R1, R0, #1, ..., then SVC #0
+    for (int i = 0; i < 20; ++i) {
+        bus.write16(base_pc + static_cast<uint32_t>(i * 2), 0x3001); // ADD R0, #1
+    }
+    bus.write16(base_pc + 40, 0xDF00); // SVC #0 (Halt)
+
+    sys.set_entry_pc(0, base_pc);
+
+    SliceConfig slice_cfg;
+    slice_cfg.enabled = true;
+    slice_cfg.interval_instructions = 10;
+    slice_cfg.format = SliceFormat::Text;
+
+    SliceManager slice_mgr(slice_cfg);
+    sys.set_slice_manager(&slice_mgr);
+
+    // Run until halt or 200 cycles
+    sys.run(200);
+
+    EXPECT_GE(slice_mgr.num_slices(), 1);
+    const auto& s0 = slice_mgr.get_slices()[0];
+    EXPECT_GE(s0.slice_instructions(), 10);
+}
+
+TEST(PerfSliceTest, IsaInterpreterPeriodicInstructionSliceTrigger) {
+    tinyarmsim::ArchitecturalState state;
+    tinyarmsim::MemoryBus bus;
+    tinyarmsim::IsaInterpreter interp(state, bus);
+
+    state.set_pc(0x1000);
+    // Write 25 NOPs (0xbf00)
+    for (uint32_t pc = 0x1000; pc < 0x1050; pc += 2) {
+        bus.write16(pc, 0xbf00);
+    }
+
+    SliceConfig slice_cfg;
+    slice_cfg.enabled = true;
+    slice_cfg.interval_instructions = 5;
+    slice_cfg.format = SliceFormat::JSON;
+
+    SliceManager slice_mgr(slice_cfg);
+    interp.set_slice_manager(&slice_mgr);
+
+    EXPECT_EQ(interp.get_slice_manager(), &slice_mgr);
+
+    // Execute 15 steps
+    for (int i = 0; i < 15; ++i) {
+        interp.step();
+    }
+
+    EXPECT_EQ(slice_mgr.num_slices(), 3);
+    const auto& slices = slice_mgr.get_slices();
+    EXPECT_EQ(slices[0].slice_instructions(), 5);
+    EXPECT_EQ(slices[1].slice_instructions(), 5);
+    EXPECT_EQ(slices[2].slice_instructions(), 5);
 }

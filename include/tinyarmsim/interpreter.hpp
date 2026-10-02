@@ -15,6 +15,7 @@
 #include "tinyarmsim/trace.hpp"
 #include "tinyarmsim/faults.hpp"
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
+#include "tinyarmsim/uarch/slice_manager.hpp"
 
 namespace tinyarmsim {
 
@@ -32,6 +33,14 @@ public:
 
     void set_profiler(uarch::TopDownProfiler* profiler) noexcept {
         profiler_ = profiler;
+    }
+
+    void set_slice_manager(uarch::SliceManager* sm) noexcept {
+        slice_manager_ = sm;
+    }
+
+    [[nodiscard]] uarch::SliceManager* get_slice_manager() const noexcept {
+        return slice_manager_;
     }
 
     void set_logging(bool enable) noexcept {
@@ -602,6 +611,8 @@ public:
             const DecodedInstruction& instr = opcode_cache_.get_16(first_halfword);
             execute(instr);
         }
+
+        check_and_trigger_slice();
     }
 
     uint32_t run(uint64_t max_steps = 1000000) {
@@ -645,6 +656,29 @@ public:
     }
 
 private:
+    void check_and_trigger_slice() {
+        if (!slice_manager_ || !slice_manager_->get_config().is_active()) return;
+
+        bool trigger = false;
+        if (slice_manager_->get_config().interval_instructions > 0) {
+            trigger = slice_manager_->should_trigger_instruction(stats_.instruction_count);
+        }
+        if (!trigger && slice_manager_->get_config().interval_ticks > 0) {
+            trigger = slice_manager_->should_trigger_tick(stats_.instruction_count);
+        }
+
+        if (trigger) {
+            uarch::UArchStats ustats;
+            ustats.total_simulated_cycles = stats_.instruction_count; // In interpreter, 1 cycle per inst
+            uarch::CoreStats core;
+            core.cycles = stats_.instruction_count;
+            core.committed_instructions = stats_.instruction_count;
+            core.committed_uops = stats_.instruction_count;
+            ustats.cores.push_back(core);
+            slice_manager_->capture_slice(ustats);
+        }
+    }
+
     void log_trace(std::string_view note = "") {
         if (logging_enabled_) {
             trace_.flag_n = state_.get_flag_n();
@@ -666,6 +700,7 @@ private:
     OpcodeCache opcode_cache_{};
     TraceRecord trace_{};
     uarch::TopDownProfiler* profiler_{nullptr};
+    uarch::SliceManager* slice_manager_{nullptr};
 };
 
 } // namespace tinyarmsim

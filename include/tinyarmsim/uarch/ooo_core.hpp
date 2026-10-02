@@ -18,6 +18,7 @@
 #include "tinyarmsim/uarch/lsu.hpp"
 #include "tinyarmsim/uarch/cache.hpp"
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
+#include "tinyarmsim/uarch/slice_manager.hpp"
 
 namespace tinyarmsim::uarch {
 
@@ -46,6 +47,14 @@ public:
 
     void set_profiler(TopDownProfiler* profiler) noexcept {
         profiler_ = profiler;
+    }
+
+    void set_slice_manager(SliceManager* sm) noexcept {
+        slice_manager_ = sm;
+    }
+
+    [[nodiscard]] SliceManager* get_slice_manager() const noexcept {
+        return slice_manager_;
     }
 
     void set_debug(bool d) noexcept { debug_ = d; }
@@ -876,6 +885,7 @@ private:
     bool halted_{false};
     bool debug_{false};
     TopDownProfiler* profiler_{nullptr};
+    SliceManager* slice_manager_{nullptr};
 };
 
 } // namespace tinyarmsim::uarch
