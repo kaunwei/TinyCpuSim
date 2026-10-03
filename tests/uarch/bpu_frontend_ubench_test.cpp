@@ -786,4 +786,199 @@ TEST(BpuFrontendUBenchTest, BPU_UBench_MultiPhasePeriodicAndCorrelatedBranches) 
     std::cout << "[PERF_COUNTER] BPU_UBench_MultiPhasePeriodicAndCorrelatedBranches:steady_correct=" << total_correct << std::endl;
 }
 
+// 16. Isolated Microbenchmark: Alternating TNTN Pattern with GShare Predictor (Phase 1 from test_branch_pred)
+TEST(BpuFrontendUBenchTest, BPU_UBench_GShareAlternatingTNTN) {
+    BranchPredictorConfig cfg;
+    cfg.type = PredictorType::GSHARE;
+    cfg.table_size = 4096;
+    cfg.btb_size = 512;
+    cfg.ras_size = 16;
+    CompositeBranchPredictor bpu(cfg);
+
+    const uint32_t branch_pc = 0x1000;
+    const uint32_t target_pc = 0x1040;
+    int steady_correct = 0;
+
+    for (int i = 0; i < 500; ++i) {
+        bool actual_taken = (i % 2 == 1);
+        auto pred = bpu.predict(branch_pc, BranchType::DIRECT_COND, true);
+        if (i >= 50 && pred.taken == actual_taken) {
+            steady_correct++;
+        }
+        bpu.update(branch_pc, actual_taken, actual_taken ? target_pc : branch_pc + 4, BranchType::DIRECT_COND, pred);
+        if (pred.taken != actual_taken) {
+            bpu.squash(pred, actual_taken);
+        }
+    }
+
+    EXPECT_GE(steady_correct, 440);
+    std::cout << "[PERF_COUNTER] BPU_UBench_GShareAlternatingTNTN:steady_correct=" << steady_correct << std::endl;
+}
+
+// 17. Isolated Microbenchmark: Alternating TNTN Pattern with BiMode Predictor (Phase 1 from test_branch_pred)
+TEST(BpuFrontendUBenchTest, BPU_UBench_BiModeAlternatingTNTN) {
+    BranchPredictorConfig cfg;
+    cfg.type = PredictorType::BIMODAL;
+    cfg.table_size = 8192;
+    cfg.btb_size = 512;
+    cfg.ras_size = 16;
+    CompositeBranchPredictor bpu(cfg);
+
+    const uint32_t branch_pc = 0x1000;
+    const uint32_t target_pc = 0x1040;
+    int steady_correct = 0;
+
+    for (int i = 0; i < 500; ++i) {
+        bool actual_taken = (i % 2 == 1);
+        auto pred = bpu.predict(branch_pc, BranchType::DIRECT_COND, true);
+        if (i >= 50 && pred.taken == actual_taken) {
+            steady_correct++;
+        }
+        bpu.update(branch_pc, actual_taken, actual_taken ? target_pc : branch_pc + 4, BranchType::DIRECT_COND, pred);
+        if (pred.taken != actual_taken) {
+            bpu.squash(pred, actual_taken);
+        }
+    }
+
+    EXPECT_GE(steady_correct, 440);
+    std::cout << "[PERF_COUNTER] BPU_UBench_BiModeAlternatingTNTN:steady_correct=" << steady_correct << std::endl;
+}
+
+// 18. Isolated Microbenchmark: 4-Step Periodic Pattern with GShare Predictor (Phase 2 from test_branch_pred)
+TEST(BpuFrontendUBenchTest, BPU_UBench_GSharePeriodic4Step) {
+    BranchPredictorConfig cfg;
+    cfg.type = PredictorType::GSHARE;
+    cfg.table_size = 4096;
+    cfg.btb_size = 512;
+    cfg.ras_size = 16;
+    CompositeBranchPredictor bpu(cfg);
+
+    const uint32_t branch_pc = 0x2000;
+    const uint32_t target_pc = 0x2040;
+    int steady_correct = 0;
+
+    for (int i = 0; i < 400; ++i) {
+        bool actual_taken = (i % 4 != 2);
+        auto pred = bpu.predict(branch_pc, BranchType::DIRECT_COND, true);
+        if (i >= 50 && pred.taken == actual_taken) {
+            steady_correct++;
+        }
+        bpu.update(branch_pc, actual_taken, actual_taken ? target_pc : branch_pc + 4, BranchType::DIRECT_COND, pred);
+        if (pred.taken != actual_taken) {
+            bpu.squash(pred, actual_taken);
+        }
+    }
+
+    EXPECT_GE(steady_correct, 340);
+    std::cout << "[PERF_COUNTER] BPU_UBench_GSharePeriodic4Step:steady_correct=" << steady_correct << std::endl;
+}
+
+// 19. Isolated Microbenchmark: 4-Step Periodic Pattern with BiMode Predictor (Phase 2 from test_branch_pred)
+TEST(BpuFrontendUBenchTest, BPU_UBench_BiModePeriodic4Step) {
+    BranchPredictorConfig cfg;
+    cfg.type = PredictorType::BIMODAL;
+    cfg.table_size = 8192;
+    cfg.btb_size = 512;
+    cfg.ras_size = 16;
+    CompositeBranchPredictor bpu(cfg);
+
+    const uint32_t branch_pc = 0x2000;
+    const uint32_t target_pc = 0x2040;
+    int steady_correct = 0;
+
+    for (int i = 0; i < 400; ++i) {
+        bool actual_taken = (i % 4 != 2);
+        auto pred = bpu.predict(branch_pc, BranchType::DIRECT_COND, true);
+        if (i >= 50 && pred.taken == actual_taken) {
+            steady_correct++;
+        }
+        bpu.update(branch_pc, actual_taken, actual_taken ? target_pc : branch_pc + 4, BranchType::DIRECT_COND, pred);
+        if (pred.taken != actual_taken) {
+            bpu.squash(pred, actual_taken);
+        }
+    }
+
+    EXPECT_GE(steady_correct, 340);
+    std::cout << "[PERF_COUNTER] BPU_UBench_BiModePeriodic4Step:steady_correct=" << steady_correct << std::endl;
+}
+
+// 20. Isolated Microbenchmark: 2-Level Correlated Branches with GShare Predictor (Phase 3 from test_branch_pred)
+TEST(BpuFrontendUBenchTest, BPU_UBench_GShareCorrelatedBranches) {
+    BranchPredictorConfig cfg;
+    cfg.type = PredictorType::GSHARE;
+    cfg.table_size = 4096;
+    cfg.btb_size = 512;
+    cfg.ras_size = 16;
+    CompositeBranchPredictor bpu(cfg);
+
+    const uint32_t br_outer = 0x3000;
+    const uint32_t target_outer = 0x3040;
+    const uint32_t br_inner = 0x3010;
+    const uint32_t target_inner = 0x3080;
+    int steady_correct = 0;
+
+    for (int i = 0; i < 300; ++i) {
+        bool outer_taken = (i % 2 == 1);
+        bool inner_taken = outer_taken ? ((i % 4) == 3) : ((i % 4) == 0);
+
+        auto pred_outer = bpu.predict(br_outer, BranchType::DIRECT_COND, true);
+        bpu.update(br_outer, outer_taken, outer_taken ? target_outer : br_outer + 4, BranchType::DIRECT_COND, pred_outer);
+        if (pred_outer.taken != outer_taken) {
+            bpu.squash(pred_outer, outer_taken);
+        }
+
+        auto pred_inner = bpu.predict(br_inner, BranchType::DIRECT_COND, true);
+        if (i >= 50 && pred_inner.taken == inner_taken) {
+            steady_correct++;
+        }
+        bpu.update(br_inner, inner_taken, inner_taken ? target_inner : br_inner + 4, BranchType::DIRECT_COND, pred_inner);
+        if (pred_inner.taken != inner_taken) {
+            bpu.squash(pred_inner, inner_taken);
+        }
+    }
+
+    EXPECT_GE(steady_correct, 240);
+    std::cout << "[PERF_COUNTER] BPU_UBench_GShareCorrelatedBranches:steady_correct=" << steady_correct << std::endl;
+}
+
+// 21. Isolated Microbenchmark: 2-Level Correlated Branches with BiMode Predictor (Phase 3 from test_branch_pred)
+TEST(BpuFrontendUBenchTest, BPU_UBench_BiModeCorrelatedBranches) {
+    BranchPredictorConfig cfg;
+    cfg.type = PredictorType::BIMODAL;
+    cfg.table_size = 8192;
+    cfg.btb_size = 512;
+    cfg.ras_size = 16;
+    CompositeBranchPredictor bpu(cfg);
+
+    const uint32_t br_outer = 0x3000;
+    const uint32_t target_outer = 0x3040;
+    const uint32_t br_inner = 0x3010;
+    const uint32_t target_inner = 0x3080;
+    int steady_correct = 0;
+
+    for (int i = 0; i < 300; ++i) {
+        bool outer_taken = (i % 2 == 1);
+        bool inner_taken = outer_taken ? ((i % 4) == 3) : ((i % 4) == 0);
+
+        auto pred_outer = bpu.predict(br_outer, BranchType::DIRECT_COND, true);
+        bpu.update(br_outer, outer_taken, outer_taken ? target_outer : br_outer + 4, BranchType::DIRECT_COND, pred_outer);
+        if (pred_outer.taken != outer_taken) {
+            bpu.squash(pred_outer, outer_taken);
+        }
+
+        auto pred_inner = bpu.predict(br_inner, BranchType::DIRECT_COND, true);
+        if (i >= 50 && pred_inner.taken == inner_taken) {
+            steady_correct++;
+        }
+        bpu.update(br_inner, inner_taken, inner_taken ? target_inner : br_inner + 4, BranchType::DIRECT_COND, pred_inner);
+        if (pred_inner.taken != inner_taken) {
+            bpu.squash(pred_inner, inner_taken);
+        }
+    }
+
+    EXPECT_GE(steady_correct, 240);
+    std::cout << "[PERF_COUNTER] BPU_UBench_BiModeCorrelatedBranches:steady_correct=" << steady_correct << std::endl;
+}
+
+
 

@@ -119,6 +119,54 @@
           "gem5_counter": "branchPred.condCorrect (Multi-Phase)",
           "gem5_val": 1045,
           "tolerance_pct": 1.0
+        },
+        {
+          "ubench": "BPU_UBench_GShareAlternatingTNTN",
+          "metric": "GShare Alternating TNTN Steady Prediction",
+          "counter_key": "steady_correct",
+          "gem5_counter": "branchPred.gshare.condCorrect (TNTN)",
+          "gem5_val": 450,
+          "tolerance_pct": 1.0
+        },
+        {
+          "ubench": "BPU_UBench_BiModeAlternatingTNTN",
+          "metric": "BiMode Alternating TNTN Steady Prediction",
+          "counter_key": "steady_correct",
+          "gem5_counter": "branchPred.bimode.condCorrect (TNTN)",
+          "gem5_val": 450,
+          "tolerance_pct": 1.0
+        },
+        {
+          "ubench": "BPU_UBench_GSharePeriodic4Step",
+          "metric": "GShare 4-Step Periodic Steady Prediction",
+          "counter_key": "steady_correct",
+          "gem5_counter": "branchPred.gshare.condCorrect (Periodic)",
+          "gem5_val": 350,
+          "tolerance_pct": 1.0
+        },
+        {
+          "ubench": "BPU_UBench_BiModePeriodic4Step",
+          "metric": "BiMode 4-Step Periodic Steady Prediction",
+          "counter_key": "steady_correct",
+          "gem5_counter": "branchPred.bimode.condCorrect (Periodic)",
+          "gem5_val": 350,
+          "tolerance_pct": 1.0
+        },
+        {
+          "ubench": "BPU_UBench_GShareCorrelatedBranches",
+          "metric": "GShare 2-Level Correlated Steady Prediction",
+          "counter_key": "steady_correct",
+          "gem5_counter": "branchPred.gshare.condCorrect (Correlated)",
+          "gem5_val": 249,
+          "tolerance_pct": 1.0
+        },
+        {
+          "ubench": "BPU_UBench_BiModeCorrelatedBranches",
+          "metric": "BiMode 2-Level Correlated Steady Prediction",
+          "counter_key": "steady_correct",
+          "gem5_counter": "branchPred.bimode.condCorrect (Correlated)",
+          "gem5_val": 250,
+          "tolerance_pct": 1.0
         }
       ]
     },
