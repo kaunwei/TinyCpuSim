@@ -632,16 +632,19 @@ public:
                 step();
             } catch (const CpuFaultException& e) {
                 update_timing();
+                flush_slice();
                 if (e.get_fault_type() == FaultType::SoftwareInterrupt) {
                     return state_.get_reg(0);
                 }
                 throw;
             } catch (...) {
                 update_timing();
+                flush_slice();
                 throw;
             }
         }
         update_timing();
+        flush_slice();
         throw CpuFaultException(FaultType::MemoryOutOfBounds, "Simulation execution exceeded max step limit (" + std::to_string(max_steps) + ")");
     }
 
@@ -677,6 +680,18 @@ private:
             ustats.cores.push_back(core);
             slice_manager_->capture_slice(ustats);
         }
+    }
+
+    void flush_slice() {
+        if (!slice_manager_ || !slice_manager_->get_config().is_active()) return;
+        uarch::UArchStats ustats;
+        ustats.total_simulated_cycles = stats_.instruction_count;
+        uarch::CoreStats core;
+        core.cycles = stats_.instruction_count;
+        core.committed_instructions = stats_.instruction_count;
+        core.committed_uops = stats_.instruction_count;
+        ustats.cores.push_back(core);
+        slice_manager_->flush_final_slice(ustats);
     }
 
     void log_trace(std::string_view note = "") {

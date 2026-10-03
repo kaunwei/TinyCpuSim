@@ -75,6 +75,10 @@ public:
         std::chrono::duration<double> diff = end_time - start_time;
         wall_time_seconds_ = diff.count();
 
+        if (slice_manager_ && slice_manager_->get_config().is_active()) {
+            slice_manager_->flush_final_slice(collect_stats());
+        }
+
         return simulated_cycles_;
     }
 

@@ -289,9 +289,20 @@ int main(int argc, char* argv[]) {
     }
 
     const auto& stats = interpreter.get_stats();
+    if (!enable_uarch && slice_cfg.is_active()) {
+        tinyarmsim::uarch::UArchStats interp_stats;
+        interp_stats.total_simulated_cycles = stats.instruction_count;
+        tinyarmsim::uarch::CoreStats core;
+        core.cycles = stats.instruction_count;
+        core.committed_instructions = stats.instruction_count;
+        core.committed_uops = stats.instruction_count;
+        interp_stats.cores.push_back(core);
+        slice_manager.flush_final_slice(interp_stats);
+    }
     print_banner(passed, exit_code, fault_msg, stats);
 
     if (enable_uarch) {
+        slice_manager.reset();
         tinyarmsim::uarch::MultiCoreSystem uarch_sys(uarch_cfg, 64 * 1024 * 1024);
         if (slice_cfg.is_active()) {
             uarch_sys.set_slice_manager(&slice_manager);

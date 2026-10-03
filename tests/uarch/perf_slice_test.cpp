@@ -310,3 +310,91 @@ TEST(PerfSliceTest, SliceConfigResetAndFormatOptions) {
     EXPECT_EQ(cfg.format, SliceFormat::Text);
 }
 
+TEST(PerfSliceTest, FlushFinalSliceCapturesTailResidualSlice) {
+    SliceManager manager;
+    SliceConfig cfg;
+    cfg.enabled = true;
+    cfg.interval_instructions = 1000;
+    cfg.format = SliceFormat::JSON;
+    manager.set_config(cfg);
+
+    // Snapshot at 1000 and 2000 instructions
+    UArchStats s1;
+    s1.total_simulated_cycles = 1000;
+    CoreStats c1;
+    c1.cycles = 1000;
+    c1.committed_instructions = 1000;
+    s1.cores.push_back(c1);
+    manager.capture_slice(s1);
+
+    UArchStats s2;
+    s2.total_simulated_cycles = 2000;
+    CoreStats c2;
+    c2.cycles = 2000;
+    c2.committed_instructions = 2000;
+    s2.cores.push_back(c2);
+    manager.capture_slice(s2);
+
+    EXPECT_EQ(manager.num_slices(), 2);
+
+    // Simulation finishes with 2500 instructions (residual tail slice 2001-2500)
+    UArchStats final_stats;
+    final_stats.total_simulated_cycles = 2600;
+    CoreStats c_final;
+    c_final.cycles = 2600;
+    c_final.committed_instructions = 2500;
+    final_stats.cores.push_back(c_final);
+
+    const auto* tail_slice = manager.flush_final_slice(final_stats);
+    ASSERT_NE(tail_slice, nullptr);
+    EXPECT_EQ(manager.num_slices(), 3);
+    EXPECT_EQ(tail_slice->slice_id, 2);
+    EXPECT_EQ(tail_slice->start_instruction, 2000);
+    EXPECT_EQ(tail_slice->end_instruction, 2500);
+    EXPECT_EQ(tail_slice->slice_instructions(), 500);
+    EXPECT_EQ(tail_slice->start_cycle, 2000);
+    EXPECT_EQ(tail_slice->end_cycle, 2600);
+    EXPECT_EQ(tail_slice->slice_cycles(), 600);
+
+    // Calling flush_final_slice again without progress should return nullptr
+    EXPECT_EQ(manager.flush_final_slice(final_stats), nullptr);
+    EXPECT_EQ(manager.num_slices(), 3);
+
+    // Test reset
+    manager.reset();
+    EXPECT_EQ(manager.num_slices(), 0);
+}
+
+TEST(PerfSliceTest, MultiCoreSystemSimulationCompletionFlushesTailSlice) {
+    UArchConfig cfg = UArchConfig::make_ooo_default();
+    MultiCoreSystem sys(cfg);
+
+    tinyarmsim::MemoryBus& bus = sys.get_bus();
+    uint32_t base_pc = 0x1000;
+    // Write 15 instructions: ADD R0, #1 then SVC #0
+    for (int i = 0; i < 15; ++i) {
+        bus.write16(base_pc + static_cast<uint32_t>(i * 2), 0x3001); // ADD R0, #1
+    }
+    bus.write16(base_pc + 30, 0xDF00); // SVC #0 (Halt)
+
+    sys.set_entry_pc(0, base_pc);
+
+    SliceConfig slice_cfg;
+    slice_cfg.enabled = true;
+    slice_cfg.interval_instructions = 10; // 10 inst interval -> 1st slice at 10, tail slice at 15
+    slice_cfg.format = SliceFormat::Text;
+
+    SliceManager slice_mgr(slice_cfg);
+    sys.set_slice_manager(&slice_mgr);
+
+    sys.run(200);
+
+    // 15 ADDs + 1 SVC = 16 committed instructions
+    // With 10 inst interval -> 1st slice has 10, tail flush slice has 6 (total 16 insts)
+    EXPECT_EQ(slice_mgr.num_slices(), 2);
+    const auto& slices = slice_mgr.get_slices();
+    EXPECT_EQ(slices[0].slice_instructions(), 10);
+    EXPECT_EQ(slices[1].slice_instructions(), 6);
+    EXPECT_EQ(slices[0].slice_instructions() + slices[1].slice_instructions(), 16);
+}
+

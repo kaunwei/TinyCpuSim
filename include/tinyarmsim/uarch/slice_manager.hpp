@@ -157,6 +157,17 @@ public:
         return slices_.size();
     }
 
+    // Flush residual tail slice if there are pending cycles/instructions since last snapshot
+    const PerfSlice* flush_final_slice(const UArchStats& current_stats) {
+        if (!config_.is_active()) return nullptr;
+        uint64_t current_insts = current_stats.total_committed_instructions();
+        uint64_t current_ticks = current_stats.total_simulated_cycles;
+        if (current_ticks > last_slice_tick_ || current_insts > last_slice_inst_) {
+            return &capture_slice(current_stats);
+        }
+        return nullptr;
+    }
+
     void reset() noexcept {
         slices_.clear();
         last_stats_snapshot_ = UArchStats{};
