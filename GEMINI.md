@@ -12,7 +12,7 @@ This repository operates on a **Dual-Terminal Architecture** separating interact
 ┌─────────────────────────────────────────────────────────────┐
 │                 Terminal A: Interactive Architect           │
 │  • Discuss architecture & requirements with user.           │
-│  • Decompose goals into single-line atomic English tasks.   │
+│  • Decompose goals into atomic tasks using Granularity Ladder.
 │  • Autonomously manages .worker.env (models, ext dirs).    │
 │  • Inspect progress.log (top <=10 lines) for acceptance.    │
 └──────────────────────────────┬──────────────────────────────┘
@@ -23,7 +23,8 @@ This repository operates on a **Dual-Terminal Architecture** separating interact
 │  • Auto-sources .worker.env (ADDITIONAL_DIRS=../gem5).      │
 │  • Stateless CLI process (agy --model gemini-3.7-flash-low).│
 │  • Follows .skills/universal-build-verify.md.               │
-│  • Runs builds, unit tests (168/168 pass), ubench delta.    │
+│  • Runs builds, unit tests (178/178 pass), ubench delta.    │
+│  • Single-seam freedom, honest escalation [NEED_GUIDANCE].  │
 │  • Max 3 repair attempts -> auto rollback on block.         │
 │  • Auto Git Commit & prepends <=10 lines to progress.log.   │
 └─────────────────────────────────────────────────────────────┘
@@ -44,23 +45,45 @@ To optimize token efficiency (50-70% savings) and ensure maximum instruction-fol
 
 ---
 
-## 3. Atomic Task Format Guide (for Terminal A AI)
+## 3. Dynamic Granularity Ladder (動態任務顆粒度)
 
-When Terminal A decomposes user requests into `tasks.txt`, each task MUST occupy exactly one line and adhere to this structured contract:
+Terminal A dynamically sizes tasks into `tasks.txt` based on `docs/agents/granularity-profile.json`:
 
+| Level | Granularity | Scope & Action |
+| :---: | :--- | :--- |
+| **Level 1** | **Coarse (Seam / Feature)** | Specify public interface & verification test. Worker autonomously creates internal helpers & implementation. |
+| **Level 2** | **Medium (Component Slice)** | Break down into discrete module units (e.g. data model vs processor). |
+| **Level 3** | **Micro (Step / Function)** | Precise function-level instructions. Used only when worker requested guidance or previous attempt struggled. |
+
+### Task Format:
 ```text
-TASK-XXX | TARGET: <file_paths> | ACTION: <precise implementation details> | VERIFY: <test command> | CONSTRAINTS: <scope limits>
-```
-
-### Examples:
-```text
-TASK-001 | TARGET: src/core/rob.cpp, tests/unit/rob_test.cpp | ACTION: Add squashing logic on mispredicted branches | VERIFY: ./scripts/01_build.sh && ./scripts/02_run_tests.sh | CONSTRAINTS: C++20 strict RAII, zero warnings
-TASK-002 | TARGET: src/core/branch_predictor.cpp | ACTION: Calibrate BPU counter saturation | VERIFY: /usr/bin/python3 scripts/report_ubench_perf.py --suite bp | CONSTRAINTS: <1% delta against gem5 golden counters
+TASK-XXX | LEVEL: 1 | TARGET: <file_paths> | ACTION: <precise implementation details> | VERIFY: <test command> | CONSTRAINTS: <scope limits>
 ```
 
 ---
 
-## 4. Verification & Safe Git Log Rules (Zero Context Pollution)
+## 4. Honest Worker Treaty & Escalation (誠實工人公約)
+
+1. **Single-Seam Freedom (接縫自由實作)**: As long as a task operates on a single architectural module/seam, there is **NO line-of-code limit**. Worker has full autonomy on internal helpers, data structures, and tests.
+2. **Cross-Subsystem Rejection (跨子系統過載拒絕)**: If a task demands simultaneous, uncoordinated changes across multiple decoupled subsystems, Worker emits `[NEED_DECOMPOSITION]` with proposed subtasks.
+3. **3-Tier Escalation & Best-Effort with Note**:
+   - *Tier 1 (Local choices)*: Worker decides autonomously.
+   - *Tier 2 (Recoverable errors)*: Worker self-heals within 3 retries (with `git restore` clean intermediate resets).
+   - *Tier 3 (Fatal blockers)*: Worker emits `[NEED_GUIDANCE]` or `[BLOCKED]` and pauses.
+   - *Minor ambiguities*: Advance with Best-Effort and leave a non-blocking `Notes:` entry in `progress.log`.
+
+---
+
+## 5. Dual-Skill Ecosystem
+
+- **Architect Skills** (`.agents/skills/architect/`): `/calibrate-task-granularity`, `/handle-worker-guidance`, `/score-worker-performance`.
+- **Worker Skills** (`.agents/skills/worker/`): `/manage-worker-notes`, `/record-attempt-trace`.
+- **Core Engineering**: `.agents/skills/engineering/` (`/tdd`, `/codebase-design`, `/domain-modeling`, `/diagnosing-bugs`, `/uarch-perf-correlation`, `/setup-unattended-workflow`).
+- **Productivity & Review**: `.agents/skills/productivity/` (`/grilling`, `/handoff`, `/teach`, `/to-questionnaire`, `/wait-what`).
+
+---
+
+## 6. Verification & Safe Git Log Rules (Zero Context Pollution)
 
 To keep Terminal A's context window clean and avoid context exhaustion:
 1. **Primary Acceptance**: Terminal A only reads the top 10 lines of `progress.log` (`head -n 15 progress.log`).
@@ -75,7 +98,7 @@ To keep Terminal A's context window clean and avoid context exhaustion:
 
 ---
 
-## 5. Branch Strategy: Linear Git Rebase & Auto-Cleanup
+## 7. Branch Strategy: Linear Git Rebase & Auto-Cleanup
 
 All batch feature development should happen on integration branches and integrate linearly into `main`:
 
@@ -94,22 +117,7 @@ git branch -d feature/<batch-name>
 
 ---
 
-## 6. Mandatory Command Execution & Git Guardrails
-
-Whenever executing commands in this workspace, the agent MUST obey the following safety rules:
-- **Tool Paths**: Always use standard installed default paths (e.g. `/usr/bin/python3`). Avoid unnecessary environment variable overrides.
-- **Commit Frequency**: Commit after every distinct task or unit of work.
-- **No Destructive Git Operations**: Under NO circumstances should the agent run:
-  - `git push` / `git push --force`
-  - `git reset --hard` (except worker.sh automated isolated rollback)
-  - `git clean -f` / `git clean -fd`
-  - `git branch -D`
-  unless specifically and explicitly requested by the user.
-- **No Host-Level Modifying Commands**: Under NO circumstances run `sudo`, `apt`, `yum`, `dnf`, `pacman`.
-
----
-
-## 7. Microarchitectural Invariant & Engineering Treaties
+## 8. Microarchitectural Invariant & Engineering Treaties
 
 - **Microarchitectural Correlation**: All microbenchmark invariants must achieve `<1%` delta against gem5 empirical references (`tests/uarch/golden_counters.json`).
 - **Test-Driven Development (TDD)**: Follow Red-Green-Refactor cycle. Unit tests must pass 100%.

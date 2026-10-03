@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "default_granularity": "Level 1 (Coarse)",
+  "modules": {
+    "src/calc": {
+      "recommended_level": "Level 1 (Coarse)",
+      "last_score": 5,
+      "success_rate": "100%",
+      "total_tasks": 1,
+      "notes": "Handles arithmetic and error boundary tests cleanly in 1 attempt (Confidence: 1.0)"
+    }
+  }
+}

@@ -1,6 +1,12 @@
 {
   "entries": [
     {
+      "path": ".agents/skills/architect"
+    },
+    {
+      "path": ".agents/skills/worker"
+    },
+    {
       "path": ".agents/skills/engineering"
     },
     {

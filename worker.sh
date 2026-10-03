@@ -303,7 +303,14 @@ BLOCK_EOF
 )
     prepend_progress_log "$BLOCKED_SUMMARY"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [FAILED] $TASK_TITLE [TIMEOUT]" >> "$TASKS_DONE_FILE"
-    update_status "BLOCKED" "$TASK_TITLE (TIMEOUT)" "$DURATION" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT}%" "$BAR"
+    update_status "BLOCKED" "$TASK_TITLE (TIMEOUT)" "$DURATION" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT_START}%" "$BAR_START"
+
+  elif grep -q '\[NEED_GUIDANCE\]\|\[NEED_DECOMPOSITION\]' "$CMD_OUTPUT_TMP" 2>/dev/null; then
+    # Worker honestly requested guidance or decomposition
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✋ [AWAITING GUIDANCE] Worker honestly requested manager guidance."
+    isolate_and_rollback_dirty_tree "$TASK_ID"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [GUIDANCE_REQUESTED] $TASK_TITLE" >> "$TASKS_DONE_FILE"
+    update_status "AWAITING_GUIDANCE" "$TASK_TITLE" "$DURATION" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT_START}%" "$BAR_START"
 
   elif [ $EXIT_CODE -ne 0 ]; then
     # Execution failed
@@ -321,7 +328,7 @@ BLOCK_EOF
 )
     prepend_progress_log "$BLOCKED_SUMMARY"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [FAILED] $TASK_TITLE [EXIT_$EXIT_CODE]" >> "$TASKS_DONE_FILE"
-    update_status "BLOCKED" "$TASK_TITLE (ERROR $EXIT_CODE)" "$DURATION" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT}%" "$BAR"
+    update_status "BLOCKED" "$TASK_TITLE (ERROR $EXIT_CODE)" "$DURATION" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT_START}%" "$BAR_START"
 
   else
     # Success

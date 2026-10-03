@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
     interpreter.set_logging(enable_log);
 
     tinyarmsim::uarch::SliceManager slice_manager(slice_cfg);
-    if (slice_cfg.is_active()) {
+    if (!enable_uarch && slice_cfg.is_active()) {
         interpreter.set_slice_manager(&slice_manager);
     }
 
