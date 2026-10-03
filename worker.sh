@@ -204,8 +204,8 @@ while true; do
   IDLE_HEARTBEAT_COUNT=0
 
   CURRENT_IDX=$(( DONE_COUNT + 1 ))
-  PERCENT=$(( (CURRENT_IDX * 100) / TOTAL_COUNT ))
-  BAR=$(render_progress_bar "$CURRENT_IDX" "$TOTAL_COUNT" 30)
+  PERCENT_START=$(( (DONE_COUNT * 100) / TOTAL_COUNT ))
+  BAR_START=$(render_progress_bar "$DONE_COUNT" "$TOTAL_COUNT" 30)
 
   # Pop the task line atomically from tasks.txt
   TEMP_TASKS=$(mktemp)
@@ -221,11 +221,12 @@ while true; do
   
   echo ""
   echo "=============================================================================="
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] >>> Task $CURRENT_IDX of $TOTAL_COUNT | $BAR"
-  echo ">>> Popped Task: $TASK_TITLE"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] >>> [Task $CURRENT_IDX of $TOTAL_COUNT (In Progress) | Completed: $DONE_COUNT/$TOTAL_COUNT ($PERCENT_START%)]"
+  echo ">>> Progress: $BAR_START"
+  echo ">>> Task: $TASK_TITLE"
   echo "=============================================================================="
 
-  update_status "RUNNING" "$TASK_TITLE" "0" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT}%" "$BAR"
+  update_status "RUNNING" "$TASK_TITLE" "0" "$CURRENT_IDX" "$TOTAL_COUNT" "$((REMAINING_COUNT - 1))" "${PERCENT_START}%" "$BAR_START"
 
   # Construct Prompt for the CLI Process
   PROMPT_PAYLOAD=$(cat <<PROMPT_EOF
@@ -236,12 +237,13 @@ TASK TO IMPLEMENT:
 $TASK_TITLE
 
 MANDATORY EXECUTION RULES:
-1. TARGET ONLY: Modify only the necessary files.
-2. NO SUDO: Under NO circumstances run sudo, apt, or global system commands.
-3. BUILD & VERIFY: Run the appropriate build and test commands (C/C++ cmake/ninja, Python pytest, GUI timeout 2s smoke tests).
-4. RETRY LIMIT: Max 3 repair attempts. If unable to pass after 3 fixes, stop immediately and record [BLOCKED].
-5. ATOMIC COMMIT: On 100% verification pass, run git commit -m "feat/fix: $TASK_TITLE".
-6. TOP PREPEND PROGRESS: Write a structured <=10 lines report at the VERY TOP of $PROGRESS_FILE.
+1. REAL-TIME STEP LOGGING: Before running any command or editing any file, print an explicit line (e.g. "[EXEC] Modifying <file>...", "[EXEC] Running command: <command>", "[EXEC] Running test: <command>") so the operator can see what you are doing in real time.
+2. TARGET ONLY: Modify only the necessary files specified in the task.
+3. NO SUDO: Under NO circumstances run sudo, apt, or global system commands.
+4. BUILD & VERIFY: Run the appropriate build and test commands (C/C++ cmake/ninja, Python pytest, GUI timeout 2s smoke tests).
+5. RETRY LIMIT: Max 3 repair attempts. If unable to pass after 3 fixes, stop immediately and record [BLOCKED].
+6. ATOMIC COMMIT: On 100% verification pass, run git commit -m "feat/fix: $TASK_TITLE".
+7. TOP PREPEND PROGRESS: Write a structured <=10 lines report at the VERY TOP of $PROGRESS_FILE.
 PROMPT_EOF
 )
 
