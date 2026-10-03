@@ -1,5 +1,23 @@
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
+[SUCCESS] TASK-006: Create generate_gem5_slices.py for multi-interval gem5 golden dumps
+Time: 2026-10-03 15:46:15 | Commit: PENDING | Duration: 40s
+Changes: Created scripts/generate_gem5_slices.py, scripts/gem5_slice_runner.py, updated generate_gem5_golden.py
+Verification: CLI PASS (/usr/bin/python3 scripts/generate_gem5_slices.py --help), Tests PASS (178/178 passed)
+Notes: Drives gem5 ARM starter_se with periodic instruction/tick stat dumps to tests/golden/gem5/slices/
+================================================================================
+[SUCCESS] TASK-005: Implement flush_final_slice and reset slice_manager across stages
+Time: 2026-10-03 15:41:05 | Commit: 83f1b23 | Duration: 45s
+Changes: Added flush_final_slice() in SliceManager, wired to MultiCoreSystem/IsaInterpreter/main.cpp, reset across stages
+Verification: Build PASS, Tests PASS (178/178 passed), Invariant PASS (<1% delta)
+Notes: Captures residual tail slice on completion and resets between interpreter & uarch
+================================================================================
+[SUCCESS] TASK-004: Create compare_slices.py and wire to 05_compare_gem5.sh
+Time: 2026-10-03 01:29:11 | Commit: 8ef6dde | Duration: 40s
+Changes: Created scripts/compare_slices.py, updated scripts/05_compare_gem5.sh
+Verification: CLI PASS, Tests PASS (176/176 passed), Invariant PASS (<1% delta)
+Notes: Multi-slice interval deltas, drift point detection, root-cause diagnosis
+================================================================================
 [SUCCESS] TASK-003: Add CLI flags for periodic performance slicing and wire to engine
 Time: 2026-10-03 01:26:30 | Commit: PENDING | Duration: 40s
 Changes: Added --slice-insts, --slice-ticks, --slice-file, --slice-reset, --slice-format to main.cpp & tests
