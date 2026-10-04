@@ -1,4 +1,13 @@
 ================================================================================
+[SUCCESS] TASK-033: Update fetch_unit_.flush latency from 11 to 0 in recover_from_mispredict()
+Time: 2026-10-04 18:43:25 | Duration: 20s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/ooo_core.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), verify_gem5.py PASS (100% match, r=1.0000)
+Attempt Trace:
+  • Attempt 1: PASS (Updated fetch_unit_.flush(redirect_target, 0), built clean, 185/185 unit tests & 9 golden ELFs passed)
+================================================================================
+================================================================================
 [SUCCESS] TASK-031: Configure FunctionalUnitPool max_simple_alu=4 and restore 4-wide default.cfg parameters
 Time: 2026-10-04 18:42:20 | Duration: 30s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 3

@@ -877,7 +877,7 @@ private:
             rename_queue_.end());
         rat_.restore_checkpoint(branch_uop.rat_checkpoint);
         fetch_unit_.get_branch_predictor().squash(branch_uop.branch_pred, branch_uop.actual_taken);
-        fetch_unit_.flush(redirect_target, 11);
+        fetch_unit_.flush(redirect_target, 0);
     }
 
     void recover_from_memory_violation(size_t violating_rob_idx) {
