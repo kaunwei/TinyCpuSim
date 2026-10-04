@@ -1,5 +1,13 @@
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
+[SUCCESS] TASK-011: Add isolated C++ microbenchmarks in exec_lsu_ubench_test.cpp modeling tight bubble sort back-to-back LDR/STR patterns with store forwarding, and update golden_counters.json with empirical reference invariants
+Time: 2026-10-04 16:58:30 | Commit: b1ac55c | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 2
+Changes: Added LSU_UBench_BubbleSortTightLdrStrForwarding in tests/uarch/exec_lsu_ubench_test.cpp, updated tests/uarch/golden_counters.json
+Verification: Build PASS, Unit Tests PASS (184/184), ubench LSU suite PASS (+0.00% delta across all 10 LSU invariants)
+Attempt Trace:
+  • Attempt 1: PASS (All 10 LSU microbenchmarks passed with 0% delta against golden invariants)
+================================================================================
 [SUCCESS] TASK-010: Profile Bubble Sort inner loop, STLF rate, memory order checks, and gem5 golden stats comparison
 Time: 2026-10-04 16:57:00 | Commit: 7f39e4f | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 2

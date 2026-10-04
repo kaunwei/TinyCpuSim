@@ -438,6 +438,69 @@ TEST(ExecLsuUBenchTest, LSU_UBench_AdjacentElementSwapForwarding) {
     std::cout << "[PERF_COUNTER] LSU_UBench_AdjacentElementSwapForwarding:forward_count=" << forwarded_swaps << std::endl;
 }
 
+// 1e. Tight Bubble Sort back-to-back LDR/STR loop pattern with STLF and data dependency
+TEST(ExecLsuUBenchTest, LSU_UBench_BubbleSortTightLdrStrForwarding) {
+    MemoryBus bus(65536);
+    LsuConfig cfg;
+    cfg.lq_size = 16;
+    cfg.sq_size = 16;
+    LoadStoreUnit lsu(cfg, nullptr, &bus);
+
+    // Initial memory array setup: [50, 40, 30, 20, 10]
+    uint32_t array_base = 0x2000;
+    std::vector<uint32_t> initial_data = {50, 40, 30, 20, 10};
+    for (size_t i = 0; i < initial_data.size(); ++i) {
+        bus.write32(array_base + static_cast<uint32_t>(i * 4), initial_data[i]);
+    }
+
+    constexpr uint64_t kIterations = 500;
+    uint64_t total_forwarded = 0;
+
+    for (uint64_t iter = 0; iter < kIterations; ++iter) {
+        // Inner loop step: LDR r2, [base, #0], LDR r3, [base, #4]
+        // If r2 > r3 -> STR r3, [base, #0], STR r2, [base, #4]
+        // Next step loads [base, #4] which forwards from STR r2
+        uint32_t a0 = array_base + static_cast<uint32_t>((iter % 4) * 4);
+        uint32_t a1 = a0 + 4;
+        uint64_t base_seq = iter * 6;
+
+        // Store pair representing swap in step N
+        uint32_t val_low = static_cast<uint32_t>(iter + 1);
+        uint32_t val_high = static_cast<uint32_t>(iter + 100);
+
+        UOp s0; s0.seq_num = base_seq + 1; s0.rob_idx = 0;
+        size_t sq0 = lsu.allocate_store(s0);
+        size_t v0 = 0;
+        lsu.execute_store_address(sq0, a0, 4, s0.seq_num, v0);
+        lsu.execute_store_data(sq0, val_low);
+
+        UOp s1; s1.seq_num = base_seq + 2; s1.rob_idx = 1;
+        size_t sq1 = lsu.allocate_store(s1);
+        size_t v1 = 0;
+        lsu.execute_store_address(sq1, a1, 4, s1.seq_num, v1);
+        lsu.execute_store_data(sq1, val_high);
+
+        // Step N+1 reads a1 (first element of next pair) -> STLF hit from s1
+        UOp l0; l0.seq_num = base_seq + 3; l0.rob_idx = 2;
+        size_t lq0 = lsu.allocate_load(l0);
+        auto res0 = lsu.execute_load(lq0, a1, 4, l0.seq_num);
+
+        EXPECT_TRUE(res0.completed);
+        EXPECT_TRUE(res0.forwarded);
+        EXPECT_EQ(res0.data, val_high);
+        if (res0.forwarded) {
+            total_forwarded++;
+        }
+
+        lsu.commit_store(sq0);
+        lsu.commit_store(sq1);
+        lsu.free_load(lq0);
+    }
+
+    EXPECT_EQ(total_forwarded, kIterations);
+    std::cout << "[PERF_COUNTER] LSU_UBench_BubbleSortTightLdrStrForwarding:forward_count=" << total_forwarded << std::endl;
+}
+
 
 // 2. Store address known, data pending -> Load replays until store data arrives (500 stress iterations)
 TEST(ExecLsuUBenchTest, LSU_UBench_StoreDataPendingReplay) {

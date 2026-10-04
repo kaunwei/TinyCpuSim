@@ -263,6 +263,14 @@
           "tolerance_pct": 0.0
         },
         {
+          "ubench": "LSU_UBench_BubbleSortTightLdrStrForwarding",
+          "metric": "Tight Bubble Sort Back-to-Back LDR/STR Forwarding (500 iterations)",
+          "counter_key": "forward_count",
+          "gem5_counter": "lsu.forwLoads (Bubble Sort Loop)",
+          "gem5_val": 500,
+          "tolerance_pct": 0.0
+        },
+        {
           "ubench": "LSU_UBench_StoreDataPendingReplay",
           "metric": "Store Data Pending Replay Queue (500 iterations)",
           "counter_key": "replayed_loads",
