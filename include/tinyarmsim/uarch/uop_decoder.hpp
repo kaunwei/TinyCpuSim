@@ -4,11 +4,29 @@
 #include <vector>
 #include "tinyarmsim/instruction.hpp"
 #include "tinyarmsim/uarch/uop.hpp"
+#include "tinyarmsim/uarch/fusion_unit.hpp"
 
 namespace tinyarmsim::uarch {
 
 class UOpDecoder {
 public:
+    // Decode a sequence of decoded instructions and apply macro-op fusion if enabled
+    [[nodiscard]] static std::vector<UOp> decode_sequence(
+        const std::vector<std::pair<DecodedInstruction, uint32_t>>& instrs,
+        uint64_t start_seq_num,
+        MacroOpFusionEngine* fusion_engine = nullptr) {
+        std::vector<UOp> uops;
+        uint64_t seq = start_seq_num;
+        for (const auto& [instr, pc] : instrs) {
+            auto decoded = decode(instr, pc, seq++);
+            uops.insert(uops.end(), decoded.begin(), decoded.end());
+        }
+        if (fusion_engine && fusion_engine->is_enabled()) {
+            return fusion_engine->fuse_sequence(uops);
+        }
+        return uops;
+    }
+
     // Expand a single functional DecodedInstruction into 1 or more uOps
     [[nodiscard]] static std::vector<UOp> decode(const DecodedInstruction& instr, uint32_t pc, uint64_t seq_num) {
         std::vector<UOp> uops;

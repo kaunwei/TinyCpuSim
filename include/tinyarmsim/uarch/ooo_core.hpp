@@ -20,6 +20,7 @@
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
 #include "tinyarmsim/uarch/slice_manager.hpp"
 #include "tinyarmsim/uarch/lsd.hpp"
+#include "tinyarmsim/uarch/fusion_unit.hpp"
 
 namespace tinyarmsim::uarch {
 
@@ -128,9 +129,21 @@ public:
               config.is_lsd_enabled(),
               3,
               config.lsd_capacity > 0 ? static_cast<uint32_t>(config.lsd_capacity) : 32
+          }),
+          fusion_engine_(MacroOpFusionConfig{
+              config.is_fusion_enabled(),
+              config.fusion_mode
           }) {
         prf_.write(13, 0x02000000);
         prf_.write(15, entry_pc);
+    }
+
+    [[nodiscard]] const MacroOpFusionEngine& get_fusion_engine() const noexcept {
+        return fusion_engine_;
+    }
+
+    [[nodiscard]] MacroOpFusionEngine& get_fusion_engine() noexcept {
+        return fusion_engine_;
     }
 
     [[nodiscard]] const LoopStreamDetector& get_lsd() const noexcept {
@@ -364,7 +377,7 @@ private:
 
             committed_uops_++;
             if (uop.is_last_uop_of_macro_inst) {
-                committed_insts_++;
+                committed_insts_ += uop.is_fused ? 2 : 1;
             }
             if (profiler_) {
                 profiler_->record_slot(core_id_, (uop.type == UOpType::LOAD || uop.type == UOpType::STORE_ADDR || uop.type == UOpType::STORE_DATA) 
@@ -555,6 +568,41 @@ private:
                     sets_dest = true;
                 } else if (uop.cond == ConditionCode::AL) {
                     actual_taken = true;
+                } else if (uop.is_fused) {
+                    // Atomic execution across ALU and Branch ports:
+                    // Evaluate comparison operands directly without reading physical flag register
+                    bool fn = false, fz = false, fc = false, fv = false;
+                    switch (uop.fused_cmp_opcode) {
+                        case Opcode::CMP:
+                        case Opcode::CMN: {
+                            if (uop.fused_cmp_opcode == Opcode::CMP) {
+                                uint32_t cmp_res = val1 - val2;
+                                fn = ((cmp_res >> 31) & 1) != 0;
+                                fz = (cmp_res == 0);
+                                fc = (val1 >= val2);
+                                fv = (((val1 ^ val2) & (val1 ^ cmp_res)) >> 31) & 1;
+                            } else {
+                                uint32_t cmn_res = val1 + val2;
+                                fn = ((cmn_res >> 31) & 1) != 0;
+                                fz = (cmn_res == 0);
+                                fc = (static_cast<uint64_t>(val1) + static_cast<uint64_t>(val2)) > 0xFFFFFFFFULL;
+                                fv = ((~(val1 ^ val2) & (val1 ^ cmn_res)) >> 31) & 1;
+                            }
+                            break;
+                        }
+                        case Opcode::TST:
+                        case Opcode::TEQ: {
+                            uint32_t log_res = (uop.fused_cmp_opcode == Opcode::TST) ? (val1 & val2) : (val1 ^ val2);
+                            fn = ((log_res >> 31) & 1) != 0;
+                            fz = (log_res == 0);
+                            fc = flag_c_;
+                            fv = flag_v_;
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                    actual_taken = evaluate_condition_flags(uop.cond, fn, fz, fc, fv);
                 } else {
                     uint32_t f = (uop.phys_flags_src != UOp::INVALID_REG && uop.phys_flags_src < prf_.size()) ? prf_.read(uop.phys_flags_src) : 0;
                     bool fn = (f & 0x80000000u) != 0;
@@ -851,17 +899,45 @@ private:
             } else {
                 if (!fetch_unit_.has_uops()) break;
 
-                const auto& peeked_uop = fetch_unit_.peek_uop();
-                size_t needed_regs = 0;
-                if (peeked_uop.arch_dest != UOp::INVALID_REG && peeked_uop.arch_dest < 16) needed_regs++;
-                if (peeked_uop.sets_flags) needed_regs++;
-
-                if (free_list_.free_count() < needed_regs) {
-                    rename_stalls_++;
-                    break;
+                bool is_pair_fused = false;
+                if (fusion_engine_.is_enabled() && fetch_unit_.queue_size() >= 2) {
+                    const auto& first_candidate = fetch_unit_.peek_uop(0);
+                    const auto& second_candidate = fetch_unit_.peek_uop(1);
+                    if (fusion_engine_.can_fuse(first_candidate, second_candidate)) {
+                        is_pair_fused = true;
+                    }
                 }
 
-                uop = fetch_unit_.pop_uop();
+                if (is_pair_fused) {
+                    // Fused uOp doesn't write to any architectural register and consumes flags internally
+                    // so needed_regs is 0.
+                    UOp first_uop = fetch_unit_.pop_uop();
+                    UOp second_uop = fetch_unit_.pop_uop();
+                    uop = fusion_engine_.fuse_pair(first_uop, second_uop);
+                    // Update stats
+                    auto& stats = const_cast<MacroOpFusionStats&>(fusion_engine_.get_stats());
+                    stats.candidate_pairs++;
+                    stats.fused_pairs++;
+                } else {
+                    const auto& peeked_uop = fetch_unit_.peek_uop(0);
+                    size_t needed_regs = 0;
+                    if (peeked_uop.arch_dest != UOp::INVALID_REG && peeked_uop.arch_dest < 16) needed_regs++;
+                    if (peeked_uop.sets_flags) needed_regs++;
+
+                    if (free_list_.free_count() < needed_regs) {
+                        rename_stalls_++;
+                        break;
+                    }
+
+                    uop = fetch_unit_.pop_uop();
+                    if (uop.opcode == Opcode::CMP || uop.opcode == Opcode::TST ||
+                        uop.opcode == Opcode::CMN || uop.opcode == Opcode::TEQ) {
+                        auto& stats = const_cast<MacroOpFusionStats&>(fusion_engine_.get_stats());
+                        stats.candidate_pairs++;
+                        stats.ineligible_pairs++;
+                    }
+                }
+
                 if (config_.is_lsd_enabled()) {
                     UOp obs_uop = uop;
                     if (obs_uop.is_branch) {
@@ -870,7 +946,6 @@ private:
                     lsd_.observe_uop(obs_uop);
                 }
             }
-
 
             // Source operand renaming & dependency check
             if (uop.arch_src1 != UOp::INVALID_REG && uop.arch_src1 < 16) {
@@ -886,10 +961,12 @@ private:
                 uop.src3_ready = prf_.is_ready(uop.phys_src3);
             }
 
-            // Flag dependency for conditional branches
-            if (uop.cond != ConditionCode::AL && uop.type == UOpType::BRANCH && uop.opcode != Opcode::CBZ && uop.opcode != Opcode::CBNZ) {
+            // Flag dependency for conditional branches (not needed for fused branch uOp)
+            if (!uop.is_fused && uop.cond != ConditionCode::AL && uop.type == UOpType::BRANCH && uop.opcode != Opcode::CBZ && uop.opcode != Opcode::CBNZ) {
                 uop.phys_flags_src = rat_.get(UOp::ARCH_REG_FLAGS);
                 uop.flags_src_ready = prf_.is_ready(uop.phys_flags_src);
+            } else if (uop.is_fused) {
+                uop.flags_src_ready = true;
             }
 
             // Destination operand renaming
@@ -1051,6 +1128,7 @@ private:
     IssueQueue iq_;
     LoadStoreUnit lsu_;
     LoopStreamDetector lsd_;
+    MacroOpFusionEngine fusion_engine_;
     size_t last_allocated_sq_idx_{0};
 
     std::deque<UOp> rename_queue_;

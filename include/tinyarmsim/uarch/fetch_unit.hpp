@@ -195,11 +195,11 @@ public:
         return uop;
     }
 
-    [[nodiscard]] const UOp& peek_uop() const {
-        if (uop_queue_.empty()) {
-            throw std::runtime_error("Attempted to peek empty fetch UOp queue");
+    [[nodiscard]] const UOp& peek_uop(size_t index = 0) const {
+        if (index >= uop_queue_.size()) {
+            throw std::runtime_error("Attempted to peek beyond fetch UOp queue bounds");
         }
-        return uop_queue_.front();
+        return uop_queue_[index];
     }
 
     [[nodiscard]] uint32_t get_pc() const noexcept {

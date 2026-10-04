@@ -627,3 +627,96 @@ TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_IneligiblePairs) {
     EXPECT_EQ(disabled_engine.fuse_sequence({cmp_uop, bne_uop}).size(), 2);
 }
 
+// 13. MacroOpFusion: Fused branch execution & single-slot ROB retirement in OoOCore
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_OoOExecutionAndSingleSlotRetirement) {
+    // Write a test program:
+    // 0x1000: MOV r0, #10     (0x200A)
+    // 0x1002: CMP r0, #10     (0x280A)
+    // 0x1004: BEQ 0x1008      (0xD000) -> offset 0 (+4 bytes from 1004+4 = 1008)
+    // 0x1006: MOV r1, #99     (0x2163) (should be skipped)
+    // 0x1008: MOV r1, #42     (0x212A)
+    // 0x100A: SVC #0          (0xDF00)
+    MemoryBus bus(65536);
+    bus.write16(0x1000, 0x200A);
+    bus.write16(0x1002, 0x280A);
+    bus.write16(0x1004, 0xD000);
+    bus.write16(0x1006, 0x2163);
+    bus.write16(0x1008, 0x212A);
+    bus.write16(0x100A, 0xDF00);
+
+    CacheConfig l1i_cfg;
+    l1i_cfg.type = CacheType::PASSTHROUGH;
+    CacheConfig l1d_cfg;
+    l1d_cfg.type = CacheType::PASSTHROUGH;
+
+    CoreConfig cfg;
+    cfg.fusion_mode = FusionMode::CMP_BRANCH;
+    cfg.l1i = l1i_cfg;
+    cfg.l1d = l1d_cfg;
+
+    OoOCore core(0, cfg, bus, nullptr, nullptr, 0x1000);
+    uint32_t cycles = 0;
+    while (!core.is_halted() && cycles < 100) {
+        core.tick();
+        cycles++;
+    }
+
+    EXPECT_TRUE(core.is_halted());
+    EXPECT_EQ(core.read_arch_reg(0), 10);
+    EXPECT_EQ(core.read_arch_reg(1), 42); // Taken branch bypassed 0x1006
+
+    // With Macro-Op Fusion enabled:
+    // CMP (1 inst) + BEQ (1 inst) are fused into 1 uOp.
+    // Total macro instructions committed: MOV(1) + CMP+BEQ(2) + MOV(1) + SVC(1) = 5 instructions
+    // Total uOps committed: MOV(1) + FUSED_CMP_BRANCH(1) + MOV(1) + SVC(1) = 4 uOps!
+    // In comparison, without fusion it would be 5 uOps.
+    EXPECT_EQ(core.get_committed_instructions(), 5);
+    EXPECT_EQ(core.get_stats().committed_uops, 4);
+    EXPECT_EQ(core.get_fusion_engine().get_stats().fused_pairs, 1);
+
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_OoOExecutionAndSingleSlotRetirement:committed_insts="
+              << core.get_committed_instructions() << ", committed_uops=" << core.get_stats().committed_uops
+              << ", fused_pairs=" << core.get_fusion_engine().get_stats().fused_pairs << std::endl;
+}
+
+// 14. MacroOpFusion: Atomic execution across ALU and Branch ports (branch evaluated with fused ALU operands)
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_AtomicPortExecution) {
+    // 0x2000: MOV r1, #5      (0x2105)
+    // 0x2002: CMP r1, #10     (0x290A)
+    // 0x2004: BEQ 0x2008      (0xD000) (Not taken because 5 != 10)
+    // 0x2006: MOV r2, #77     (0x224D) (Executed because branch not taken)
+    // 0x2008: SVC #0          (0xDF00)
+    MemoryBus bus(65536);
+    bus.write16(0x2000, 0x2105);
+    bus.write16(0x2002, 0x290A);
+    bus.write16(0x2004, 0xD000);
+    bus.write16(0x2006, 0x224D);
+    bus.write16(0x2008, 0xDF00);
+
+    CacheConfig l1i_cfg;
+    l1i_cfg.type = CacheType::PASSTHROUGH;
+    CacheConfig l1d_cfg;
+    l1d_cfg.type = CacheType::PASSTHROUGH;
+
+    CoreConfig cfg;
+    cfg.fusion_mode = FusionMode::CMP_BRANCH;
+    cfg.l1i = l1i_cfg;
+    cfg.l1d = l1d_cfg;
+
+    OoOCore core(0, cfg, bus, nullptr, nullptr, 0x2000);
+    uint32_t cycles = 0;
+    while (!core.is_halted() && cycles < 100) {
+        core.tick();
+        cycles++;
+    }
+
+    EXPECT_TRUE(core.is_halted());
+    EXPECT_EQ(core.read_arch_reg(1), 5);
+    EXPECT_EQ(core.read_arch_reg(2), 77); // Fall-through executed correctly
+
+    EXPECT_EQ(core.get_committed_instructions(), 5);
+    EXPECT_EQ(core.get_stats().committed_uops, 4);
+    EXPECT_EQ(core.get_fusion_engine().get_stats().fused_pairs, 1);
+}
+
+
