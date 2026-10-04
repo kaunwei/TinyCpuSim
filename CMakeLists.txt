@@ -128,6 +128,11 @@ add_executable(config_and_stats_test tests/uarch/config_and_stats_test.cpp)
 target_link_libraries(config_and_stats_test PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(config_and_stats_test)
 
+# Unit Test Config
+add_executable(test_config tests/unit/test_config.cpp)
+target_link_libraries(test_config PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(test_config)
+
 # uArch Cache Test
 add_executable(cache_test tests/uarch/cache_test.cpp)
 target_link_libraries(cache_test PRIVATE tinyarmsim_core gtest_main)

@@ -149,6 +149,28 @@ def validate_file(file_path):
                     errors.append(f"Cache [{c_sec}] size_bytes must be a power of 2 (got {c_size})")
                 if not is_power_of_two(c_assoc):
                     errors.append(f"Cache [{c_sec}] associativity must be a power of 2 (got {c_assoc})")
+            pf_type = cfg.get(c_sec, "prefetcher", fallback=cfg.get(c_sec, "prefetcher_type", fallback="NONE")).upper()
+            if pf_type not in ["NONE", "DISABLED", "NEXT_LINE", "NEXTLINE", "STRIDE", "STREAM"]:
+                errors.append(f"Invalid prefetcher type for [{c_sec}]: '{pf_type}'. Must be NONE, NEXT_LINE, STRIDE, or STREAM.")
+            if pf_type not in ["NONE", "DISABLED"]:
+                dist = cfg.getint(c_sec, "prefetch_distance", fallback=1)
+                q_size = cfg.getint(c_sec, "prefetch_queue_size", fallback=8)
+                if dist <= 0:
+                    errors.append(f"Cache [{c_sec}] prefetch_distance must be > 0 (got {dist})")
+                if q_size <= 0:
+                    errors.append(f"Cache [{c_sec}] prefetch_queue_size must be > 0 (got {q_size})")
+
+    if cfg.has_section("prefetcher"):
+        pf_type = cfg.get("prefetcher", "type", fallback=cfg.get("prefetcher", "prefetcher", fallback="NONE")).upper()
+        if pf_type not in ["NONE", "DISABLED", "NEXT_LINE", "NEXTLINE", "STRIDE", "STREAM"]:
+            errors.append(f"Invalid prefetcher type: '{pf_type}'. Must be NONE, NEXT_LINE, STRIDE, or STREAM.")
+        if pf_type not in ["NONE", "DISABLED"]:
+            dist = cfg.getint("prefetcher", "prefetch_distance", fallback=cfg.getint("prefetcher", "distance", fallback=1))
+            q_size = cfg.getint("prefetcher", "prefetch_queue_size", fallback=cfg.getint("prefetcher", "queue_size", fallback=8))
+            if dist <= 0:
+                errors.append(f"Prefetcher prefetch_distance must be > 0 (got {dist})")
+            if q_size <= 0:
+                errors.append(f"Prefetcher prefetch_queue_size must be > 0 (got {q_size})")
 
     return errors
 
@@ -238,7 +260,9 @@ def show_config(file_path=CURRENT_CFG, title="Active Configuration"):
             c_ln = cfg.get(sec, 'line_size', fallback='64')
             c_lat = cfg.get(sec, 'hit_latency_cycles', fallback=cfg.get(sec, 'hit_latency', fallback='1'))
             c_mshr = cfg.get(sec, 'mshr_entries', fallback='8')
-            print(f"  {name:<24} Type: {c_type:<16} | {c_sz} | {c_as}-way | Block: {c_ln}B | Latency: {c_lat} cyc | MSHRs: {c_mshr}")
+            c_pf = cfg.get(sec, 'prefetcher', fallback=cfg.get(sec, 'prefetcher_type', fallback='NONE')).upper()
+            pf_str = f" | Prefetch: {c_pf}" if c_pf not in ["NONE", "DISABLED"] else ""
+            print(f"  {name:<24} Type: {c_type:<16} | {c_sz} | {c_as}-way | Block: {c_ln}B | Latency: {c_lat} cyc | MSHRs: {c_mshr}{pf_str}")
     print("=" * 80)
 
 def run_sweep(sweep_cfg_files=None):

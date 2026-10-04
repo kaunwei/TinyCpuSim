@@ -52,6 +52,13 @@ enum class CoherenceProtocol {
     MESI
 };
 
+enum class PrefetcherType {
+    NONE,
+    NEXT_LINE,
+    STRIDE,
+    STREAM
+};
+
 struct CacheConfig {
     CacheType type{CacheType::SET_ASSOCIATIVE};
     size_t size_bytes{32768};        // Default: 32KB
@@ -61,6 +68,13 @@ struct CacheConfig {
     ReplacementPolicy replacement{ReplacementPolicy::LRU};
     WritePolicy write_policy{WritePolicy::WRITE_BACK};
     size_t mshr_entries{8};          // Non-blocking MSHR capacity
+    PrefetcherType prefetcher{PrefetcherType::NONE}; // Hardware prefetcher type
+    size_t prefetch_distance{1};     // Prefetch lookahead distance (in cache lines)
+    size_t prefetch_queue_size{8};   // Prefetch request queue capacity
+
+    [[nodiscard]] bool is_prefetch_enabled() const noexcept {
+        return prefetcher != PrefetcherType::NONE;
+    }
 
     [[nodiscard]] bool is_active() const noexcept {
         return type != CacheType::PASSTHROUGH;
@@ -91,6 +105,14 @@ struct CacheConfig {
         }
         if (size_bytes < line_size * associativity) {
             throw std::invalid_argument("Cache size_bytes must be >= line_size * associativity");
+        }
+        if (prefetcher != PrefetcherType::NONE) {
+            if (prefetch_distance == 0) {
+                throw std::invalid_argument("Prefetch distance must be > 0 when prefetcher is enabled");
+            }
+            if (prefetch_queue_size == 0) {
+                throw std::invalid_argument("Prefetch queue size must be > 0 when prefetcher is enabled");
+            }
         }
     }
 };
@@ -348,6 +370,14 @@ struct UArchConfig {
                 else if (key == "associativity" || key == "assoc") c.associativity = std::stoul(val);
                 else if (key == "hit_latency" || key == "hit_latency_cycles") c.hit_latency_cycles = static_cast<uint32_t>(std::stoul(val));
                 else if (key == "mshr_entries") c.mshr_entries = std::stoul(val);
+                else if (key == "prefetcher" || key == "prefetch_type" || key == "prefetcher_type") {
+                    if (u_val == "NONE" || u_val == "DISABLED") c.prefetcher = PrefetcherType::NONE;
+                    else if (u_val == "NEXT_LINE" || u_val == "NEXTLINE") c.prefetcher = PrefetcherType::NEXT_LINE;
+                    else if (u_val == "STRIDE") c.prefetcher = PrefetcherType::STRIDE;
+                    else if (u_val == "STREAM") c.prefetcher = PrefetcherType::STREAM;
+                }
+                else if (key == "prefetch_distance") c.prefetch_distance = std::stoul(val);
+                else if (key == "prefetch_queue_size") c.prefetch_queue_size = std::stoul(val);
             };
 
             if (current_section == "global" || current_section == "system") {
@@ -410,6 +440,24 @@ struct UArchConfig {
                 else if (key == "lq_size") cfg.default_core.lsu.lq_size = std::stoul(val);
                 else if (key == "sq_size") cfg.default_core.lsu.sq_size = std::stoul(val);
                 else if (key == "store_forward_latency") cfg.default_core.lsu.store_forward_latency = static_cast<uint32_t>(std::stoul(val));
+            } else if (current_section == "prefetcher" || current_section == "prefetch") {
+                if (key == "type" || key == "prefetcher" || key == "prefetcher_type") {
+                    PrefetcherType pt = PrefetcherType::NONE;
+                    if (u_val == "NONE" || u_val == "DISABLED") pt = PrefetcherType::NONE;
+                    else if (u_val == "NEXT_LINE" || u_val == "NEXTLINE") pt = PrefetcherType::NEXT_LINE;
+                    else if (u_val == "STRIDE") pt = PrefetcherType::STRIDE;
+                    else if (u_val == "STREAM") pt = PrefetcherType::STREAM;
+                    cfg.default_core.l1d.prefetcher = pt;
+                }
+                else if (key == "enabled") {
+                    if (!parse_bool(val)) cfg.default_core.l1d.prefetcher = PrefetcherType::NONE;
+                }
+                else if (key == "distance" || key == "prefetch_distance") {
+                    cfg.default_core.l1d.prefetch_distance = std::stoul(val);
+                }
+                else if (key == "queue_size" || key == "prefetch_queue_size") {
+                    cfg.default_core.l1d.prefetch_queue_size = std::stoul(val);
+                }
             }
         }
 
