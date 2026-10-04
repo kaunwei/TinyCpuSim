@@ -590,7 +590,7 @@ private:
                 uop.mem_data = val1;
                 lsu_.execute_store_data(uop.lsu_queue_idx, uop.mem_data);
             } else if (uop.type == UOpType::LOAD || (uop.type == UOpType::RET && uop.opcode == Opcode::LDR)) {
-                if (!lsu_.can_issue_load()) {
+                if (!lsu_.can_bypass_disambiguation(uop.pc, uop.seq_num) || !lsu_.can_issue_load()) {
                     iq_.replay_insert(uop);
                     continue;
                 }

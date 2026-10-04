@@ -37,6 +37,7 @@ enum class PredictorType {
 enum class LsuType {
     SPECULATIVE_OOO,
     STRICT_INORDER,
+    STRICT_WAIT = STRICT_INORDER,
     PASSTHROUGH
 };
 
@@ -431,7 +432,7 @@ struct UArchConfig {
             } else if (current_section == "lsu") {
                 if (key == "type") {
                     if (u_val == "SPECULATIVE_OOO" || u_val == "OOO" || u_val == "SPECULATIVE") cfg.default_core.lsu.type = LsuType::SPECULATIVE_OOO;
-                    else if (u_val == "STRICT_INORDER" || u_val == "INORDER") cfg.default_core.lsu.type = LsuType::STRICT_INORDER;
+                    else if (u_val == "STRICT_INORDER" || u_val == "INORDER" || u_val == "STRICT_WAIT" || u_val == "STRICT") cfg.default_core.lsu.type = LsuType::STRICT_INORDER;
                     else if (u_val == "PASSTHROUGH" || u_val == "NONE" || u_val == "BYPASS") cfg.default_core.lsu.type = LsuType::PASSTHROUGH;
                 }
                 else if (key == "enabled") {

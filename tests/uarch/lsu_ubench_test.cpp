@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <iostream>
+#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/uarch/lsu.hpp"
 #include "tinyarmsim/uarch/memory_disambiguator.hpp"
 
+using namespace tinyarmsim;
 using namespace tinyarmsim::uarch;
 
 // =============================================================================
@@ -228,3 +231,133 @@ TEST(LSUUBenchTest, LSU_UBench_StoreSetsDynamicBypassPrediction) {
     std::cout << "[PERF_COUNTER] LSU_UBench_StoreSetsDynamicBypassPrediction:correct_dependencies=" << correct_dependencies << std::endl;
     std::cout << "[PERF_COUNTER] LSU_UBench_StoreSetsDynamicBypassPrediction:correct_bypasses=" << correct_bypasses << std::endl;
 }
+
+TEST(LSUUBenchTest, LSU_MemoryOrderViolation_RecordsSSITAndRecovers) {
+    MemoryBus bus(65536);
+    LsuConfig cfg;
+    cfg.lq_size = 16;
+    cfg.sq_size = 16;
+    cfg.type = LsuType::SPECULATIVE_OOO;
+    LoadStoreUnit lsu(cfg, nullptr, &bus);
+
+    uint32_t store_pc = 0x1000;
+    uint32_t load_pc = 0x1004;
+    uint32_t target_addr = 0x2000;
+
+    // Phase 1: First occurrence (Initial state: no SSID in SSIT)
+    // Older Store (PC 0x1000, seq 10) enters pipeline
+    UOp s1;
+    s1.pc = store_pc;
+    s1.seq_num = 10;
+    s1.rob_idx = 0;
+    size_t sq_idx1 = lsu.allocate_store(s1);
+
+    // Younger Load (PC 0x1004, seq 11) enters pipeline
+    UOp l1;
+    l1.pc = load_pc;
+    l1.seq_num = 11;
+    l1.rob_idx = 1;
+    size_t lq_idx1 = lsu.allocate_load(l1);
+
+    // Load speculatively queries bypass: initial state allows bypass
+    EXPECT_TRUE(lsu.can_bypass_disambiguation(l1.pc, l1.seq_num));
+
+    // Load executes speculatively from memory before store address is known
+    bus.write32(target_addr, 0x11112222);
+    auto res1 = lsu.execute_load(lq_idx1, target_addr, 4, l1.seq_num);
+    EXPECT_TRUE(res1.completed);
+    EXPECT_EQ(res1.data, 0x11112222);
+
+    // Store address resolves to the SAME address -> Aliasing violation!
+    size_t violating_rob = 0;
+    bool violation = lsu.execute_store_address(sq_idx1, target_addr, 4, s1.seq_num, violating_rob);
+    EXPECT_TRUE(violation);
+    EXPECT_EQ(violating_rob, 1);
+
+    // Verify StoreSets SSIT recorded the aliasing PC pair
+    EXPECT_TRUE(lsu.get_disambiguator().has_ssid(store_pc));
+    EXPECT_TRUE(lsu.get_disambiguator().has_ssid(load_pc));
+    EXPECT_EQ(lsu.get_disambiguator().get_ssid(store_pc), lsu.get_disambiguator().get_ssid(load_pc));
+
+    // Pipeline recovery: squash load and younger instructions
+    lsu.flush_younger_than(s1.seq_num);
+    lsu.execute_store_data(sq_idx1, 0x99998888);
+    lsu.commit_store(sq_idx1);
+
+    // Phase 2: Subsequent iteration with same PC pair
+    // Older Store (PC 0x1000, seq 20) enters pipeline
+    UOp s2;
+    s2.pc = store_pc;
+    s2.seq_num = 20;
+    s2.rob_idx = 0;
+    size_t sq_idx2 = lsu.allocate_store(s2);
+
+    // Younger Load (PC 0x1004, seq 21) enters pipeline
+    UOp l2;
+    l2.pc = load_pc;
+    l2.seq_num = 21;
+    l2.rob_idx = 1;
+    size_t lq_idx2 = lsu.allocate_load(l2);
+
+    // Disambiguator now predicts dependency: Load CANNOT bypass before store address resolves!
+    EXPECT_FALSE(lsu.can_bypass_disambiguation(l2.pc, l2.seq_num));
+
+    // Store calculates address
+    size_t dummy_rob = 0;
+    bool violation2 = lsu.execute_store_address(sq_idx2, target_addr, 4, s2.seq_num, dummy_rob);
+    EXPECT_FALSE(violation2);
+    lsu.execute_store_data(sq_idx2, 0x55554444);
+
+    // Now Store has issued address, Load can bypass/issue and forward data!
+    EXPECT_TRUE(lsu.can_bypass_disambiguation(l2.pc, l2.seq_num));
+    auto res2 = lsu.execute_load(lq_idx2, target_addr, 4, l2.seq_num);
+    EXPECT_TRUE(res2.completed);
+    EXPECT_TRUE(res2.forwarded);
+    EXPECT_EQ(res2.data, 0x55554444);
+
+    lsu.commit_store(sq_idx2);
+    lsu.free_load(lq_idx2);
+}
+
+TEST(LSUUBenchTest, LSU_StrictWaitDisambiguation_NoBypassOnUnresolvedStore) {
+    MemoryBus bus(65536);
+    LsuConfig cfg;
+    cfg.lq_size = 16;
+    cfg.sq_size = 16;
+    cfg.type = LsuType::STRICT_INORDER;
+    LoadStoreUnit lsu(cfg, nullptr, &bus);
+
+    uint32_t store_pc = 0x3000;
+    uint32_t load_pc = 0x3004;
+
+    UOp s1;
+    s1.pc = store_pc;
+    s1.seq_num = 100;
+    s1.rob_idx = 0;
+    size_t sq_idx = lsu.allocate_store(s1);
+
+    UOp l1;
+    l1.pc = load_pc;
+    l1.seq_num = 101;
+    l1.rob_idx = 1;
+    size_t lq_idx = lsu.allocate_load(l1);
+
+    // In STRICT_WAIT / STRICT_INORDER mode, load cannot bypass while older store address is unresolved
+    EXPECT_FALSE(lsu.can_bypass_disambiguation(l1.pc, l1.seq_num));
+
+    // Store address resolves
+    size_t dummy = 0;
+    lsu.execute_store_address(sq_idx, 0x4000, 4, s1.seq_num, dummy);
+    lsu.execute_store_data(sq_idx, 0x12345678);
+
+    // Now older store is resolved, load can proceed
+    EXPECT_TRUE(lsu.can_bypass_disambiguation(l1.pc, l1.seq_num));
+    auto res = lsu.execute_load(lq_idx, 0x4000, 4, l1.seq_num);
+    EXPECT_TRUE(res.completed);
+    EXPECT_TRUE(res.forwarded);
+    EXPECT_EQ(res.data, 0x12345678);
+
+    lsu.commit_store(sq_idx);
+    lsu.free_load(lq_idx);
+}
+

@@ -11,6 +11,7 @@
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"
 #include "tinyarmsim/uarch/cache.hpp"
+#include "tinyarmsim/uarch/memory_disambiguator.hpp"
 
 namespace tinyarmsim::uarch {
 
@@ -30,6 +31,7 @@ struct StoreQueueEntry {
     size_t sq_idx{0};
     uint64_t seq_num{0};
     size_t rob_idx{0};
+    uint32_t pc{0};
     uint32_t addr{0};
     uint32_t data{0};
     uint8_t size_bytes{4};
@@ -50,7 +52,41 @@ public:
           lq_capacity_(cfg.lq_size > 0 ? cfg.lq_size : 16),
           sq_capacity_(cfg.sq_size > 0 ? cfg.sq_size : 16),
           lq_count_(0),
-          sq_count_(0) {}
+          sq_count_(0),
+          disambiguator_(1024, 256) {}
+
+    [[nodiscard]] StoreSetsDisambiguator& get_disambiguator() noexcept {
+        return disambiguator_;
+    }
+
+    [[nodiscard]] const StoreSetsDisambiguator& get_disambiguator() const noexcept {
+        return disambiguator_;
+    }
+
+    [[nodiscard]] bool can_bypass_disambiguation(uint32_t load_pc, uint64_t load_seq_num) noexcept {
+        if (config_.type == LsuType::STRICT_INORDER) {
+            for (size_t i = 0; i < sq_capacity_; ++i) {
+                const auto& sq = sq_[i];
+                if (sq.valid && sq.seq_num < load_seq_num && !sq.addr_valid) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (config_.type == LsuType::SPECULATIVE_OOO) {
+            uint64_t dep_store_seq = disambiguator_.check_dep(load_pc);
+            if (dep_store_seq != 0 && dep_store_seq < load_seq_num) {
+                for (size_t i = 0; i < sq_capacity_; ++i) {
+                    const auto& sq = sq_[i];
+                    if (sq.valid && sq.seq_num == dep_store_seq && !sq.addr_valid) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        return true;
+    }
 
     void tick_cycle(uint64_t current_cycle) noexcept {
         if (current_cycle != last_cycle_) {
@@ -96,6 +132,7 @@ public:
                 lq_[i].data_ready = false;
                 lq_[i].valid = true;
                 lq_count_++;
+                disambiguator_.insert_load(uop.pc, uop.seq_num);
                 return i;
             }
         }
@@ -109,11 +146,13 @@ public:
                 sq_[i].sq_idx = i;
                 sq_[i].seq_num = uop.seq_num;
                 sq_[i].rob_idx = uop.rob_idx;
+                sq_[i].pc = uop.pc;
                 sq_[i].addr_valid = false;
                 sq_[i].data_valid = false;
                 sq_[i].committed = false;
                 sq_[i].valid = true;
                 sq_count_++;
+                disambiguator_.insert_store(uop.pc, uop.seq_num);
                 return i;
             }
         }
@@ -134,7 +173,7 @@ public:
 
     // Memory Order Buffer (MOB) Disambiguation check helper:
     // Returns true and sets out_violating_rob_idx if any younger speculative load read from an overlapping address range.
-    [[nodiscard]] bool check_memory_order_violation(uint32_t addr, uint8_t size_bytes, uint64_t store_seq_num, size_t& out_violating_rob_idx) noexcept {
+    [[nodiscard]] bool check_memory_order_violation(uint32_t addr, uint8_t size_bytes, uint64_t store_seq_num, size_t& out_violating_rob_idx, uint32_t store_pc = 0) noexcept {
         uint32_t s_end = addr + size_bytes;
         for (const auto& lq_entry : lq_) {
             if (lq_entry.valid && lq_entry.addr_valid && lq_entry.data_ready) {
@@ -143,6 +182,7 @@ public:
                     bool overlap = (addr < l_end) && (lq_entry.addr < s_end);
                     if (overlap && !lq_entry.forwarded_from_sq) {
                         out_violating_rob_idx = lq_entry.uop.rob_idx;
+                        disambiguator_.record_violation(store_pc, lq_entry.uop.pc);
                         return true;
                     }
                 }
@@ -181,9 +221,10 @@ public:
         sq_[sq_idx].addr = addr;
         sq_[sq_idx].size_bytes = size_bytes;
         sq_[sq_idx].addr_valid = true;
+        disambiguator_.store_issued(sq_[sq_idx].pc, store_seq_num);
 
         // Memory Order Buffer (MOB) Disambiguation:
-        if (check_memory_order_violation(addr, size_bytes, store_seq_num, out_violating_rob_idx)) {
+        if (check_memory_order_violation(addr, size_bytes, store_seq_num, out_violating_rob_idx, sq_[sq_idx].pc)) {
             stats_.memory_order_violations++;
             return true;
         }
@@ -311,6 +352,7 @@ public:
 
     // Flush on pipeline squash / misprediction
     void flush_younger_than(uint64_t seq_num) noexcept {
+        disambiguator_.squash(seq_num);
         for (auto& lq : lq_) {
             if (lq.valid && lq.uop.seq_num > seq_num) {
                 lq.valid = false;
@@ -326,6 +368,7 @@ public:
     }
 
     void reset() noexcept {
+        disambiguator_.clear();
         for (auto& l : lq_) l.valid = false;
         for (auto& s : sq_) s.valid = false;
         lq_count_ = 0;
@@ -344,6 +387,7 @@ private:
     size_t sq_capacity_;
     size_t lq_count_;
     size_t sq_count_;
+    StoreSetsDisambiguator disambiguator_;
     uint64_t last_cycle_{0};
     uint32_t loads_this_cycle_{0};
     uint32_t stores_this_cycle_{0};
