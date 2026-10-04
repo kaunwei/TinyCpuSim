@@ -183,3 +183,85 @@ TEST(CoreUBenchTest, CoreUBench_LsdReset) {
     EXPECT_EQ(lsd.get_iteration_count(), 0);
     EXPECT_EQ(lsd.get_captured_uop_count(), 0);
 }
+
+// 6. Frontend bypass during LSD streaming (Full OoO Core integration)
+#include "tinyarmsim/uarch/ooo_core.hpp"
+#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/uarch/cache.hpp"
+
+TEST(CoreUBenchTest, CoreUBench_LsdFrontendBypassStreaming) {
+    // Write a small loop program in memory:
+    // 0x1000: ADD r0, r0, #1  (Thumb-16: 0x3001)
+    // 0x1002: CMP r0, #10     (Thumb-16: 0x280A)
+    // 0x1004: BNE 0x1000      (Thumb-16: 0xD1FC) -> offset: (0x1000 - (0x1004 + 4)) = -8 bytes = -4 halfwords -> 0xD1FC
+    // 0x1006: SVC #0          (Thumb-16: 0xDF00)
+    MemoryBus bus(65536);
+    bus.write16(0x1000, 0x3001);
+    bus.write16(0x1002, 0x280A);
+    bus.write16(0x1004, 0xD1FC);
+    bus.write16(0x1006, 0xDF00);
+
+    CacheConfig l1i_cfg;
+    l1i_cfg.type = CacheType::SET_ASSOCIATIVE;
+    l1i_cfg.size_bytes = 32768;
+    l1i_cfg.associativity = 4;
+    l1i_cfg.line_size = 64;
+    l1i_cfg.hit_latency_cycles = 1;
+
+    CacheConfig l1d_cfg;
+    l1d_cfg.type = CacheType::SET_ASSOCIATIVE;
+    l1d_cfg.size_bytes = 32768;
+    l1d_cfg.associativity = 4;
+    l1d_cfg.line_size = 64;
+
+    // First run with LSD ENABLED
+    Cache l1i_lsd(l1i_cfg);
+    Cache l1d_lsd(l1d_cfg);
+    CoreConfig cfg_lsd;
+    cfg_lsd.lsd_type = LSDType::LOOP_STREAM;
+    cfg_lsd.lsd_capacity = 32;
+    cfg_lsd.l1i = l1i_cfg;
+    cfg_lsd.l1d = l1d_cfg;
+
+    OoOCore core_lsd(0, cfg_lsd, bus, &l1i_lsd, &l1d_lsd, 0x1000);
+    uint32_t cycles = 0;
+    while (!core_lsd.is_halted() && cycles < 1000) {
+        core_lsd.tick();
+        cycles++;
+    }
+
+
+
+    EXPECT_TRUE(core_lsd.is_halted());
+    EXPECT_EQ(core_lsd.read_arch_reg(0), 10);
+    EXPECT_GE(core_lsd.get_lsd().get_stats().loops_detected, 1);
+    EXPECT_GT(core_lsd.get_lsd().get_stats().uops_streamed, 0);
+
+    // Run without LSD for baseline comparison
+    Cache l1i_no_lsd(l1i_cfg);
+    Cache l1d_no_lsd(l1d_cfg);
+    CoreConfig cfg_no_lsd;
+    cfg_no_lsd.lsd_type = LSDType::NONE;
+    cfg_no_lsd.l1i = l1i_cfg;
+    cfg_no_lsd.l1d = l1d_cfg;
+
+    OoOCore core_no_lsd(0, cfg_no_lsd, bus, &l1i_no_lsd, &l1d_no_lsd, 0x1000);
+    cycles = 0;
+    while (!core_no_lsd.is_halted() && cycles < 1000) {
+        core_no_lsd.tick();
+        cycles++;
+    }
+
+    EXPECT_TRUE(core_no_lsd.is_halted());
+    EXPECT_EQ(core_no_lsd.read_arch_reg(0), 10);
+
+    // Frontend bypass verification: L1I accesses should be significantly lower with LSD streaming
+    uint64_t l1i_accesses_lsd = l1i_lsd.get_stats().accesses;
+    uint64_t l1i_accesses_no_lsd = l1i_no_lsd.get_stats().accesses;
+
+    std::cout << "[LSD_FRONTEND_BYPASS] L1I accesses with LSD: " << l1i_accesses_lsd
+              << ", without LSD: " << l1i_accesses_no_lsd << std::endl;
+
+    EXPECT_LT(l1i_accesses_lsd, l1i_accesses_no_lsd);
+}
+

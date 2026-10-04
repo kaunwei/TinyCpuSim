@@ -226,6 +226,15 @@ public:
         return branch_pred_;
     }
 
+    [[nodiscard]] uint64_t next_seq_num() noexcept {
+        return ++seq_counter_;
+    }
+
+    [[nodiscard]] uint64_t get_seq_counter() const noexcept {
+        return seq_counter_;
+    }
+
+
 private:
     uint32_t pc_{0};
     MemoryBus& bus_;

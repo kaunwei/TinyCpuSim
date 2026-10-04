@@ -19,8 +19,10 @@
 #include "tinyarmsim/uarch/cache.hpp"
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
 #include "tinyarmsim/uarch/slice_manager.hpp"
+#include "tinyarmsim/uarch/lsd.hpp"
 
 namespace tinyarmsim::uarch {
+
 
 // FunctionalUnitPool: Models execution port availability and issue resource constraints per cycle
 struct FunctionalUnitPool {
@@ -121,14 +123,28 @@ public:
           free_list_(config.num_phys_regs > 0 ? config.num_phys_regs : 128, 17),
           rob_(config.rob_size > 0 ? config.rob_size : 64),
           iq_(config.rs_size > 0 ? config.rs_size : 32),
-          lsu_(config.lsu, l1d, &bus) {
+          lsu_(config.lsu, l1d, &bus),
+          lsd_(LoopStreamDetectorConfig{
+              config.is_lsd_enabled(),
+              3,
+              config.lsd_capacity > 0 ? static_cast<uint32_t>(config.lsd_capacity) : 32
+          }) {
         prf_.write(13, 0x02000000);
         prf_.write(15, entry_pc);
+    }
+
+    [[nodiscard]] const LoopStreamDetector& get_lsd() const noexcept {
+        return lsd_;
+    }
+
+    [[nodiscard]] LoopStreamDetector& get_lsd() noexcept {
+        return lsd_;
     }
 
     void set_profiler(TopDownProfiler* profiler) noexcept {
         profiler_ = profiler;
     }
+
 
     void set_slice_manager(SliceManager* sm) noexcept {
         slice_manager_ = sm;
@@ -180,11 +196,14 @@ public:
         // -------------------------------------------------------------
         // Stage 1 & 2: Fetch & Pre-decode
         // -------------------------------------------------------------
-        fetch_unit_.tick();
-        if (fetch_unit_.is_halted() && rob_.is_empty() && rename_queue_.empty()) {
+        if (!config_.is_lsd_enabled() || !lsd_.is_streaming()) {
+            fetch_unit_.tick();
+        }
+        if (fetch_unit_.is_halted() && rob_.is_empty() && rename_queue_.empty() && (!config_.is_lsd_enabled() || !lsd_.is_streaming())) {
             halted_ = true;
         }
     }
+
 
     [[nodiscard]] size_t get_core_id() const noexcept {
         return core_id_;
@@ -778,23 +797,80 @@ private:
             std::cout << " [RENAME] free_count=" << free_list_.free_count()
                       << " rename_q=" << rename_queue_.size()
                       << " rob_count=" << rob_.size()
-                      << " fetch_has_uops=" << fetch_unit_.has_uops() << std::endl;
+                      << " fetch_has_uops=" << fetch_unit_.has_uops()
+                      << " lsd_streaming=" << (config_.is_lsd_enabled() && lsd_.is_streaming()) << std::endl;
         }
 
-        while (rename_count < rename_width && fetch_unit_.has_uops()) {
+        while (rename_count < rename_width) {
             if (rename_queue_.size() >= 8) break;
 
-            const auto& peeked_uop = fetch_unit_.peek_uop();
-            size_t needed_regs = 0;
-            if (peeked_uop.arch_dest != UOp::INVALID_REG && peeked_uop.arch_dest < 16) needed_regs++;
-            if (peeked_uop.sets_flags) needed_regs++;
+            UOp uop;
 
-            if (free_list_.free_count() < needed_regs) {
-                rename_stalls_++;
-                break;
+            if (config_.is_lsd_enabled() && lsd_.is_streaming()) {
+                if (has_pending_streamed_uop_) {
+                    uop = pending_streamed_uop_;
+                } else {
+                    if (!lsd_.get_next_streamed_uop(uop)) {
+                        break;
+                    }
+                    uop.seq_num = fetch_unit_.next_seq_num();
+                    uop.rob_idx = 0;
+                    uop.lsu_queue_idx = 0;
+                    uop.executed = false;
+                    uop.ready_cycle = 0;
+                    uop.phys_dest = UOp::INVALID_REG;
+                    uop.old_phys_dest = UOp::INVALID_REG;
+                    uop.phys_src1 = UOp::INVALID_REG;
+                    uop.phys_src2 = UOp::INVALID_REG;
+                    uop.phys_src3 = UOp::INVALID_REG;
+                    uop.phys_flags_dest = UOp::INVALID_REG;
+                    uop.phys_flags_src = UOp::INVALID_REG;
+                    uop.old_phys_flags_dest = UOp::INVALID_REG;
+                    uop.src1_ready = true;
+                    uop.src2_ready = true;
+                    uop.src3_ready = true;
+                    uop.flags_src_ready = true;
+                    uop.branch_mispredicted = false;
+                    uop.mem_addr = 0;
+                    uop.mem_data = 0;
+
+                }
+
+                size_t needed_regs = 0;
+                if (uop.arch_dest != UOp::INVALID_REG && uop.arch_dest < 16) needed_regs++;
+                if (uop.sets_flags) needed_regs++;
+
+                if (free_list_.free_count() < needed_regs) {
+                    rename_stalls_++;
+                    pending_streamed_uop_ = uop;
+                    has_pending_streamed_uop_ = true;
+                    break;
+                }
+
+                has_pending_streamed_uop_ = false;
+            } else {
+                if (!fetch_unit_.has_uops()) break;
+
+                const auto& peeked_uop = fetch_unit_.peek_uop();
+                size_t needed_regs = 0;
+                if (peeked_uop.arch_dest != UOp::INVALID_REG && peeked_uop.arch_dest < 16) needed_regs++;
+                if (peeked_uop.sets_flags) needed_regs++;
+
+                if (free_list_.free_count() < needed_regs) {
+                    rename_stalls_++;
+                    break;
+                }
+
+                uop = fetch_unit_.pop_uop();
+                if (config_.is_lsd_enabled()) {
+                    UOp obs_uop = uop;
+                    if (obs_uop.is_branch) {
+                        obs_uop.actual_taken = obs_uop.pred_taken;
+                    }
+                    lsd_.observe_uop(obs_uop);
+                }
             }
 
-            UOp uop = fetch_unit_.pop_uop();
 
             // Source operand renaming & dependency check
             if (uop.arch_src1 != UOp::INVALID_REG && uop.arch_src1 < 16) {
@@ -888,6 +964,10 @@ private:
             rename_queue_.end());
         rat_.restore_checkpoint(branch_uop.rat_checkpoint);
         fetch_unit_.get_branch_predictor().squash(branch_uop.branch_pred, branch_uop.actual_taken);
+        if (config_.is_lsd_enabled()) {
+            lsd_.notify_loop_exit();
+            has_pending_streamed_uop_ = false;
+        }
         fetch_unit_.flush(redirect_target, 0);
     }
 
@@ -950,6 +1030,10 @@ private:
                 curr = (curr + 1) % rob_.capacity();
             }
         }
+        if (config_.is_lsd_enabled()) {
+            lsd_.notify_loop_exit();
+            has_pending_streamed_uop_ = false;
+        }
         fetch_unit_.flush(redirect_pc, 4);
     }
 
@@ -966,11 +1050,14 @@ private:
     ReorderBuffer rob_;
     IssueQueue iq_;
     LoadStoreUnit lsu_;
+    LoopStreamDetector lsd_;
     size_t last_allocated_sq_idx_{0};
 
     std::deque<UOp> rename_queue_;
     std::vector<UOp> issued_uops_;
     std::vector<UOp> exec_to_wb_buffer_;
+    UOp pending_streamed_uop_{};
+    bool has_pending_streamed_uop_{false};
 
     bool flag_n_{false};
     bool flag_z_{false};
@@ -1004,5 +1091,6 @@ private:
     TopDownProfiler* profiler_{nullptr};
     SliceManager* slice_manager_{nullptr};
 };
+
 
 } // namespace tinyarmsim::uarch
