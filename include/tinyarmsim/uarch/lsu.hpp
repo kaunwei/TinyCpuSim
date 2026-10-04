@@ -52,6 +52,32 @@ public:
           lq_count_(0),
           sq_count_(0) {}
 
+    void tick_cycle(uint64_t current_cycle) noexcept {
+        if (current_cycle != last_cycle_) {
+            last_cycle_ = current_cycle;
+            loads_this_cycle_ = 0;
+            stores_this_cycle_ = 0;
+        }
+    }
+
+    [[nodiscard]] bool can_issue_load() const noexcept {
+        uint32_t max_loads = config_.num_load_ports > 0 ? config_.num_load_ports : 1;
+        return loads_this_cycle_ < max_loads;
+    }
+
+    [[nodiscard]] bool can_issue_store() const noexcept {
+        uint32_t max_stores = config_.num_store_ports > 0 ? config_.num_store_ports : 1;
+        return stores_this_cycle_ < max_stores;
+    }
+
+    void record_load_access() noexcept {
+        loads_this_cycle_++;
+    }
+
+    void record_store_access() noexcept {
+        stores_this_cycle_++;
+    }
+
     [[nodiscard]] bool can_allocate_load() const noexcept {
         return lq_count_ < lq_capacity_;
     }
@@ -224,7 +250,7 @@ public:
             uint32_t lat = 1;
             auto cache_res = l1d_->access(addr, false, lat);
             res.completed = true;
-            res.latency_cycles = cache_res.latency_cycles;
+            res.latency_cycles = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : 1;
         } else {
             res.completed = true;
             res.latency_cycles = 1;
@@ -298,6 +324,9 @@ private:
     size_t sq_capacity_;
     size_t lq_count_;
     size_t sq_count_;
+    uint64_t last_cycle_{0};
+    uint32_t loads_this_cycle_{0};
+    uint32_t stores_this_cycle_{0};
     LsuStats stats_{};
 };
 

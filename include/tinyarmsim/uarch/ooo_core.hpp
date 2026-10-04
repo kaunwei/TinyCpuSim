@@ -63,6 +63,7 @@ public:
     void tick() {
         if (halted_) return;
         cycles_++;
+        lsu_.tick_cycle(cycles_);
         if (debug_) std::cout << "=== CYCLE " << cycles_ << " ===" << std::endl;
 
         // -------------------------------------------------------------
@@ -489,6 +490,11 @@ private:
                     }
                 }
             } else if (uop.type == UOpType::STORE_ADDR) {
+                if (!lsu_.can_issue_store()) {
+                    iq_.replay_insert(uop);
+                    continue;
+                }
+                lsu_.record_store_access();
                 port_lsu_uops_++;
                 uint32_t offset = uop.is_imm_valid ? static_cast<uint32_t>(uop.offset) : val2;
                 uop.mem_addr = val1 + offset;
@@ -503,6 +509,11 @@ private:
                 uop.mem_data = val1;
                 lsu_.execute_store_data(uop.lsu_queue_idx, uop.mem_data);
             } else if (uop.type == UOpType::LOAD || (uop.type == UOpType::RET && uop.opcode == Opcode::LDR)) {
+                if (!lsu_.can_issue_load()) {
+                    iq_.replay_insert(uop);
+                    continue;
+                }
+                lsu_.record_load_access();
                 port_lsu_uops_++;
                 uint32_t offset = uop.is_imm_valid ? static_cast<uint32_t>(uop.offset) : val2;
                 uop.mem_addr = val1 + offset;
@@ -562,7 +573,7 @@ private:
                 uop.mem_data = result;
             }
 
-            uop.ready_cycle = cycles_ + (op_lat > 0 ? (op_lat - 1) : 0);
+            uop.ready_cycle = cycles_ + (op_lat > 1 ? (op_lat - 1) : 0);
             uop.executed = true;
             exec_to_wb_buffer_.push_back(uop);
         }
@@ -583,7 +594,40 @@ private:
 
     void stage_issue() {
         uint32_t issue_width = config_.issue_width > 0 ? config_.issue_width : 4;
-        issued_uops_ = iq_.select_and_issue(issue_width, config_.is_ooo());
+        auto candidate_uops = iq_.select_and_issue(issue_width, config_.is_ooo());
+        
+        uint32_t alu_count = 0;
+        uint32_t branch_count = 0;
+        uint32_t load_count = 0;
+        uint32_t store_count = 0;
+        uint32_t max_alu = 2;
+        uint32_t max_branch = 1;
+        uint32_t max_load = 1;
+        uint32_t max_store = 1;
+
+        for (const auto& u : candidate_uops) {
+            bool accept = true;
+            if (u.type == UOpType::ALU || u.type == UOpType::MUL || u.type == UOpType::DIV) {
+                if (alu_count >= max_alu) accept = false;
+                else alu_count++;
+            } else if (u.type == UOpType::BRANCH || u.type == UOpType::CALL || (u.type == UOpType::RET && u.opcode != Opcode::LDR)) {
+                if (branch_count >= max_branch) accept = false;
+                else branch_count++;
+            } else if (u.type == UOpType::LOAD || (u.type == UOpType::RET && u.opcode == Opcode::LDR)) {
+                if (load_count >= max_load) accept = false;
+                else load_count++;
+            } else if (u.type == UOpType::STORE_ADDR || u.type == UOpType::STORE_DATA) {
+                if (store_count >= max_store) accept = false;
+                else store_count++;
+            }
+
+            if (accept) {
+                issued_uops_.push_back(u);
+            } else {
+                iq_.replay_insert(u);
+            }
+        }
+
         if (debug_ && !issued_uops_.empty()) {
             std::cout << " [ISSUE] Issued " << issued_uops_.size() << " uops" << std::endl;
             for (const auto& u : issued_uops_) {
@@ -595,7 +639,9 @@ private:
     }
 
     void stage_dispatch() {
-        while (!rename_queue_.empty()) {
+        uint32_t dispatch_count = 0;
+        uint32_t max_dispatch = config_.decode_width > 0 ? config_.decode_width : 4;
+        while (!rename_queue_.empty() && dispatch_count < max_dispatch) {
             const auto& uop = rename_queue_.front();
             if (rob_.is_full()) {
                 rob_full_stalls_++;
@@ -650,6 +696,7 @@ private:
 
             iq_.insert(disp_uop);
             rename_queue_.pop_front();
+            dispatch_count++;
         }
     }
 

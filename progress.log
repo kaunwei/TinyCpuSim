@@ -1,5 +1,13 @@
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
+[SUCCESS] TASK-012: Calibrate LSU store forwarding latency, memory port contention, and issue queue dispatch delay against gem5 O3 configuration
+Time: 2026-10-04 17:05:30 | Duration: 60s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 1
+Changes: include/tinyarmsim/uarch/lsu.hpp, include/tinyarmsim/uarch/ooo_core.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), verify_gem5 test_sort IPC delta = 4.85% (<5% threshold), ubench suite PASS (<1%)
+Attempt Trace:
+  • Attempt 1: PASS (Calibrated load/store port issue limits and store forwarding timing; test_sort IPC discrepancy reduced from 20.03% to 4.85%)
+================================================================================
 [SUCCESS] TASK-011: Add isolated C++ microbenchmarks in exec_lsu_ubench_test.cpp modeling tight bubble sort back-to-back LDR/STR patterns with store forwarding, and update golden_counters.json with empirical reference invariants
 Time: 2026-10-04 16:58:30 | Commit: b1ac55c | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 2
