@@ -1,6 +1,6 @@
 # TinyCpuSim
 
-[![Build & Test](https://img.shields.io/badge/tests-168%2F168%20passed-brightgreen.svg)]()
+[![Build & Test](https://img.shields.io/badge/tests-186%2F186%20passed-brightgreen.svg)]()
 [![Standard](https://img.shields.io/badge/C%2B%2B-17-blue.svg)]()
 [![ISA](https://img.shields.io/badge/ISA-ARMv7--M%20%2F%20Thumb--2-orange.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
@@ -94,17 +94,20 @@ Launch the interactive text user interface:
 
 ```text
 ============================================================
-              TinyCpuSim - Master Control Center            
+       TinyCpuSim - ARM Out-of-Order CPU Simulator          
 ============================================================
-Please choose a step or action:
+Sequential Demo Workflow:
+  [1] Build:    Build Project (Release Mode)
+  [2] Test:     Run Full Test Suite (Unit & Regression Tests)
+  [3] uBench:   Run Component Microbenchmarks (uBench)
+  [4] Sim:      Run CPU Simulation (reads configs/current.cfg automatically)
+  [5] gem5:     Compare Accuracy against gem5 Golden Reference (100% PASS)
+
+Architecture Exploration:
+  [E] Exp:      Run Experiment on Active Config vs Baseline
   [C] Config:   Configure Active Simulation, Hardware Knobs, Presets, Save/Load
-  [1] Step 1:   Build Project (Release Mode)
-  [2] Step 2:   Run Full Test Suite (168 Unit & Regression Tests)
-  [3] Step 3:   Run Component Microbenchmarks (uBench)
-  [4] Step 4:   Run CPU Simulation (reads configs/current.cfg automatically)
-  [5] Step 5:   Compare Accuracy against gem5 Golden Reference
-  [6] Exp:      Run Experiment on Active Config vs Baseline
-  [7] Sweep:    Run Dynamic Parameter Sweep on Microarchitecture Knobs
+  [V] View:     View Full Active Microarchitecture Dashboard
+  [S] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs
   [H] Help:     View Complete Command & Usage Manual
   [0] Exit
 ============================================================
@@ -115,26 +118,25 @@ Please choose a step or action:
 ```bash
 # Workflow Steps
 ./run.sh build                      # [Step 1] Build simulator (Release mode)
-./run.sh test                       # [Step 2] Run 168 unit & regression tests (parallel ctest)
-./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks
+./run.sh test                       # [Step 2] Run 186 unit & regression tests (parallel ctest)
+./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks (<1% Δ)
 ./run.sh sim [elf] [config]         # [Step 4] Run simulation (zero-args reads current.cfg)
-./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (parallel)
+./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (100% PASS)
 
-# Configuration & Editing
+# Architecture Exploration & Config Management
+./run.sh exp                        # Run experiment on active config (configs/current.cfg) vs baseline
+./run.sh exp [elf]                  # Run experiment on target ELF using active config
+./run.sh exp --set k=v              # Run experiment with hardware overrides (e.g. ooo=false)
+./run.sh config                     # Launch interactive configuration manager TUI
 ./run.sh edit                       # Direct vi editing of active configs/current.cfg
 ./run.sh show                       # Display full active microarchitecture dashboard
 ./run.sh list                       # List all presets and snapshots in default/ and save/
-./run.sh config                     # Launch interactive configuration manager TUI
-
-# Microarchitectural Experiments & Sweeps
-./run.sh exp                        # Run experiment on active config (current.cfg) vs baseline
-./run.sh exp [elf]                  # Run experiment on target ELF using active config
-./run.sh exp --set k=v              # Run experiment with hardware overrides (e.g. ooo=false)
-./run.sh sweep                      # Run dynamic parameter sweep across microarchitectural knobs
+./run.sh sweep                      # Run dynamic parameter sweep on hardware knobs
 
 # Catalogs & Utilities
 ./run.sh knobs                      # List all tunable hardware parameters & units
 ./run.sh elfs                       # List all built-in benchmark ELF workloads
+./run.sh setup                      # Install required system & Python dependencies
 ./run.sh clean                      # Clean build artifacts
 ./run.sh help                       # View complete CLI manual
 ```
@@ -277,7 +279,7 @@ Automatically detects system CPU cores, configures CMake in Release mode, and bu
 ```bash
 ./scripts/02_run_tests.sh
 ```
-Runs all 168 unit and regression tests in parallel (`ctest -j`) with a 100% pass guarantee.
+Runs all 186 unit and regression tests in parallel (`ctest -j`) with a 100% pass guarantee.
 
 ---
 
@@ -385,7 +387,7 @@ Aggregate Throughput (IPC):0.801 inst/cycle (uOp IPC: 1.548)
 ## Project Directory Structure
 
 ```text
-TinySim/
+TinyCpuSim/
 ├── CMakeLists.txt            # Main CMake build configuration
 ├── README.md                 # Complete documentation & usage guide
 ├── run.sh                    # Unified launcher & workflow manager
@@ -405,7 +407,7 @@ TinySim/
 │   └── uarch/                # Cycle-accurate OoO pipeline stages
 ├── scripts/                  # Workflow scripts & multi-process Python tools
 │   ├── 01_build.sh           # Step 1: 1-click build script
-│   ├── 02_run_tests.sh       # Step 2: Full test suite runner (168 tests, parallel ctest)
+│   ├── 02_run_tests.sh       # Step 2: Full test suite runner (186 tests, parallel ctest)
 │   ├── 03_run_ubench.sh      # Step 3: Component microbenchmark runner
 │   ├── 04_run_simulation.sh  # Step 4: Full-system simulation runner
 │   ├── 05_compare_gem5.sh    # Step 5: gem5 golden comparison tool
@@ -421,7 +423,7 @@ TinySim/
 └── tests/                    # Tests and benchmarks
     ├── fixtures/             # Bare-metal ELF binaries & assembly sources
     ├── golden/gem5/          # gem5 reference statistics logs
-    └── unit & ubench tests   # 168 CTest GoogleTest cases
+    └── unit & ubench tests   # 186 CTest GoogleTest cases
 ```
 
 ---
