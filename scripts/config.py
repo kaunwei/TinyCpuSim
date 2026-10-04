@@ -122,6 +122,18 @@ def validate_file(file_path):
         if rob <= 0: errors.append(f"ROB size must be > 0 (got {rob})")
         prf = cfg.getint("core", "num_phys_regs", fallback=128)
         if prf <= 16: errors.append(f"Physical register count must be > 16 (got {prf})")
+        lsd_t = cfg.get("core", "lsd_type", fallback=cfg.get("core", "lsd", fallback="NONE")).upper()
+        if lsd_t not in ["NONE", "DISABLED", "LOOP_STREAM", "LOOP_STREAM_DETECTOR", "LSD", "LOOP", "TRUE", "FALSE", "1", "0"]:
+            errors.append(f"Invalid LSD type: '{lsd_t}'. Must be NONE or LOOP_STREAM.")
+        lsd_cap = cfg.getint("core", "lsd_capacity", fallback=cfg.getint("core", "lsd_size", fallback=32))
+        if lsd_cap <= 0: errors.append(f"LSD capacity must be > 0 (got {lsd_cap})")
+
+    if cfg.has_section("lsd"):
+        lsd_t = cfg.get("lsd", "type", fallback=cfg.get("lsd", "lsd_type", fallback="NONE")).upper()
+        if lsd_t not in ["NONE", "DISABLED", "LOOP_STREAM", "LOOP_STREAM_DETECTOR", "LSD", "LOOP", "TRUE", "FALSE", "1", "0"]:
+            errors.append(f"Invalid LSD type in [lsd]: '{lsd_t}'. Must be NONE or LOOP_STREAM.")
+        lsd_cap = cfg.getint("lsd", "capacity", fallback=cfg.getint("lsd", "lsd_capacity", fallback=32))
+        if lsd_cap <= 0: errors.append(f"LSD capacity must be > 0 (got {lsd_cap})")
 
     if cfg.has_section("branch_predictor"):
         bp_type = cfg.get("branch_predictor", "type", fallback="TAGE").upper()
@@ -230,6 +242,10 @@ def show_config(file_path=CURRENT_CFG, title="Active Configuration"):
         print(f"  Reorder Buffer (ROB):    {cfg.get('core', 'rob_size', fallback='64')} entries")
         print(f"  Issue Queue / RS:        {cfg.get('core', 'rs_size', fallback='32')} entries")
         print(f"  Physical Registers (PRF):{cfg.get('core', 'num_phys_regs', fallback='128')} physical registers (16 arch regs)")
+        lsd_enabled = cfg.getboolean('core', 'enable_lsd', fallback=False) or cfg.get('core', 'lsd_type', fallback='NONE').upper() in ['LOOP_STREAM', 'LOOP', 'LSD']
+        lsd_cap = cfg.get('core', 'lsd_capacity', fallback='32')
+        lsd_status = f"\033[1;32mLOOP_STREAM\033[0m (Capacity: {lsd_cap} uops)" if lsd_enabled else "\033[1;30mNONE\033[0m"
+        print(f"  Loop Stream Detector:    {lsd_status}")
         print("-" * 80)
 
     if cfg.has_section("branch_predictor"):

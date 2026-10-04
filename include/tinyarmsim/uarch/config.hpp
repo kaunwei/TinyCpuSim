@@ -60,6 +60,11 @@ enum class PrefetcherType {
     STREAM
 };
 
+enum class LSDType {
+    NONE,
+    LOOP_STREAM
+};
+
 struct CacheConfig {
     CacheType type{CacheType::SET_ASSOCIATIVE};
     size_t size_bytes{32768};        // Default: 32KB
@@ -178,6 +183,8 @@ struct CoreConfig {
     size_t rob_size{64};
     size_t rs_size{32};
     size_t num_phys_regs{128};
+    LSDType lsd_type{LSDType::NONE};
+    size_t lsd_capacity{32};
 
     CacheConfig l1i{};
     CacheConfig l1d{};
@@ -186,6 +193,10 @@ struct CoreConfig {
 
     [[nodiscard]] bool is_ooo() const noexcept {
         return type == CoreType::OOO_DYNAMIC;
+    }
+
+    [[nodiscard]] bool is_lsd_enabled() const noexcept {
+        return lsd_type != LSDType::NONE;
     }
 
     [[nodiscard]] bool is_fast_feeder() const noexcept {
@@ -200,6 +211,9 @@ struct CoreConfig {
         if (fetch_width == 0 || decode_width == 0 || rename_width == 0 ||
             issue_width == 0 || commit_width == 0) {
             throw std::invalid_argument("Pipeline stage widths must be > 0");
+        }
+        if (is_lsd_enabled() && lsd_capacity == 0) {
+            throw std::invalid_argument("LSD capacity must be > 0 when LSD is enabled");
         }
         if (is_ooo()) {
             if (rob_size == 0 || rs_size == 0) {
@@ -408,6 +422,27 @@ struct UArchConfig {
                 else if (key == "rob_size" || key == "rob") cfg.default_core.rob_size = std::stoul(val);
                 else if (key == "rs_size" || key == "rs" || key == "iq_size") cfg.default_core.rs_size = std::stoul(val);
                 else if (key == "num_phys_regs" || key == "prf") cfg.default_core.num_phys_regs = std::stoul(val);
+                else if (key == "lsd_type" || key == "lsd_mode") {
+                    if (u_val == "NONE" || u_val == "DISABLED") cfg.default_core.lsd_type = LSDType::NONE;
+                    else if (u_val == "LOOP_STREAM" || u_val == "LOOP_STREAM_DETECTOR" || u_val == "LSD" || u_val == "LOOP") cfg.default_core.lsd_type = LSDType::LOOP_STREAM;
+                }
+                else if (key == "enable_lsd" || key == "lsd") {
+                    cfg.default_core.lsd_type = parse_bool(val) ? LSDType::LOOP_STREAM : LSDType::NONE;
+                }
+                else if (key == "lsd_capacity" || key == "lsd_size" || key == "lsd_entries") {
+                    cfg.default_core.lsd_capacity = std::stoul(val);
+                }
+            } else if (current_section == "lsd") {
+                if (key == "type" || key == "mode" || key == "lsd_type") {
+                    if (u_val == "NONE" || u_val == "DISABLED") cfg.default_core.lsd_type = LSDType::NONE;
+                    else if (u_val == "LOOP_STREAM" || u_val == "LOOP_STREAM_DETECTOR" || u_val == "LSD" || u_val == "LOOP") cfg.default_core.lsd_type = LSDType::LOOP_STREAM;
+                }
+                else if (key == "enabled" || key == "enable_lsd" || key == "enable") {
+                    cfg.default_core.lsd_type = parse_bool(val) ? LSDType::LOOP_STREAM : LSDType::NONE;
+                }
+                else if (key == "capacity" || key == "lsd_capacity" || key == "size" || key == "lsd_size" || key == "entries") {
+                    cfg.default_core.lsd_capacity = std::stoul(val);
+                }
             } else if (current_section == "l1i" || current_section == "cache_l1i") {
                 parse_cache_field(cfg.default_core.l1i);
             } else if (current_section == "l1d" || current_section == "cache_l1d") {

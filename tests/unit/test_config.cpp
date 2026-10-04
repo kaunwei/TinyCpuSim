@@ -170,4 +170,60 @@ hit_latency = 10
     EXPECT_EQ(cfg.default_core.l1d.prefetcher, PrefetcherType::NONE);
     EXPECT_EQ(cfg.l2_shared.prefetcher, PrefetcherType::NONE);
     EXPECT_FALSE(cfg.default_core.l1d.is_prefetch_enabled());
+    EXPECT_EQ(cfg.default_core.lsd_type, LSDType::NONE);
+    EXPECT_EQ(cfg.default_core.lsd_capacity, 32);
+    EXPECT_FALSE(cfg.default_core.is_lsd_enabled());
+}
+
+TEST(ConfigTest, LsdDefaultsAndEnum) {
+    CoreConfig core_cfg;
+    EXPECT_EQ(core_cfg.lsd_type, LSDType::NONE);
+    EXPECT_EQ(core_cfg.lsd_capacity, 32);
+    EXPECT_FALSE(core_cfg.is_lsd_enabled());
+    EXPECT_NO_THROW(core_cfg.validate());
+
+    core_cfg.lsd_type = LSDType::LOOP_STREAM;
+    core_cfg.lsd_capacity = 64;
+    EXPECT_TRUE(core_cfg.is_lsd_enabled());
+    EXPECT_NO_THROW(core_cfg.validate());
+
+    core_cfg.lsd_capacity = 0;
+    EXPECT_THROW(core_cfg.validate(), std::invalid_argument);
+}
+
+TEST(ConfigTest, ParseKvLsdInCoreSection) {
+    std::string config_content = R"(
+[global]
+num_cores = 1
+
+[core]
+enable_ooo = true
+enable_lsd = true
+lsd_capacity = 48
+)";
+
+    std::istringstream iss(config_content);
+    UArchConfig cfg = UArchConfig::parse_kv(iss);
+
+    EXPECT_EQ(cfg.default_core.lsd_type, LSDType::LOOP_STREAM);
+    EXPECT_EQ(cfg.default_core.lsd_capacity, 48);
+    EXPECT_TRUE(cfg.default_core.is_lsd_enabled());
+}
+
+TEST(ConfigTest, ParseKvLsdDedicatedSection) {
+    std::string config_content = R"(
+[global]
+num_cores = 1
+
+[lsd]
+type = LOOP_STREAM
+capacity = 64
+)";
+
+    std::istringstream iss(config_content);
+    UArchConfig cfg = UArchConfig::parse_kv(iss);
+
+    EXPECT_EQ(cfg.default_core.lsd_type, LSDType::LOOP_STREAM);
+    EXPECT_EQ(cfg.default_core.lsd_capacity, 64);
+    EXPECT_TRUE(cfg.default_core.is_lsd_enabled());
 }
