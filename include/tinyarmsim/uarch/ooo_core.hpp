@@ -596,25 +596,26 @@ private:
         uint32_t issue_width = config_.issue_width > 0 ? config_.issue_width : 4;
         auto candidate_uops = iq_.select_and_issue(issue_width, config_.is_ooo());
         
-        uint32_t alu_count = 0;
+        uint32_t simple_alu_count = 0;
+        uint32_t complex_alu_count = 0;
         uint32_t branch_count = 0;
         uint32_t load_count = 0;
         uint32_t store_count = 0;
-        uint32_t mul_count = 0;
-        uint32_t max_alu = config_.issue_width > 0 ? config_.issue_width : 4;
+
+        uint32_t max_simple_alu = 2;
+        uint32_t max_complex_alu = 1;
         uint32_t max_branch = 1;
         uint32_t max_load = 1;
         uint32_t max_store = 1;
-        uint32_t max_mul = 1;
 
         for (const auto& u : candidate_uops) {
             bool accept = true;
             if (u.type == UOpType::MUL || u.type == UOpType::DIV || u.opcode == Opcode::MUL || u.opcode == Opcode::MLA) {
-                if (mul_count >= max_mul) accept = false;
-                else mul_count++;
+                if (complex_alu_count >= max_complex_alu) accept = false;
+                else complex_alu_count++;
             } else if (u.type == UOpType::ALU) {
-                if (alu_count >= max_alu) accept = false;
-                else alu_count++;
+                if (simple_alu_count >= max_simple_alu) accept = false;
+                else simple_alu_count++;
             } else if (u.type == UOpType::BRANCH || u.type == UOpType::CALL || (u.type == UOpType::RET && u.opcode != Opcode::LDR)) {
                 if (branch_count >= max_branch) accept = false;
                 else branch_count++;
@@ -645,7 +646,7 @@ private:
 
     void stage_dispatch() {
         uint32_t dispatch_count = 0;
-        uint32_t max_dispatch = config_.issue_width > 0 ? config_.issue_width : 4;
+        uint32_t max_dispatch = 6;
         while (!rename_queue_.empty() && dispatch_count < max_dispatch) {
             const auto& uop = rename_queue_.front();
             if (rob_.is_full()) {
