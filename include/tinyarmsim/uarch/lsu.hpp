@@ -257,10 +257,10 @@ public:
         res.data = bus_data;
 
         if (l1d_ && l1d_->get_config().is_active()) {
-            uint32_t lat = 1;
+            uint32_t configured_hit_lat = l1d_->get_config().hit_latency_cycles > 0 ? l1d_->get_config().hit_latency_cycles : 2;
+            uint32_t lat = configured_hit_lat;
             auto cache_res = l1d_->access(addr, false, lat);
             res.completed = true;
-            uint32_t configured_hit_lat = l1d_->get_config().hit_latency_cycles > 0 ? l1d_->get_config().hit_latency_cycles : 2;
             res.latency_cycles = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : configured_hit_lat;
         } else {
             res.completed = true;

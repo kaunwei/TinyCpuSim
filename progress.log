@@ -1,4 +1,13 @@
 ================================================================================
+[SUCCESS] TASK-026: Ensure cache hits use L1D configured hit_latency_cycles and store-to-load forwarding uses 1 cycle
+Time: 2026-10-04 19:25:30 | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/lsu.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), ubench PASS
+Attempt Trace:
+  • Attempt 1: PASS (Configured L1D hit_latency_cycles properly in execute_load() while preserving store-to-load forwarding 1 cycle latency; all 185 tests passing)
+================================================================================
+================================================================================
 [SUCCESS] TASK-030: Run full test suite, all ubench invariant suites, and all 9 ELF golden benchmarks
 Time: 2026-10-04 19:23:55 | Duration: 25s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 1
