@@ -2,6 +2,7 @@
 #include "tinyarmsim/uarch/cache.hpp"
 #include "tinyarmsim/uarch/coherence.hpp"
 #include "tinyarmsim/uarch/memory_hierarchy.hpp"
+#include "tinyarmsim/uarch/prefetcher.hpp"
 #include "tinyarmsim/memory_bus.hpp"
 
 using namespace tinyarmsim;
@@ -202,3 +203,58 @@ TEST(CacheUBenchTest, Cache_UBench_SharedL2HierarchicalInclusion) {
     EXPECT_EQ(resp2.latency_cycles, 2);
     std::cout << "[PERF_COUNTER] Cache_UBench_SharedL2HierarchicalInclusion:l2_inclusion_latency=" << resp2.latency_cycles << std::endl;
 }
+
+// 7. Stride Prefetcher State Machine Transitions (Initial -> Transient -> Steady)
+TEST(CacheUBenchTest, StridePrefetcherStateMachine) {
+    // Test PC-indexed stride state transitions with delta=+64 and delta=-64
+    StridePrefetcher prefetcher(16, 2); // 16 entries, degree 2
+    
+    uint32_t pc = 0x80001000;
+    
+    // Initial access: state is Initial / untracked
+    EXPECT_EQ(prefetcher.get_state(pc), StrideState::INITIAL);
+    auto pfs0 = prefetcher.access(pc, 0x1000);
+    EXPECT_TRUE(pfs0.empty());
+    EXPECT_EQ(prefetcher.get_state(pc), StrideState::INITIAL);
+    
+    // Second access with delta = +64: transitions to TRANSIENT
+    auto pfs1 = prefetcher.access(pc, 0x1040);
+    EXPECT_TRUE(pfs1.empty());
+    EXPECT_EQ(prefetcher.get_state(pc), StrideState::TRANSIENT);
+    EXPECT_EQ(prefetcher.get_stride(pc), 64);
+    
+    // Third access with same delta (+64): transitions to STEADY and emits prefetches
+    auto pfs2 = prefetcher.access(pc, 0x1080);
+    EXPECT_EQ(prefetcher.get_state(pc), StrideState::STEADY);
+    EXPECT_EQ(prefetcher.get_stride(pc), 64);
+    ASSERT_EQ(pfs2.size(), 2);
+    EXPECT_EQ(pfs2[0], 0x10C0); // 0x1080 + 64
+    EXPECT_EQ(pfs2[1], 0x1100); // 0x1080 + 128
+    
+    // Test negative stride delta = -64 with different PC
+    uint32_t pc_neg = 0x80002000;
+    EXPECT_EQ(prefetcher.get_state(pc_neg), StrideState::INITIAL);
+    auto pfn0 = prefetcher.access(pc_neg, 0x5000);
+    EXPECT_TRUE(pfn0.empty());
+    EXPECT_EQ(prefetcher.get_state(pc_neg), StrideState::INITIAL);
+    
+    auto pfn1 = prefetcher.access(pc_neg, 0x4FC0); // -64
+    EXPECT_TRUE(pfn1.empty());
+    EXPECT_EQ(prefetcher.get_state(pc_neg), StrideState::TRANSIENT);
+    EXPECT_EQ(prefetcher.get_stride(pc_neg), -64);
+    
+    auto pfn2 = prefetcher.access(pc_neg, 0x4F80); // -64
+    EXPECT_EQ(prefetcher.get_state(pc_neg), StrideState::STEADY);
+    EXPECT_EQ(prefetcher.get_stride(pc_neg), -64);
+    ASSERT_EQ(pfn2.size(), 2);
+    EXPECT_EQ(pfn2[0], 0x4F40); // 0x4F80 - 64
+    EXPECT_EQ(pfn2[1], 0x4F00); // 0x4F80 - 128
+    
+    // Also test NextLinePrefetcher basic functionality
+    NextLinePrefetcher next_line_pf(64, 2);
+    auto nlpfs = next_line_pf.access(0x1000);
+    ASSERT_EQ(nlpfs.size(), 2);
+    EXPECT_EQ(nlpfs[0], 0x1040);
+    EXPECT_EQ(nlpfs[1], 0x1080);
+}
+
