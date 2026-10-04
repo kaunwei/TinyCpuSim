@@ -1,5 +1,13 @@
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
+[SUCCESS] TASK-013: Profile test_arithmetic.elf and test_raw_hazard.elf with --log and --slice-insts 1000 and document int ALU port contention analysis
+Time: 2026-10-04 17:51:00 | Duration: 45s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 2
+Changes: .scratch/arithmetic_profile.md
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), ubench suite PASS (<1% delta), verification check `test -f .scratch/arithmetic_profile.md` PASS
+Attempt Trace:
+  • Attempt 1: PASS (Generated comprehensive report comparing TinyCpuSim vs gem5 FU pool port contention, RAW dependency chain serialized bounds, and periodic performance slices)
+================================================================================
 [SUCCESS] TASK-012: Calibrate LSU store forwarding latency, memory port contention, and issue queue dispatch delay against gem5 O3 configuration
 Time: 2026-10-04 17:05:30 | Duration: 60s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 1
