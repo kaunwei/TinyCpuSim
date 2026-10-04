@@ -22,6 +22,7 @@
 
 namespace tinyarmsim::uarch {
 
+// FunctionalUnitPool: Models execution port availability and issue resource constraints per cycle
 struct FunctionalUnitPool {
     uint32_t simple_alu_count{0};
     uint32_t complex_alu_count{0};
