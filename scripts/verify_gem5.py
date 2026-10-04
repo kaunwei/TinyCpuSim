@@ -267,12 +267,31 @@ def main():
     # Header
     print(f"{'Workload ELF':<24} | {'gem5 Inst':<10} | {'Tiny Inst':<10} | {'Inst Δ%':<8} | {'gem5 IPC':<9} | {'Tiny IPC':<9} | {'IPC Δ%':<8} | {'Status':<8}")
     print("-" * 105)
+    
+    pass_count = 0
+    total_count = len(table_rows)
+    inst_deltas = []
+    ipc_deltas = []
+    max_ipc_discrepancy = -1.0
+    max_ipc_case = None
+
     for r in table_rows:
         inst_delta = abs(r['t_insts'] - r['g_insts']) / float(r['g_insts']) * 100.0 if r['g_insts'] > 0 else 0.0
         ipc_delta = abs(r['t_ipc'] - r['g_ipc']) / float(r['g_ipc']) * 100.0 if r['g_ipc'] > 0 else 0.0
         
-        status_pass = (inst_delta <= 5.0)
-        status_tag = "\033[1;32mPASS\033[0m" if status_pass else "\033[1;31mDIFF\033[0m"
+        inst_deltas.append(inst_delta)
+        ipc_deltas.append(ipc_delta)
+        
+        if ipc_delta > max_ipc_discrepancy:
+            max_ipc_discrepancy = ipc_delta
+            max_ipc_case = r
+
+        status_pass = (inst_delta <= 5.0) and (ipc_delta <= 5.0)
+        if status_pass:
+            pass_count += 1
+            status_tag = "\033[1;32mPASS\033[0m"
+        else:
+            status_tag = "\033[1;31mFAIL\033[0m"
         
         print(f"{r['elf']:<24} | {r['g_insts']:<10} | {r['t_insts']:<10} | {inst_delta:<7.2f}% | {r['g_ipc']:<9.3f} | {r['t_ipc']:<9.3f} | {ipc_delta:<7.2f}% | {status_tag:<8}")
 
@@ -281,13 +300,21 @@ def main():
     r_cycles = calculate_correlation(gem5_cycles_list, tiny_cycles_list)
     r_ipc = calculate_correlation(gem5_ipc_list, tiny_ipc_list)
 
+    inst_mape = sum(inst_deltas) / float(total_count) if total_count > 0 else 0.0
+    ipc_mape = sum(ipc_deltas) / float(total_count) if total_count > 0 else 0.0
+    pass_rate_pct = (float(pass_count) / float(total_count) * 100.0) if total_count > 0 else 0.0
+
     print("=" * 105)
     print("  📈 CORRELATION & FIDELITY SUMMARY vs gem5 GOLDEN:")
     print("=" * 105)
-    print(f"  • Architectural Instruction Retirement Match: \033[1;32m100% (<5% Δ on all 9 ELFs)\033[0m")
-    print(f"  • Instruction Count Pearson Correlation r:     \033[1;32m{r_insts:.4f}\033[0m (100% architectural match)")
-    print(f"  • Simulated Cycles Pearson Correlation r:      \033[1;32m{r_cycles:.4f}\033[0m (>0.99 execution trend correlation)")
-    print(f"  • Macro-Benchmark IPC Discrepancy (Fibonacci): \033[1;32m1.05% (TinySim: 0.574 vs gem5: 0.568)\033[0m")
+    pass_color = "\033[1;32m" if pass_count == total_count else "\033[1;33m"
+    print(f"  • Passing Workloads (Δ <= 5.0% Inst & IPC):   {pass_color}{pass_count}/{total_count} ({pass_rate_pct:.1f}%)\033[0m")
+    print(f"  • Mean Absolute Percentage Error (MAPE):      Inst: \033[1;32m{inst_mape:.2f}%\033[0m | IPC: \033[1;32m{ipc_mape:.2f}%\033[0m")
+    print(f"  • Instruction Count Pearson Correlation r:    \033[1;32m{r_insts:.4f}\033[0m")
+    print(f"  • Simulated Cycles Pearson Correlation r:     \033[1;32m{r_cycles:.4f}\033[0m")
+    print(f"  • IPC Pearson Correlation r:                  \033[1;32m{r_ipc:.4f}\033[0m")
+    if max_ipc_case:
+        print(f"  • Maximum IPC Discrepancy ({max_ipc_case['elf']}): \033[1;33m{max_ipc_discrepancy:.2f}% (TinySim: {max_ipc_case['t_ipc']:.3f} vs gem5: {max_ipc_case['g_ipc']:.3f})\033[0m")
     print("=" * 105)
 
 if __name__ == '__main__':
