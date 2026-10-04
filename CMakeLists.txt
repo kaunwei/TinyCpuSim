@@ -230,3 +230,8 @@ add_executable(perf_slice_test tests/uarch/perf_slice_test.cpp)
 target_link_libraries(perf_slice_test PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(perf_slice_test)
 
+# uArch Core Microbenchmarks
+add_executable(core_ubench_test tests/uarch/core_ubench_test.cpp)
+target_link_libraries(core_ubench_test PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(core_ubench_test)
+
