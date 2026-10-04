@@ -220,7 +220,13 @@ add_executable(cache_ubench_test tests/uarch/cache_ubench_test.cpp)
 target_link_libraries(cache_ubench_test PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(cache_ubench_test)
 
+# uArch LSU and Store Sets Disambiguator Isolated Microbenchmarks
+add_executable(lsu_ubench_test tests/uarch/lsu_ubench_test.cpp)
+target_link_libraries(lsu_ubench_test PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(lsu_ubench_test)
+
 # uArch Performance Slicing Test
 add_executable(perf_slice_test tests/uarch/perf_slice_test.cpp)
 target_link_libraries(perf_slice_test PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(perf_slice_test)
+
