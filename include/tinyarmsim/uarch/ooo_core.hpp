@@ -22,6 +22,86 @@
 
 namespace tinyarmsim::uarch {
 
+struct FunctionalUnitPool {
+    uint32_t simple_alu_count{0};
+    uint32_t complex_alu_count{0};
+    uint32_t branch_count{0};
+    uint32_t load_count{0};
+    uint32_t store_count{0};
+
+    uint32_t max_simple_alu{2};
+    uint32_t max_complex_alu{1};
+    uint32_t max_branch{1};
+    uint32_t max_load{1};
+    uint32_t max_store{1};
+
+    void tick_cycle() noexcept {
+        simple_alu_count = 0;
+        complex_alu_count = 0;
+        branch_count = 0;
+        load_count = 0;
+        store_count = 0;
+    }
+
+    [[nodiscard]] bool can_issue(const UOp& u) const noexcept {
+        if (u.type == UOpType::MUL || u.type == UOpType::DIV || u.opcode == Opcode::MUL || u.opcode == Opcode::MLA) {
+            return complex_alu_count < max_complex_alu;
+        } else if (u.type == UOpType::ALU) {
+            return simple_alu_count < max_simple_alu;
+        } else if (u.type == UOpType::BRANCH || u.type == UOpType::CALL || (u.type == UOpType::RET && u.opcode != Opcode::LDR)) {
+            return branch_count < max_branch;
+        } else if (u.type == UOpType::LOAD || (u.type == UOpType::RET && u.opcode == Opcode::LDR)) {
+            return load_count < max_load;
+        } else if (u.type == UOpType::STORE_ADDR || u.type == UOpType::STORE_DATA) {
+            return store_count < max_store;
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool can_issue(UOpType type) const noexcept {
+        if (type == UOpType::MUL || type == UOpType::DIV) {
+            return complex_alu_count < max_complex_alu;
+        } else if (type == UOpType::ALU) {
+            return simple_alu_count < max_simple_alu;
+        } else if (type == UOpType::BRANCH || type == UOpType::CALL || type == UOpType::RET) {
+            return branch_count < max_branch;
+        } else if (type == UOpType::LOAD) {
+            return load_count < max_load;
+        } else if (type == UOpType::STORE_ADDR || type == UOpType::STORE_DATA) {
+            return store_count < max_store;
+        }
+        return true;
+    }
+
+    void record_issue(const UOp& u) noexcept {
+        if (u.type == UOpType::MUL || u.type == UOpType::DIV || u.opcode == Opcode::MUL || u.opcode == Opcode::MLA) {
+            complex_alu_count++;
+        } else if (u.type == UOpType::ALU) {
+            simple_alu_count++;
+        } else if (u.type == UOpType::BRANCH || u.type == UOpType::CALL || (u.type == UOpType::RET && u.opcode != Opcode::LDR)) {
+            branch_count++;
+        } else if (u.type == UOpType::LOAD || (u.type == UOpType::RET && u.opcode == Opcode::LDR)) {
+            load_count++;
+        } else if (u.type == UOpType::STORE_ADDR || u.type == UOpType::STORE_DATA) {
+            store_count++;
+        }
+    }
+
+    void record_issue(UOpType type) noexcept {
+        if (type == UOpType::MUL || type == UOpType::DIV) {
+            complex_alu_count++;
+        } else if (type == UOpType::ALU) {
+            simple_alu_count++;
+        } else if (type == UOpType::BRANCH || type == UOpType::CALL || type == UOpType::RET) {
+            branch_count++;
+        } else if (type == UOpType::LOAD) {
+            load_count++;
+        } else if (type == UOpType::STORE_ADDR || type == UOpType::STORE_DATA) {
+            store_count++;
+        }
+    }
+};
+
 class OoOCore {
 public:
     OoOCore(size_t core_id,
@@ -596,38 +676,11 @@ private:
         uint32_t issue_width = config_.issue_width > 0 ? config_.issue_width : 4;
         auto candidate_uops = iq_.select_and_issue(issue_width, config_.is_ooo());
         
-        uint32_t simple_alu_count = 0;
-        uint32_t complex_alu_count = 0;
-        uint32_t branch_count = 0;
-        uint32_t load_count = 0;
-        uint32_t store_count = 0;
-
-        uint32_t max_simple_alu = 2;
-        uint32_t max_complex_alu = 1;
-        uint32_t max_branch = 1;
-        uint32_t max_load = 1;
-        uint32_t max_store = 1;
+        FunctionalUnitPool fu_pool;
 
         for (const auto& u : candidate_uops) {
-            bool accept = true;
-            if (u.type == UOpType::MUL || u.type == UOpType::DIV || u.opcode == Opcode::MUL || u.opcode == Opcode::MLA) {
-                if (complex_alu_count >= max_complex_alu) accept = false;
-                else complex_alu_count++;
-            } else if (u.type == UOpType::ALU) {
-                if (simple_alu_count >= max_simple_alu) accept = false;
-                else simple_alu_count++;
-            } else if (u.type == UOpType::BRANCH || u.type == UOpType::CALL || (u.type == UOpType::RET && u.opcode != Opcode::LDR)) {
-                if (branch_count >= max_branch) accept = false;
-                else branch_count++;
-            } else if (u.type == UOpType::LOAD || (u.type == UOpType::RET && u.opcode == Opcode::LDR)) {
-                if (load_count >= max_load) accept = false;
-                else load_count++;
-            } else if (u.type == UOpType::STORE_ADDR || u.type == UOpType::STORE_DATA) {
-                if (store_count >= max_store) accept = false;
-                else store_count++;
-            }
-
-            if (accept) {
+            if (fu_pool.can_issue(u)) {
+                fu_pool.record_issue(u);
                 issued_uops_.push_back(u);
             } else {
                 iq_.replay_insert(u);
