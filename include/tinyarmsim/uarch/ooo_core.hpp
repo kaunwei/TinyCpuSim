@@ -198,6 +198,16 @@ public:
         return halted_;
     }
 
+    [[nodiscard]] uint32_t read_arch_reg(size_t arch_reg) const noexcept {
+        if (arch_reg < 16) {
+            uint16_t phys = rat_.get(static_cast<uint8_t>(arch_reg));
+            if (phys < prf_.size()) {
+                return prf_.read(phys);
+            }
+        }
+        return 0;
+    }
+
     [[nodiscard]] uint64_t get_cycles() const noexcept {
         return cycles_;
     }

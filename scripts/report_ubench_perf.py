@@ -33,6 +33,9 @@ SUITE_ALIASES = {
     "topdown": "rob",
     "lsq": "lsu",
     "caches": "cache",
+    "ss": "storesets",
+    "storesets": "storesets",
+    "store_sets": "storesets",
 }
 
 class Colors:
@@ -175,8 +178,8 @@ def main():
     parser.add_argument(
         "--suite",
         default="all",
-        choices=["bp", "bpu", "core", "exec", "lsu", "rob", "topdown", "cache", "all"],
-        help="Subsystem suite to evaluate: bp, core, lsu, rob, cache, all (default: all)"
+        choices=["bp", "bpu", "core", "exec", "lsu", "rob", "topdown", "cache", "storesets", "ss", "store_sets", "all"],
+        help="Subsystem suite to evaluate: bp, core, lsu, rob, cache, storesets, all (default: all)"
     )
     parser.add_argument(
         "--filter",
