@@ -258,3 +258,56 @@ TEST(CacheUBenchTest, StridePrefetcherStateMachine) {
     EXPECT_EQ(nlpfs[1], 0x1080);
 }
 
+// 8. Prefetcher MSHR Physical Constraint and Telemetry
+TEST(CacheUBenchTest, PrefetcherMSHRPhysicalConstraint) {
+    CacheConfig cfg;
+    cfg.size_bytes = 1024;
+    cfg.line_size = 64;
+    cfg.associativity = 2;
+    cfg.mshr_entries = 2; // Limited to 2 MSHR entries
+    cfg.prefetcher = PrefetcherType::STRIDE;
+    cfg.prefetch_distance = 1;
+    Cache cache(cfg, "Prefetch_MSHR_Test");
+
+    uint32_t pc = 0x80001000;
+    
+    // Train stride prefetcher: Access 0x1000, then 0x1040, then 0x1080
+    // Access 1: 0x1000 -> Miss, MSHR #1 allocated
+    auto r1 = cache.access(0x1000, false, 1, pc);
+    EXPECT_FALSE(r1.hit);
+    EXPECT_TRUE(r1.mshr_allocated);
+
+    // Access 2: 0x1040 -> Miss, MSHR #2 allocated (MSHR is now full)
+    auto r2 = cache.access(0x1040, false, 2, pc);
+    EXPECT_FALSE(r2.hit);
+    EXPECT_TRUE(r2.mshr_allocated);
+
+    // Access 3: 0x1080 -> Miss. Stride is established (+64).
+    // Demand miss tries to allocate MSHR -> MSHR full, cannot allocate.
+    // Prefetch request (0x10C0) is issued, but MSHR is full -> filtered/throttled!
+    auto r3 = cache.access(0x1080, false, 3, pc);
+    EXPECT_FALSE(r3.hit);
+    EXPECT_FALSE(r3.mshr_allocated);
+
+    // Prefetcher was triggered and throttled due to MSHR capacity
+    EXPECT_EQ(cache.get_stats().prefetches_issued, 1);
+    EXPECT_EQ(cache.get_stats().prefetches_mshr_filtered, 1);
+    EXPECT_FALSE(cache.probe(0x10C0)); // Line was not prefetched because MSHR was full
+
+    // Now reset cache or simulate MSHR draining by creating a fresh cache with 4 MSHR entries
+    CacheConfig cfg2 = cfg;
+    cfg2.mshr_entries = 4;
+    Cache cache2(cfg2, "Prefetch_MSHR_Success_Test");
+    cache2.access(0x1000, false, 1, pc);
+    cache2.access(0x1040, false, 2, pc);
+    // On 3rd access, MSHR has space (entry 3 out of 4) -> prefetch succeeds!
+    cache2.access(0x1080, false, 3, pc);
+    EXPECT_EQ(cache2.get_stats().prefetches_issued, 1);
+    EXPECT_EQ(cache2.get_stats().prefetch_misses, 1);
+    EXPECT_TRUE(cache2.probe(0x10C0)); // Line was successfully prefetched into cache!
+
+    // Next access to 0x10C0 results in a prefetch hit
+    auto r4 = cache2.access(0x10C0, false, 4, pc);
+    EXPECT_TRUE(r4.hit);
+}
+

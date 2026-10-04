@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"
+#include "tinyarmsim/uarch/prefetcher.hpp"
 
 namespace tinyarmsim::uarch {
 
@@ -94,7 +95,7 @@ public:
     }
 
     // Access method: Simulates a cache lookup and replacement
-    CacheAccessResult access(uint32_t addr, bool is_write, uint64_t current_cycle = 0) {
+    CacheAccessResult access(uint32_t addr, bool is_write, uint64_t current_cycle = 0, uint32_t pc = 0) {
         CacheAccessResult res{};
         if (!config_.is_active()) {
             res.hit = true;
@@ -126,6 +127,10 @@ public:
                     line.dirty = true;
                 }
                 stats_.record_access(true);
+
+                if (stride_prefetcher_ && config_.is_prefetch_enabled()) {
+                    trigger_prefetch(pc, addr, current_cycle);
+                }
                 return res;
             }
         }
@@ -135,7 +140,7 @@ public:
         res.hit = false;
         uint32_t miss_penalty = 0;
         if (next_level_ && next_level_->get_config().is_active()) {
-            auto next_res = next_level_->access(addr, is_write, current_cycle);
+            auto next_res = next_level_->access(addr, is_write, current_cycle, pc);
             miss_penalty = next_res.latency_cycles;
         } else {
             miss_penalty = mem_latency_cycles_;
@@ -165,6 +170,10 @@ public:
 
         // Track MSHR allocation
         res.mshr_allocated = allocate_mshr(addr & ~((1u << offset_bits_) - 1u), is_write, current_cycle);
+
+        if (stride_prefetcher_ && config_.is_prefetch_enabled()) {
+            trigger_prefetch(pc, addr, current_cycle);
+        }
 
         return res;
     }
@@ -213,6 +222,9 @@ public:
         for (auto& entry : mshr_) {
             entry = MSHREntry{};
         }
+        if (stride_prefetcher_) {
+            stride_prefetcher_->reset();
+        }
         access_counter_ = 0;
         reset_stats();
     }
@@ -243,6 +255,58 @@ private:
         }
 
         mshr_.resize(config_.mshr_entries);
+
+        if (config_.is_prefetch_enabled()) {
+            if (config_.prefetcher == PrefetcherType::STRIDE) {
+                stride_prefetcher_ = std::make_unique<StridePrefetcher>(
+                    64, 1, config_.prefetch_distance, config_.line_size
+                );
+            }
+        }
+    }
+
+    void trigger_prefetch(uint32_t pc, uint32_t addr, uint64_t current_cycle) {
+        if (!stride_prefetcher_) return;
+        auto prefetches = stride_prefetcher_->access(pc, addr);
+        for (uint32_t pf_addr : prefetches) {
+            uint32_t line_addr = pf_addr & ~((1u << offset_bits_) - 1u);
+            stats_.prefetches_issued++;
+
+            // If already present in cache, hit
+            if (probe(line_addr)) {
+                stats_.prefetch_hits++;
+                continue;
+            }
+
+            // Must check physical MSHR capacity
+            if (!allocate_mshr(line_addr, false, current_cycle)) {
+                // Throttled / filtered by MSHR capacity
+                stats_.prefetches_mshr_filtered++;
+                continue;
+            }
+
+            stats_.prefetch_misses++;
+
+            // Allocate line in cache
+            uint32_t pf_set_idx = extract_index(line_addr);
+            uint32_t pf_tag = extract_tag(line_addr);
+            auto& pf_set = sets_[pf_set_idx];
+            size_t victim_idx = find_victim_line(pf_set);
+            auto& victim = pf_set.lines[victim_idx];
+
+            if (victim.valid) {
+                stats_.evictions++;
+                if (victim.dirty) {
+                    stats_.writebacks++;
+                }
+            }
+
+            victim.valid = true;
+            victim.tag = pf_tag;
+            victim.last_access_timestamp = access_counter_;
+            victim.insertion_order = access_counter_;
+            victim.dirty = false;
+        }
     }
 
     [[nodiscard]] size_t find_victim_line(const CacheSet& set) const {
@@ -305,6 +369,7 @@ private:
     uint32_t index_bits_{0};
     std::vector<CacheSet> sets_;
     std::vector<MSHREntry> mshr_;
+    std::unique_ptr<StridePrefetcher> stride_prefetcher_{nullptr};
     uint64_t access_counter_{0};
     CacheStats stats_{};
     Cache* next_level_{nullptr};

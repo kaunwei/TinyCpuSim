@@ -18,6 +18,10 @@ struct CacheStats {
     uint64_t invalidations{0};
     uint64_t mshr_allocations{0};
     uint64_t mshr_full_stalls{0};
+    uint64_t prefetch_hits{0};
+    uint64_t prefetch_misses{0};
+    uint64_t prefetches_issued{0};
+    uint64_t prefetches_mshr_filtered{0};
 
     [[nodiscard]] double hit_rate() const noexcept {
         return accesses > 0 ? static_cast<double>(hits) / static_cast<double>(accesses) : 0.0;
@@ -43,6 +47,10 @@ struct CacheStats {
         res.invalidations = invalidations >= other.invalidations ? invalidations - other.invalidations : 0;
         res.mshr_allocations = mshr_allocations >= other.mshr_allocations ? mshr_allocations - other.mshr_allocations : 0;
         res.mshr_full_stalls = mshr_full_stalls >= other.mshr_full_stalls ? mshr_full_stalls - other.mshr_full_stalls : 0;
+        res.prefetch_hits = prefetch_hits >= other.prefetch_hits ? prefetch_hits - other.prefetch_hits : 0;
+        res.prefetch_misses = prefetch_misses >= other.prefetch_misses ? prefetch_misses - other.prefetch_misses : 0;
+        res.prefetches_issued = prefetches_issued >= other.prefetches_issued ? prefetches_issued - other.prefetches_issued : 0;
+        res.prefetches_mshr_filtered = prefetches_mshr_filtered >= other.prefetches_mshr_filtered ? prefetches_mshr_filtered - other.prefetches_mshr_filtered : 0;
         return res;
     }
 };
