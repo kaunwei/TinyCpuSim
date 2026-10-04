@@ -250,8 +250,8 @@ public:
             uint32_t lat = 1;
             auto cache_res = l1d_->access(addr, false, lat);
             res.completed = true;
-            uint32_t c_lat = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : 1;
-            res.latency_cycles = std::max(c_lat, 2u);
+            uint32_t c_lat = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : l1d_->get_config().hit_latency_cycles;
+            res.latency_cycles = c_lat > 0 ? c_lat : 2;
         } else {
             res.completed = true;
             res.latency_cycles = 2;
