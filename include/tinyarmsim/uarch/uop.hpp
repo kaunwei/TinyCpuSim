@@ -105,6 +105,10 @@ struct UOp {
     size_t lsu_queue_idx{0};        // Load/Store queue entry index
     bool mem_forwarded{false};      // Hit in store-to-load forwarding
 
+    // Macro-Op Fusion metadata
+    bool is_fused{false};
+    Opcode fused_cmp_opcode{Opcode::UNKNOWN};
+
     // Pipeline tracking states
     uint64_t ready_cycle{0};
     bool executed{false};

@@ -2,6 +2,7 @@
 #include <vector>
 #include <iostream>
 #include "tinyarmsim/uarch/lsd.hpp"
+#include "tinyarmsim/uarch/fusion_unit.hpp"
 #include "tinyarmsim/uarch/uop.hpp"
 #include "tinyarmsim/uarch/ooo_core.hpp"
 #include "tinyarmsim/memory_bus.hpp"
@@ -482,3 +483,147 @@ TEST(CoreUBenchTest, LSD_UBench_NestedLoopFunctionalParityVsInterpreter) {
     std::cout << "[PERF_COUNTER] LSD_UBench_NestedLoopFunctionalParityVsInterpreter:parity_errors=" << parity_errors << std::endl;
     std::cout << "[PERF_COUNTER] LSD_UBench_NestedLoopFunctionalParityVsInterpreter:matched_registers=" << matched_registers << std::endl;
 }
+
+// =============================================================================
+// Core Microbenchmarks: Macro-Op Fusion (CoreUBench_MacroOpFusion)
+// =============================================================================
+
+// 10. MacroOpFusion: Adjacent CMP + B.cond instruction pair recognized & fused into single uOp_Fused_Branch
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_CmpBranchPair) {
+    MacroOpFusionConfig cfg;
+    cfg.enabled = true;
+    cfg.mode = FusionMode::CMP_BRANCH;
+    MacroOpFusionEngine engine(cfg);
+
+    EXPECT_TRUE(engine.is_enabled());
+
+    // 0x1000: CMP r0, #10
+    UOp cmp_uop;
+    cmp_uop.pc = 0x1000;
+    cmp_uop.opcode = Opcode::CMP;
+    cmp_uop.type = UOpType::ALU;
+    cmp_uop.arch_src1 = 0; // r0
+    cmp_uop.imm = 10;
+    cmp_uop.is_imm_valid = true;
+    cmp_uop.sets_flags = true;
+
+    // 0x1002: BNE 0x1020
+    UOp bne_uop;
+    bne_uop.pc = 0x1002;
+    bne_uop.opcode = Opcode::B;
+    bne_uop.type = UOpType::BRANCH;
+    bne_uop.is_branch = true;
+    bne_uop.cond = ConditionCode::NE;
+    bne_uop.actual_target = 0x1020;
+    bne_uop.imm = 0x1020;
+
+    EXPECT_TRUE(engine.can_fuse(cmp_uop, bne_uop));
+
+    std::vector<UOp> input_uops = {cmp_uop, bne_uop};
+    std::vector<UOp> fused_uops = engine.fuse_sequence(input_uops);
+
+    // Assert fused into a single uOp_Fused_Branch
+    ASSERT_EQ(fused_uops.size(), 1);
+    const UOp& fused = fused_uops[0];
+
+    EXPECT_TRUE(fused.is_fused);
+    EXPECT_TRUE(fused.is_branch);
+    EXPECT_EQ(fused.type, UOpType::BRANCH);
+    EXPECT_EQ(fused.cond, ConditionCode::NE);
+    EXPECT_EQ(fused.arch_src1, 0);
+    EXPECT_EQ(fused.imm, 10);
+    EXPECT_TRUE(fused.is_imm_valid);
+    EXPECT_EQ(fused.actual_target, 0x1020);
+    EXPECT_EQ(fused.fused_cmp_opcode, Opcode::CMP);
+    EXPECT_EQ(engine.get_stats().fused_pairs, 1);
+
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_CmpBranchPair:fused_pairs=" << engine.get_stats().fused_pairs << std::endl;
+}
+
+// 11. MacroOpFusion: Adjacent TST + B.cond instruction pair recognized & fused
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_TstBranchPair) {
+    MacroOpFusionConfig cfg;
+    cfg.enabled = true;
+    cfg.mode = FusionMode::CMP_BRANCH;
+    MacroOpFusionEngine engine(cfg);
+
+    // 0x2000: TST r1, r2
+    UOp tst_uop;
+    tst_uop.pc = 0x2000;
+    tst_uop.opcode = Opcode::TST;
+    tst_uop.type = UOpType::ALU;
+    tst_uop.arch_src1 = 1; // r1
+    tst_uop.arch_src2 = 2; // r2
+    tst_uop.is_imm_valid = false;
+    tst_uop.sets_flags = true;
+
+    // 0x2002: BEQ 0x2040
+    UOp beq_uop;
+    beq_uop.pc = 0x2002;
+    beq_uop.opcode = Opcode::B;
+    beq_uop.type = UOpType::BRANCH;
+    beq_uop.is_branch = true;
+    beq_uop.cond = ConditionCode::EQ;
+    beq_uop.actual_target = 0x2040;
+    beq_uop.imm = 0x2040;
+
+    EXPECT_TRUE(engine.can_fuse(tst_uop, beq_uop));
+
+    std::vector<UOp> input_uops = {tst_uop, beq_uop};
+    std::vector<UOp> fused_uops = engine.fuse_sequence(input_uops);
+
+    ASSERT_EQ(fused_uops.size(), 1);
+    const UOp& fused = fused_uops[0];
+
+    EXPECT_TRUE(fused.is_fused);
+    EXPECT_TRUE(fused.is_branch);
+    EXPECT_EQ(fused.cond, ConditionCode::EQ);
+    EXPECT_EQ(fused.arch_src1, 1);
+    EXPECT_EQ(fused.arch_src2, 2);
+    EXPECT_EQ(fused.actual_target, 0x2040);
+    EXPECT_EQ(fused.fused_cmp_opcode, Opcode::TST);
+    EXPECT_EQ(engine.get_stats().fused_pairs, 1);
+}
+
+// 12. MacroOpFusion: Non-adjacent or ineligible pairs are not fused
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_IneligiblePairs) {
+    MacroOpFusionConfig cfg;
+    cfg.enabled = true;
+    MacroOpFusionEngine engine(cfg);
+
+    // Case A: CMP followed by ADD (not a branch)
+    UOp cmp_uop = make_dummy_uop(0x3000, UOpType::ALU);
+    cmp_uop.opcode = Opcode::CMP;
+    UOp add_uop = make_dummy_uop(0x3002, UOpType::ALU);
+    add_uop.opcode = Opcode::ADD;
+
+    EXPECT_FALSE(engine.can_fuse(cmp_uop, add_uop));
+
+    std::vector<UOp> seq_a = {cmp_uop, add_uop};
+    EXPECT_EQ(engine.fuse_sequence(seq_a).size(), 2);
+
+    // Case B: ADD followed by B.cond (ADD is not CMP/TST)
+    UOp bne_uop = make_dummy_uop(0x3004, UOpType::BRANCH, true, false, 0x3020);
+    bne_uop.opcode = Opcode::B;
+    bne_uop.cond = ConditionCode::NE;
+
+    EXPECT_FALSE(engine.can_fuse(add_uop, bne_uop));
+
+    std::vector<UOp> seq_b = {add_uop, bne_uop};
+    EXPECT_EQ(engine.fuse_sequence(seq_b).size(), 2);
+
+    // Case C: CMP followed by Unconditional Branch (cond == AL)
+    UOp b_uncond = make_dummy_uop(0x3004, UOpType::BRANCH, true, true, 0x3020);
+    b_uncond.opcode = Opcode::B;
+    b_uncond.cond = ConditionCode::AL;
+
+    EXPECT_FALSE(engine.can_fuse(cmp_uop, b_uncond));
+
+    // Case D: Disabled fusion engine
+    MacroOpFusionConfig disabled_cfg;
+    disabled_cfg.enabled = false;
+    MacroOpFusionEngine disabled_engine(disabled_cfg);
+    EXPECT_FALSE(disabled_engine.can_fuse(cmp_uop, bne_uop));
+    EXPECT_EQ(disabled_engine.fuse_sequence({cmp_uop, bne_uop}).size(), 2);
+}
+
