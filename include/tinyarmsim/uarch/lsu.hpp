@@ -260,8 +260,8 @@ public:
             uint32_t lat = 1;
             auto cache_res = l1d_->access(addr, false, lat);
             res.completed = true;
-            uint32_t c_lat = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : l1d_->get_config().hit_latency_cycles;
-            res.latency_cycles = c_lat > 0 ? c_lat : 2;
+            uint32_t configured_hit_lat = l1d_->get_config().hit_latency_cycles > 0 ? l1d_->get_config().hit_latency_cycles : 2;
+            res.latency_cycles = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : configured_hit_lat;
         } else {
             res.completed = true;
             res.latency_cycles = 2;
