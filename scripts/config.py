@@ -127,6 +127,9 @@ def validate_file(file_path):
             errors.append(f"Invalid LSD type: '{lsd_t}'. Must be NONE or LOOP_STREAM.")
         lsd_cap = cfg.getint("core", "lsd_capacity", fallback=cfg.getint("core", "lsd_size", fallback=32))
         if lsd_cap <= 0: errors.append(f"LSD capacity must be > 0 (got {lsd_cap})")
+        fusion_m = cfg.get("core", "fusion_mode", fallback=cfg.get("core", "macro_fusion", fallback=cfg.get("core", "enable_macro_fusion", fallback="NONE"))).upper()
+        if fusion_m not in ["NONE", "DISABLED", "CMP_BRANCH", "CMP_BR", "CMPBRANCH", "TRUE", "FALSE", "1", "0"]:
+            errors.append(f"Invalid Macro-Fusion mode: '{fusion_m}'. Must be NONE or CMP_BRANCH.")
 
     if cfg.has_section("lsd"):
         lsd_t = cfg.get("lsd", "type", fallback=cfg.get("lsd", "lsd_type", fallback="NONE")).upper()
@@ -134,6 +137,12 @@ def validate_file(file_path):
             errors.append(f"Invalid LSD type in [lsd]: '{lsd_t}'. Must be NONE or LOOP_STREAM.")
         lsd_cap = cfg.getint("lsd", "capacity", fallback=cfg.getint("lsd", "lsd_capacity", fallback=32))
         if lsd_cap <= 0: errors.append(f"LSD capacity must be > 0 (got {lsd_cap})")
+
+    if cfg.has_section("fusion") or cfg.has_section("macro_fusion"):
+        f_sec = "fusion" if cfg.has_section("fusion") else "macro_fusion"
+        fusion_m = cfg.get(f_sec, "type", fallback=cfg.get(f_sec, "mode", fallback=cfg.get(f_sec, "fusion_mode", fallback=cfg.get(f_sec, "enable_macro_fusion", fallback="NONE")))).upper()
+        if fusion_m not in ["NONE", "DISABLED", "CMP_BRANCH", "CMP_BR", "CMPBRANCH", "TRUE", "FALSE", "1", "0"]:
+            errors.append(f"Invalid Macro-Fusion mode in [{f_sec}]: '{fusion_m}'. Must be NONE or CMP_BRANCH.")
 
     if cfg.has_section("branch_predictor"):
         bp_type = cfg.get("branch_predictor", "type", fallback="TAGE").upper()
@@ -246,6 +255,9 @@ def show_config(file_path=CURRENT_CFG, title="Active Configuration"):
         lsd_cap = cfg.get('core', 'lsd_capacity', fallback='32')
         lsd_status = f"\033[1;32mLOOP_STREAM\033[0m (Capacity: {lsd_cap} uops)" if lsd_enabled else "\033[1;30mNONE\033[0m"
         print(f"  Loop Stream Detector:    {lsd_status}")
+        fusion_enabled = cfg.getboolean('core', 'enable_macro_fusion', fallback=False) or cfg.get('core', 'fusion_mode', fallback='NONE').upper() in ['CMP_BRANCH', 'CMP_BR', 'CMPBRANCH']
+        fusion_status = "\033[1;32mCMP_BRANCH\033[0m" if fusion_enabled else "\033[1;30mNONE\033[0m"
+        print(f"  Macro-Op Fusion:         {fusion_status}")
         print("-" * 80)
 
     if cfg.has_section("branch_predictor"):

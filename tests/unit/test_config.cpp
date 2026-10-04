@@ -227,3 +227,65 @@ capacity = 64
     EXPECT_EQ(cfg.default_core.lsd_capacity, 64);
     EXPECT_TRUE(cfg.default_core.is_lsd_enabled());
 }
+
+TEST(ConfigTest, FusionDefaultsAndEnum) {
+    CoreConfig core_cfg;
+    EXPECT_EQ(core_cfg.fusion_mode, FusionMode::NONE);
+    EXPECT_FALSE(core_cfg.is_fusion_enabled());
+    EXPECT_NO_THROW(core_cfg.validate());
+
+    core_cfg.fusion_mode = FusionMode::CMP_BRANCH;
+    EXPECT_TRUE(core_cfg.is_fusion_enabled());
+    EXPECT_NO_THROW(core_cfg.validate());
+}
+
+TEST(ConfigTest, ParseKvFusionInCoreSection) {
+    std::string config_content = R"(
+[global]
+num_cores = 1
+
+[core]
+enable_ooo = true
+enable_macro_fusion = true
+)";
+
+    std::istringstream iss(config_content);
+    UArchConfig cfg = UArchConfig::parse_kv(iss);
+
+    EXPECT_EQ(cfg.default_core.fusion_mode, FusionMode::CMP_BRANCH);
+    EXPECT_TRUE(cfg.default_core.is_fusion_enabled());
+}
+
+TEST(ConfigTest, ParseKvFusionModeInCoreSection) {
+    std::string config_content = R"(
+[global]
+num_cores = 1
+
+[core]
+enable_ooo = true
+fusion_mode = CMP_BRANCH
+)";
+
+    std::istringstream iss(config_content);
+    UArchConfig cfg = UArchConfig::parse_kv(iss);
+
+    EXPECT_EQ(cfg.default_core.fusion_mode, FusionMode::CMP_BRANCH);
+    EXPECT_TRUE(cfg.default_core.is_fusion_enabled());
+}
+
+TEST(ConfigTest, ParseKvFusionDedicatedSection) {
+    std::string config_content = R"(
+[global]
+num_cores = 1
+
+[fusion]
+mode = CMP_BRANCH
+)";
+
+    std::istringstream iss(config_content);
+    UArchConfig cfg = UArchConfig::parse_kv(iss);
+
+    EXPECT_EQ(cfg.default_core.fusion_mode, FusionMode::CMP_BRANCH);
+    EXPECT_TRUE(cfg.default_core.is_fusion_enabled());
+}
+

@@ -65,6 +65,11 @@ enum class LSDType {
     LOOP_STREAM
 };
 
+enum class FusionMode {
+    NONE,
+    CMP_BRANCH
+};
+
 struct CacheConfig {
     CacheType type{CacheType::SET_ASSOCIATIVE};
     size_t size_bytes{32768};        // Default: 32KB
@@ -185,6 +190,7 @@ struct CoreConfig {
     size_t num_phys_regs{128};
     LSDType lsd_type{LSDType::NONE};
     size_t lsd_capacity{32};
+    FusionMode fusion_mode{FusionMode::NONE};
 
     CacheConfig l1i{};
     CacheConfig l1d{};
@@ -197,6 +203,10 @@ struct CoreConfig {
 
     [[nodiscard]] bool is_lsd_enabled() const noexcept {
         return lsd_type != LSDType::NONE;
+    }
+
+    [[nodiscard]] bool is_fusion_enabled() const noexcept {
+        return fusion_mode != FusionMode::NONE;
     }
 
     [[nodiscard]] bool is_fast_feeder() const noexcept {
@@ -432,6 +442,13 @@ struct UArchConfig {
                 else if (key == "lsd_capacity" || key == "lsd_size" || key == "lsd_entries") {
                     cfg.default_core.lsd_capacity = std::stoul(val);
                 }
+                else if (key == "fusion_mode" || key == "macro_fusion" || key == "macro_fusion_mode") {
+                    if (u_val == "NONE" || u_val == "DISABLED") cfg.default_core.fusion_mode = FusionMode::NONE;
+                    else if (u_val == "CMP_BRANCH" || u_val == "CMP_BR" || u_val == "CMPBRANCH") cfg.default_core.fusion_mode = FusionMode::CMP_BRANCH;
+                }
+                else if (key == "enable_macro_fusion" || key == "enable_fusion") {
+                    cfg.default_core.fusion_mode = parse_bool(val) ? FusionMode::CMP_BRANCH : FusionMode::NONE;
+                }
             } else if (current_section == "lsd") {
                 if (key == "type" || key == "mode" || key == "lsd_type") {
                     if (u_val == "NONE" || u_val == "DISABLED") cfg.default_core.lsd_type = LSDType::NONE;
@@ -442,6 +459,14 @@ struct UArchConfig {
                 }
                 else if (key == "capacity" || key == "lsd_capacity" || key == "size" || key == "lsd_size" || key == "entries") {
                     cfg.default_core.lsd_capacity = std::stoul(val);
+                }
+            } else if (current_section == "fusion" || current_section == "macro_fusion") {
+                if (key == "type" || key == "mode" || key == "fusion_mode") {
+                    if (u_val == "NONE" || u_val == "DISABLED") cfg.default_core.fusion_mode = FusionMode::NONE;
+                    else if (u_val == "CMP_BRANCH" || u_val == "CMP_BR" || u_val == "CMPBRANCH") cfg.default_core.fusion_mode = FusionMode::CMP_BRANCH;
+                }
+                else if (key == "enabled" || key == "enable_macro_fusion" || key == "enable_fusion" || key == "enable") {
+                    cfg.default_core.fusion_mode = parse_bool(val) ? FusionMode::CMP_BRANCH : FusionMode::NONE;
                 }
             } else if (current_section == "l1i" || current_section == "cache_l1i") {
                 parse_cache_field(cfg.default_core.l1i);
