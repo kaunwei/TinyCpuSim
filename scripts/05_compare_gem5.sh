@@ -30,18 +30,4 @@ echo "============================================================"
 echo " [Step 5/5] TinyCpuSim vs gem5 Golden Reference Accuracy   "
 echo "============================================================"
 
-# Check if multi-slice comparison mode is requested
-USE_SLICES=0
-for arg in "$@"; do
-    case "${arg}" in
-        --slice|--slices|--compare-slices|--slice-insts*|--tinysim-slices*|-t)
-            USE_SLICES=1
-            ;;
-    esac
-done
-
-if [ ${USE_SLICES} -eq 1 ]; then
-    "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/compare_slices.py" "$@"
-else
-    "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/verify_gem5.py" "$@"
-fi
+"${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/verify_gem5.py" "$@"

@@ -49,14 +49,7 @@ def main():
     default_jobs = max(1, (os.cpu_count() or 4) // 2)
     parser = argparse.ArgumentParser(description="Generate gem5 Golden Reference Stats for TinyArmSim Benchmarks")
     parser.add_argument("-j", "--jobs", type=int, default=default_jobs, help=f"Parallel worker threads/processes (default: {default_jobs}, half of CPU cores)")
-    parser.add_argument("--slices", action="store_true", help="Also generate multi-slice interval golden stats via generate_gem5_slices.py")
-    parser.add_argument("--slice-insts", type=int, default=1000, help="Interval instructions for multi-slice mode (default: 1000)")
     args = parser.parse_args()
-
-    if args.slices:
-        slices_script = os.path.join(root_dir, "scripts", "generate_gem5_slices.py")
-        cmd = [sys.executable, slices_script, "-j", str(args.jobs), "--slice-insts", str(args.slice_insts)]
-        sys.exit(subprocess.run(cmd).returncode)
 
     if not os.path.exists(gem5_bin):
         print(f"Error: gem5 binary not found at {gem5_bin}")
