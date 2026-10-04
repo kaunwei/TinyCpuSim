@@ -1,7 +1,15 @@
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
+[SUCCESS] TASK-010: Profile Bubble Sort inner loop, STLF rate, memory order checks, and gem5 golden stats comparison
+Time: 2026-10-04 16:57:00 | Commit: 7f39e4f | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 2
+Changes: Profiled test_sort.elf with --log, --slice-insts 1000, --topdown; analyzed inner loop, STLF (45.57%), MOB violations (0); authored .scratch/sort_profile.md
+Verification: Build PASS, Unit Tests PASS (184/184), .scratch/sort_profile.md verified
+Attempt Trace:
+  • Attempt 1: PASS (Generated profile & detailed comparison report against gem5 stats)
+================================================================================
 [SUCCESS] TASK-009: Align branch predictor speculative update timing, history rollback on squash, and OoO pipeline resteer penalty against gem5 BiMode O3 configuration
-Time: 2026-10-04 01:34:10 | Commit: PENDING | Duration: 45s | Attempts: 1/3 | Confidence: HIGH
+Time: 2026-10-04 01:34:10 | Commit: 4d88701 | Duration: 45s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 1
 Changes: Configured default branch predictor to BIMODE in configs/default/default.cfg, verified speculative history rollback & resteer penalty
 Verification: Build PASS, Unit Tests PASS (184/184), ubench delta PASS (<1%), test_branch_pred IPC delta = 0.17% (<5% threshold)
