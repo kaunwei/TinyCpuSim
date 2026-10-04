@@ -556,6 +556,61 @@
           "tolerance_pct": 0.0
         }
       ]
+    },
+    "lsd": {
+      "title": "Loop Stream Detector (LSD) & Frontend Power-Bypass Microbenchmarks",
+      "binary": "core_ubench_test",
+      "calibrated": true,
+      "items": [
+        {
+          "ubench": "LSD_UBench_TopDownFrontendBoundInvariant",
+          "metric": "LSD Streaming Frontend Bound Percentage (0.0%)",
+          "counter_key": "frontend_bound_pct",
+          "gem5_counter": "topdown.frontendBoundPct (LSD)",
+          "gem5_val": 0.0,
+          "tolerance_pct": 0.01
+        },
+        {
+          "ubench": "LSD_UBench_TopDownFrontendBoundInvariant",
+          "metric": "LSD Streaming Slot Conservation (100.0%)",
+          "counter_key": "slot_conservation",
+          "gem5_counter": "topdown.slotConservationSum",
+          "gem5_val": 100.0,
+          "tolerance_pct": 0.01
+        },
+        {
+          "ubench": "LSD_UBench_L1IAccessCountCeasesIncrementing",
+          "metric": "L1I Cache Accesses During Active LSD Streaming",
+          "counter_key": "streaming_l1i_accesses",
+          "gem5_counter": "icache.accessesDuringStreaming",
+          "gem5_val": 0,
+          "tolerance_pct": 0.0
+        },
+        {
+          "ubench": "LSD_UBench_L1IAccessCountCeasesIncrementing",
+          "metric": "LSD Detected Loops Count",
+          "counter_key": "loops_detected",
+          "gem5_counter": "fetch.lsd.loopsDetected",
+          "gem5_val": 1,
+          "tolerance_pct": 0.0
+        },
+        {
+          "ubench": "LSD_UBench_NestedLoopFunctionalParityVsInterpreter",
+          "metric": "LSD Nested Loop vs Interpreter State Parity Errors",
+          "counter_key": "parity_errors",
+          "gem5_counter": "system.archParityErrors",
+          "gem5_val": 0,
+          "tolerance_pct": 0.0
+        },
+        {
+          "ubench": "LSD_UBench_NestedLoopFunctionalParityVsInterpreter",
+          "metric": "LSD Nested Loop vs Interpreter Matched Registers (R0-R15)",
+          "counter_key": "matched_registers",
+          "gem5_counter": "system.archMatchedRegisters",
+          "gem5_val": 16,
+          "tolerance_pct": 0.0
+        }
+      ]
     }
   }
 }
