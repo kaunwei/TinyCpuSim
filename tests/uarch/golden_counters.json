@@ -271,6 +271,14 @@
           "tolerance_pct": 0.0
         },
         {
+          "ubench": "LSU_UBench_StoreForwardingTightLoop",
+          "metric": "Tight Loop Consecutive Store-to-Load Forwarding (1000 iterations)",
+          "counter_key": "forward_count",
+          "gem5_counter": "lsu.forwLoads (1000x STLF Loop)",
+          "gem5_val": 1000,
+          "tolerance_pct": 0.0
+        },
+        {
           "ubench": "LSU_UBench_StoreDataPendingReplay",
           "metric": "Store Data Pending Replay Queue (500 iterations)",
           "counter_key": "replayed_loads",

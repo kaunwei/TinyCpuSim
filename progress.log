@@ -1,4 +1,13 @@
 ================================================================================
+[SUCCESS] TASK-036: Add isolated LSU microbenchmark LSU_UBench_StoreForwardingTightLoop
+Time: 2026-10-04 19:31:10 | Duration: 45s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: tests/uarch/exec_lsu_ubench_test.cpp, tests/uarch/golden_counters.json
+Verification: Build PASS (0 warnings), Unit Tests PASS (186/186), LSU ubench PASS (0.00% delta)
+Attempt Trace:
+  • Attempt 1: PASS (Added LSU_UBench_StoreForwardingTightLoop with 1000 STR/LDR pairs, verified 1-cycle latency and STLF counter, registered in golden_counters.json; 186/186 unit tests pass, LSU ubench delta 0.00%)
+================================================================================
+================================================================================
 [SUCCESS] TASK-026: Ensure cache hits use L1D configured hit_latency_cycles and store-to-load forwarding uses 1 cycle
 Time: 2026-10-04 19:25:30 | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 3

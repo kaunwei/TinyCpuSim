@@ -501,6 +501,50 @@ TEST(ExecLsuUBenchTest, LSU_UBench_BubbleSortTightLdrStrForwarding) {
     std::cout << "[PERF_COUNTER] LSU_UBench_BubbleSortTightLdrStrForwarding:forward_count=" << total_forwarded << std::endl;
 }
 
+// 1f. Tight loop consecutive Store-to-Load Forwarding matching test_store_forward.elf (1000 iterations)
+TEST(ExecLsuUBenchTest, LSU_UBench_StoreForwardingTightLoop) {
+    MemoryBus bus(65536);
+    LsuConfig cfg;
+    cfg.lq_size = 16;
+    cfg.sq_size = 16;
+    cfg.store_forward_latency = 1;
+    LoadStoreUnit lsu(cfg, nullptr, &bus);
+
+    constexpr uint64_t kIterations = 1000;
+    uint32_t target_addr = 0x2000;
+
+    for (uint64_t i = 1; i <= kIterations; ++i) {
+        uint32_t data = 0xAA000000 | static_cast<uint32_t>(i);
+
+        // STR (store data to target_addr)
+        UOp store_uop;
+        store_uop.seq_num = (i * 2) - 1;
+        store_uop.rob_idx = 0;
+        size_t sq_idx = lsu.allocate_store(store_uop);
+        size_t dummy_viol = 0;
+        lsu.execute_store_address(sq_idx, target_addr, 4, store_uop.seq_num, dummy_viol);
+        lsu.execute_store_data(sq_idx, data);
+
+        // Dependent LDR immediately on identical target_addr
+        UOp load_uop;
+        load_uop.seq_num = i * 2;
+        load_uop.rob_idx = 1;
+        size_t lq_idx = lsu.allocate_load(load_uop);
+        auto res = lsu.execute_load(lq_idx, target_addr, 4, load_uop.seq_num);
+
+        EXPECT_TRUE(res.completed);
+        EXPECT_TRUE(res.forwarded);
+        EXPECT_EQ(res.data, data);
+        EXPECT_EQ(res.latency_cycles, 1);
+
+        lsu.commit_store(sq_idx);
+        lsu.free_load(lq_idx);
+    }
+
+    EXPECT_EQ(lsu.get_stats().forwarded_loads, kIterations);
+    std::cout << "[PERF_COUNTER] LSU_UBench_StoreForwardingTightLoop:forward_count=" << lsu.get_stats().forwarded_loads << std::endl;
+}
+
 
 // 2. Store address known, data pending -> Load replays until store data arrives (500 stress iterations)
 TEST(ExecLsuUBenchTest, LSU_UBench_StoreDataPendingReplay) {
