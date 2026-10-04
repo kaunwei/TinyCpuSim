@@ -3,7 +3,6 @@
 __pycache__/
 *.pyc
 
-
 # Compiled Object files
 *.slo
 *.lo
@@ -25,7 +24,6 @@ __pycache__/
 *.dylib
 *.dll
 *.so.*
-
 
 # Fortran module files
 *.mod
@@ -81,15 +79,20 @@ reports/ubench/*.txt
 !reports/ubench/default/
 !reports/ubench/default/*.txt
 
-# 24h Unattended Worker Artifacts
+# AI Developer & Unattended Worker Infrastructure (Internal Dev Only)
+.agents/
+.skills/
+worker.sh
+scripts/watch_worker.sh
 worker.status
 .worker.log
 .worker.pid
-PAUSE
 .worker.env
+.worker.notes.md
+PAUSE
+tasks.txt
+tasks.done
+progress.log
 .scratch/
-!progress.log
-
-
-
-
+AGENTS.md
+GEMINI.md

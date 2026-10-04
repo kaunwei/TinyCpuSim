@@ -46,7 +46,7 @@ show_help() {
     echo "  ./run.sh test                       # [Step 2] Run 186 unit & regression tests (parallel ctest)"
     echo "  ./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks (<1% Δ)"
     echo "  ./run.sh sim [elf] [config]         # [Step 4] Run simulation (zero-args reads current.cfg)"
-    echo "  ./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden"
+    echo "  ./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (100% PASS)"
     echo ""
     echo "Microarchitectural Slicing & Profiling:"
     echo "  ./run.sh slice [elf]                # Interval slice comparison vs gem5 (locate drift points)"
@@ -62,13 +62,6 @@ show_help() {
     echo "  ./run.sh exp [elf]                  # Run experiment on target ELF using active config"
     echo "  ./run.sh exp --set k=v              # Run experiment with hardware overrides (e.g. ooo=false)"
     echo "  ./run.sh sweep                      # Run dynamic parameter sweep on hardware knobs"
-    echo ""
-    echo "24h Unattended Worker & Sentinel Supervision:"
-    echo "  ./run.sh worker                     # Launch background worker daemon (./worker.sh)"
-    echo "  ./run.sh watch                      # Run Sentinel queue watcher (scripts/watch_worker.sh 3600)"
-    echo "  ./run.sh pause                      # Pause background worker daemon (touch PAUSE)"
-    echo "  ./run.sh resume                     # Resume background worker daemon (rm -f PAUSE)"
-    echo "  ./run.sh status                     # Show worker daemon status"
     echo ""
     echo "Catalogs & Utilities:"
     echo "  ./run.sh knobs                      # List all tunable hardware parameters & units"
@@ -90,11 +83,10 @@ show_menu() {
     echo "  [S] Slice:    Run Multi-Slice Interval Profiling & Drift Point Locator"
     echo "  [6] Exp:      Run Experiment on Active Config vs Baseline"
     echo "  [7] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs"
-    echo "  [W] Worker:   View Background Worker Daemon Status"
     echo "  [H] Help:     View Complete Command & Usage Manual"
     echo "  [0] Exit"
     echo "============================================================"
-    read -r -p "Enter choice [C, 1-7, S, W, H, 0]: " choice
+    read -r -p "Enter choice [C, 1-7, S, H, 0]: " choice
     case "${choice}" in
         c|C|config) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" ;;
         1) "${PROJECT_ROOT}/scripts/01_build.sh" ;;
@@ -105,13 +97,6 @@ show_menu() {
         s|S|slice) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/compare_slices.py" --all-golden ;;
         6) run_interactive_exp ;;
         7) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep ;;
-        w|W|worker)
-            if [ -f "${PROJECT_ROOT}/worker.status" ]; then
-                cat "${PROJECT_ROOT}/worker.status"
-            else
-                echo "Worker status file not found."
-            fi
-            ;;
         h|H|help) show_help ;;
         0|q|Q) echo "Goodbye!"; exit 0 ;;
         *) echo "Invalid option."; exit 1 ;;
@@ -153,27 +138,6 @@ else
             ;;
         slice|slices)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/compare_slices.py" "$@"
-            ;;
-        worker)
-            "${PROJECT_ROOT}/worker.sh" "$@"
-            ;;
-        watch|watch-worker)
-            bash "${PROJECT_ROOT}/scripts/watch_worker.sh" "${1:-3600}"
-            ;;
-        pause)
-            touch "${PROJECT_ROOT}/PAUSE"
-            echo "[OK] Background worker paused (created PAUSE file)."
-            ;;
-        resume)
-            rm -f "${PROJECT_ROOT}/PAUSE"
-            echo "[OK] Background worker resumed (removed PAUSE file)."
-            ;;
-        status|worker-status)
-            if [ -f "${PROJECT_ROOT}/worker.status" ]; then
-                cat "${PROJECT_ROOT}/worker.status"
-            else
-                echo "Worker status file not found."
-            fi
             ;;
         6|exp|experiment)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" "$@"
