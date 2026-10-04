@@ -1,3 +1,12 @@
+================================================================================
+[SUCCESS] TASK-016: In stage_issue(), change max_alu from fixed 2 to config_.issue_width (allowing up to 4 concurrent simple ALUs), keep max_load=1, max_store=1, max_branch=1, max_mul=1
+Time: 2026-10-04 18:05:30 | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/ooo_core.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), Microbenchmark Invariants PASS (<1% delta), gem5 verification PASS
+Attempt Trace:
+  • Attempt 1: PASS (Updated max_alu to config_.issue_width, max_mul=1, max_load=1, max_store=1, max_branch=1; test_arithmetic IPC increased from 1.518 to 1.989 and test_sort PASS)
+================================================================================
 # 24h Unattended Worker Progress Log (Top-Prepended, <= 10 lines per record)
 ================================================================================
 [SUCCESS] TASK-013: Profile test_arithmetic.elf and test_raw_hazard.elf with --log and --slice-insts 1000 and document int ALU port contention analysis

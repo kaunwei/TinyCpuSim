@@ -600,14 +600,19 @@ private:
         uint32_t branch_count = 0;
         uint32_t load_count = 0;
         uint32_t store_count = 0;
-        uint32_t max_alu = 2;
+        uint32_t mul_count = 0;
+        uint32_t max_alu = config_.issue_width > 0 ? config_.issue_width : 4;
         uint32_t max_branch = 1;
         uint32_t max_load = 1;
         uint32_t max_store = 1;
+        uint32_t max_mul = 1;
 
         for (const auto& u : candidate_uops) {
             bool accept = true;
-            if (u.type == UOpType::ALU || u.type == UOpType::MUL || u.type == UOpType::DIV) {
+            if (u.type == UOpType::MUL || u.type == UOpType::DIV || u.opcode == Opcode::MUL || u.opcode == Opcode::MLA) {
+                if (mul_count >= max_mul) accept = false;
+                else mul_count++;
+            } else if (u.type == UOpType::ALU) {
                 if (alu_count >= max_alu) accept = false;
                 else alu_count++;
             } else if (u.type == UOpType::BRANCH || u.type == UOpType::CALL || (u.type == UOpType::RET && u.opcode != Opcode::LDR)) {
