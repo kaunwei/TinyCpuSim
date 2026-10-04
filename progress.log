@@ -1,4 +1,13 @@
 ================================================================================
+[SUCCESS] TASK-020: In stage_dispatch(), change max_dispatch from config_.decode_width to config_.issue_width
+Time: 2026-10-04 18:22:00 | Duration: 35s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/ooo_core.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), gem5 test_arithmetic verified
+Attempt Trace:
+  • Attempt 1: PASS (Updated max_dispatch to config_.issue_width, 185/185 unit tests passed, test_arithmetic verified)
+================================================================================
+================================================================================
 [SUCCESS] TASK-019: Set branch mispredict refill penalty to 11 cycles in recover_from_mispredict()
 Time: 2026-10-04 18:21:20 | Duration: 45s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 3

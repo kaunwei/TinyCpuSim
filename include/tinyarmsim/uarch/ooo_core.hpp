@@ -645,7 +645,7 @@ private:
 
     void stage_dispatch() {
         uint32_t dispatch_count = 0;
-        uint32_t max_dispatch = config_.decode_width > 0 ? config_.decode_width : 4;
+        uint32_t max_dispatch = config_.issue_width > 0 ? config_.issue_width : 4;
         while (!rename_queue_.empty() && dispatch_count < max_dispatch) {
             const auto& uop = rename_queue_.front();
             if (rob_.is_full()) {
