@@ -223,7 +223,16 @@ public:
             if (sq_[static_cast<size_t>(best_match)].data_valid) {
                 res.completed = true;
                 res.forwarded = true;
-                res.data = sq_[static_cast<size_t>(best_match)].data;
+                uint32_t raw_data = sq_[static_cast<size_t>(best_match)].data;
+                if (size_bytes == 1) {
+                    uint8_t b_val = static_cast<uint8_t>(raw_data & 0xFF);
+                    res.data = is_signed ? static_cast<uint32_t>(static_cast<int8_t>(b_val)) : b_val;
+                } else if (size_bytes == 2) {
+                    uint16_t h_val = static_cast<uint16_t>(raw_data & 0xFFFF);
+                    res.data = is_signed ? static_cast<uint32_t>(static_cast<int16_t>(h_val)) : h_val;
+                } else {
+                    res.data = raw_data;
+                }
                 res.latency_cycles = config_.store_forward_latency > 0 ? config_.store_forward_latency : 1;
 
                 lq_[lq_idx].data = res.data;
