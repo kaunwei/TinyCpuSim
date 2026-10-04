@@ -250,10 +250,11 @@ public:
             uint32_t lat = 1;
             auto cache_res = l1d_->access(addr, false, lat);
             res.completed = true;
-            res.latency_cycles = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : 1;
+            uint32_t c_lat = cache_res.latency_cycles > 0 ? cache_res.latency_cycles : 1;
+            res.latency_cycles = std::max(c_lat, 2u);
         } else {
             res.completed = true;
-            res.latency_cycles = 1;
+            res.latency_cycles = 2;
         }
 
         lq_[lq_idx].data = res.data;

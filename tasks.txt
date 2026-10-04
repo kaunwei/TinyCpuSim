@@ -1,5 +1,12 @@
 # 24h Unattended Background Worker Task Queue (FIFO)
 # Format: TASK-XXX | TARGET: <file_paths> | ACTION: <concrete logic> | VERIFY: <test command> | CONSTRAINTS: <bounds>
 
+TASK-023 | LEVEL: 3 | TARGET: configs/default/default.cfg | ACTION: Align default uarch configuration parameters with gem5 O3 Cortex-A15 baseline: set fetch_width=3, decode_width=3, rename_width=3, issue_width=8, commit_width=8, rob_size=40, bp table_size=8192, btb_size=2048, ras_size=16, and l1d hit_latency_cycles=2 | VERIFY: grep "hit_latency_cycles = 2" configs/default/default.cfg | CONSTRAINTS: Only modify configs/default/default.cfg
 
+TASK-024 | LEVEL: 3 | TARGET: include/tinyarmsim/uarch/ooo_core.hpp | ACTION: In recover_from_mispredict() (around line 826), update fetch_unit_.flush(redirect_target, 4) to fetch_unit_.flush(redirect_target, 11) to match the 11-cycle front-end pipeline refill delay in gem5 O3 | VERIFY: ./scripts/01_build.sh && ./scripts/02_run_tests.sh | CONSTRAINTS: 100% test pass, zero compiler warnings, localized edit in ooo_core.hpp
 
+TASK-025 | LEVEL: 3 | TARGET: include/tinyarmsim/uarch/ooo_core.hpp | ACTION: In stage_dispatch(), allow dispatching up to 6 uops per cycle to match gem5 dispatchWidth=6. In stage_issue(), classify uops into distinct ports: max_simple_alu=2, max_complex_alu=1 (MUL/DIV), max_branch=1, max_load=1, max_store=1 (matching gem5 FUPool) | VERIFY: ./scripts/01_build.sh && ./scripts/02_run_tests.sh | CONSTRAINTS: 100% test pass, zero compiler warnings
+
+TASK-026 | LEVEL: 3 | TARGET: include/tinyarmsim/uarch/lsu.hpp | ACTION: In execute_load() (around lines 250-257), ensure cache hits use the L1D configured hit_latency_cycles (2 cycles) while store-to-load forwarding bypass completes in 1 cycle | VERIFY: ./scripts/01_build.sh && ./scripts/02_run_tests.sh | CONSTRAINTS: 100% test pass, zero compiler warnings
+
+TASK-027 | LEVEL: 1 | TARGET: scripts/verify_gem5.py | ACTION: Run verify_gem5.py across all 9 golden ELF benchmarks and ensure 100% pass with all individual IPC discrepancies strictly below 5% | VERIFY: /usr/bin/python3 scripts/verify_gem5.py -a | CONSTRAINTS: All 9 ELFs pass with IPC delta < 5.0%
