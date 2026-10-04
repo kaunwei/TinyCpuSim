@@ -132,6 +132,45 @@ public:
         }
     }
 
+    // Memory Order Buffer (MOB) Disambiguation check helper:
+    // Returns true and sets out_violating_rob_idx if any younger speculative load read from an overlapping address range.
+    [[nodiscard]] bool check_memory_order_violation(uint32_t addr, uint8_t size_bytes, uint64_t store_seq_num, size_t& out_violating_rob_idx) noexcept {
+        uint32_t s_end = addr + size_bytes;
+        for (const auto& lq_entry : lq_) {
+            if (lq_entry.valid && lq_entry.addr_valid && lq_entry.data_ready) {
+                if (lq_entry.uop.seq_num > store_seq_num) {
+                    uint32_t l_end = lq_entry.addr + lq_entry.size_bytes;
+                    bool overlap = (addr < l_end) && (lq_entry.addr < s_end);
+                    if (overlap && !lq_entry.forwarded_from_sq) {
+                        out_violating_rob_idx = lq_entry.uop.rob_idx;
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Store-to-Load Forwarding (STLF) Match Finder helper:
+    // Returns index of the youngest older store queue entry matching the given address and size, or -1 if none found.
+    [[nodiscard]] int find_store_forwarding_match(uint32_t addr, uint8_t size_bytes, uint64_t load_seq_num) const noexcept {
+        if (!config_.is_active()) return -1;
+        int best_match = -1;
+        uint64_t latest_older_seq = 0;
+        for (size_t i = 0; i < sq_capacity_; ++i) {
+            const auto& sq = sq_[i];
+            if (sq.valid && sq.addr_valid && sq.seq_num < load_seq_num) {
+                if (sq.addr == addr && sq.size_bytes == size_bytes) {
+                    if (sq.seq_num >= latest_older_seq) {
+                        latest_older_seq = sq.seq_num;
+                        best_match = static_cast<int>(i);
+                    }
+                }
+            }
+        }
+        return best_match;
+    }
+
     // Execute Store Address uop (STA) -> Port 3
     // Returns true if a speculative load memory hazard violation is detected
     bool execute_store_address(size_t sq_idx, uint32_t addr, uint8_t size_bytes, uint64_t store_seq_num, size_t& out_violating_rob_idx) {
@@ -144,22 +183,9 @@ public:
         sq_[sq_idx].addr_valid = true;
 
         // Memory Order Buffer (MOB) Disambiguation:
-        // Check if any younger speculative load already executed and read from an overlapping address range
-        uint32_t s_end = addr + size_bytes;
-        for (const auto& lq_entry : lq_) {
-            if (lq_entry.valid && lq_entry.addr_valid && lq_entry.data_ready) {
-                if (lq_entry.uop.seq_num > store_seq_num) {
-                    uint32_t l_end = lq_entry.addr + lq_entry.size_bytes;
-                    bool overlap = (addr < l_end) && (lq_entry.addr < s_end);
-                    if (overlap) {
-                        if (!lq_entry.forwarded_from_sq) {
-                            out_violating_rob_idx = lq_entry.uop.rob_idx;
-                            stats_.memory_order_violations++;
-                            return true; // Memory hazard violation!
-                        }
-                    }
-                }
-            }
+        if (check_memory_order_violation(addr, size_bytes, store_seq_num, out_violating_rob_idx)) {
+            stats_.memory_order_violations++;
+            return true;
         }
         return false;
     }
@@ -192,40 +218,24 @@ public:
         LoadResult res;
 
         // 1. Store-to-Load Forwarding Check (Search older SQ entries)
-        if (config_.is_active()) {
-            int best_match = -1;
-            uint64_t latest_older_seq = 0;
+        int best_match = find_store_forwarding_match(addr, size_bytes, load_seq_num);
+        if (best_match != -1) {
+            if (sq_[static_cast<size_t>(best_match)].data_valid) {
+                res.completed = true;
+                res.forwarded = true;
+                res.data = sq_[static_cast<size_t>(best_match)].data;
+                res.latency_cycles = config_.store_forward_latency > 0 ? config_.store_forward_latency : 1;
 
-            for (size_t i = 0; i < sq_capacity_; ++i) {
-                const auto& sq = sq_[i];
-                if (sq.valid && sq.addr_valid && sq.seq_num < load_seq_num) {
-                    if (sq.addr == addr && sq.size_bytes == size_bytes) {
-                        if (sq.seq_num >= latest_older_seq) {
-                            latest_older_seq = sq.seq_num;
-                            best_match = static_cast<int>(i);
-                        }
-                    }
-                }
-            }
-
-            if (best_match != -1) {
-                if (sq_[static_cast<size_t>(best_match)].data_valid) {
-                    res.completed = true;
-                    res.forwarded = true;
-                    res.data = sq_[static_cast<size_t>(best_match)].data;
-                    res.latency_cycles = config_.store_forward_latency > 0 ? config_.store_forward_latency : 1;
-
-                    lq_[lq_idx].data = res.data;
-                    lq_[lq_idx].data_ready = true;
-                    lq_[lq_idx].forwarded_from_sq = true;
-                    stats_.forwarded_loads++;
-                    stats_.loads++;
-                    return res;
-                } else {
-                    // Match found in SQ but store data is pending - replay load
-                    res.completed = false;
-                    return res;
-                }
+                lq_[lq_idx].data = res.data;
+                lq_[lq_idx].data_ready = true;
+                lq_[lq_idx].forwarded_from_sq = true;
+                stats_.forwarded_loads++;
+                stats_.loads++;
+                return res;
+            } else {
+                // Match found in SQ but store data is pending - replay load
+                res.completed = false;
+                return res;
             }
         }
 

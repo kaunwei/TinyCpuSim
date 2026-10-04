@@ -1,4 +1,22 @@
 ================================================================================
+[SUCCESS] TASK-029: Extract find_store_forwarding_match and check_memory_order_violation helpers in LSU
+Time: 2026-10-04 18:38:15 | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/lsu.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), ubench suite all PASS (<1% delta)
+Attempt Trace:
+  • Attempt 1: PASS (Extracted find_store_forwarding_match and check_memory_order_violation helpers cleanly, 185/185 unit tests & ubench pass)
+================================================================================
+================================================================================
+[SUCCESS] TASK-028: Refactor stage_issue() port scheduling to extract FunctionalUnitPool
+Time: 2026-10-04 18:37:00 | Duration: 40s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/ooo_core.hpp
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), ubench suite all PASS (<1% delta)
+Attempt Trace:
+  • Attempt 1: PASS (Extracted FunctionalUnitPool with can_issue, record_issue, and tick_cycle; refactored stage_issue cleanly)
+================================================================================
+================================================================================
 [SUCCESS] TASK-026: Ensure L1D hit latency cycles (2 cycles) vs STLF 1 cycle in execute_load()
 Time: 2026-10-04 18:34:00 | Duration: 35s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 3
