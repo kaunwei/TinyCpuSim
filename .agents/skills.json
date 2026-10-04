@@ -14,6 +14,9 @@
     },
     {
       "path": ".agents/skills/misc"
+    },
+    {
+      "path": ".agents/skills/in-progress"
     }
   ]
 }
