@@ -41,26 +41,21 @@ show_help() {
     print_banner
     echo "TinyCpuSim Unified Command Line & Menu Interface Manual"
     echo "============================================================"
-    echo "Workflow Steps:"
+    echo "5-Step Sequential Demo Workflow:"
     echo "  ./run.sh build                      # [Step 1] Build simulator (Release mode)"
-    echo "  ./run.sh test                       # [Step 2] Run 186 unit & regression tests (parallel ctest)"
+    echo "  ./run.sh test                       # [Step 2] Run unit & regression tests (parallel ctest)"
     echo "  ./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks (<1% Δ)"
     echo "  ./run.sh sim [elf] [config]         # [Step 4] Run simulation (zero-args reads current.cfg)"
     echo "  ./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (100% PASS)"
     echo ""
-    echo "Microarchitectural Slicing & Profiling:"
-    echo "  ./run.sh slice [elf]                # Interval slice comparison vs gem5 (locate drift points)"
-    echo ""
-    echo "Configuration & Editing:"
-    echo "  ./run.sh edit                       # Direct vi editing of active configs/current.cfg"
-    echo "  ./run.sh show                       # Display full active microarchitecture dashboard"
-    echo "  ./run.sh list                       # List all presets and snapshots in default/ and save/"
-    echo "  ./run.sh config                     # Launch interactive configuration manager TUI"
-    echo ""
-    echo "Microarchitectural Experiments & Sweeps:"
+    echo "Architecture Exploration & Config Management:"
     echo "  ./run.sh exp                        # Run experiment on active config (configs/current.cfg) vs baseline"
     echo "  ./run.sh exp [elf]                  # Run experiment on target ELF using active config"
     echo "  ./run.sh exp --set k=v              # Run experiment with hardware overrides (e.g. ooo=false)"
+    echo "  ./run.sh config                     # Launch interactive configuration manager TUI"
+    echo "  ./run.sh edit                       # Direct vi editing of active configs/current.cfg"
+    echo "  ./run.sh show                       # Display full active microarchitecture dashboard"
+    echo "  ./run.sh list                       # List all presets and snapshots in default/ and save/"
     echo "  ./run.sh sweep                      # Run dynamic parameter sweep on hardware knobs"
     echo ""
     echo "Catalogs & Utilities:"
@@ -68,35 +63,38 @@ show_help() {
     echo "  ./run.sh elfs                       # List all built-in benchmark ELF workloads"
     echo "  ./run.sh setup                      # Install required system & Python dependencies"
     echo "  ./run.sh clean                      # Clean build artifacts"
+    echo "  ./run.sh help                       # Display this help manual"
     echo "============================================================"
 }
 
 show_menu() {
     print_banner
-    echo "Please choose a step or action:"
+    echo "Sequential Demo Workflow:"
+    echo "  [1] Build:    Build Project (Release Mode)"
+    echo "  [2] Test:     Run Full Test Suite (Unit & Regression Tests)"
+    echo "  [3] uBench:   Run Component Microbenchmarks (uBench)"
+    echo "  [4] Sim:      Run CPU Simulation (reads configs/current.cfg automatically)"
+    echo "  [5] gem5:     Compare Accuracy against gem5 Golden Reference (100% PASS)"
+    echo ""
+    echo "Architecture Exploration:"
+    echo "  [E] Exp:      Run Experiment on Active Config vs Baseline"
     echo "  [C] Config:   Configure Active Simulation, Hardware Knobs, Presets, Save/Load"
-    echo "  [1] Step 1:   Build Project (Release Mode)"
-    echo "  [2] Step 2:   Run Full Test Suite (186 Unit & Regression Tests)"
-    echo "  [3] Step 3:   Run Component Microbenchmarks (uBench)"
-    echo "  [4] Step 4:   Run CPU Simulation (reads configs/current.cfg automatically)"
-    echo "  [5] Step 5:   Compare Accuracy against gem5 Golden Reference (100% PASS)"
-    echo "  [S] Slice:    Run Multi-Slice Interval Profiling & Drift Point Locator"
-    echo "  [6] Exp:      Run Experiment on Active Config vs Baseline"
-    echo "  [7] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs"
+    echo "  [V] View:     View Full Active Microarchitecture Dashboard"
+    echo "  [S] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs"
     echo "  [H] Help:     View Complete Command & Usage Manual"
     echo "  [0] Exit"
     echo "============================================================"
-    read -r -p "Enter choice [C, 1-7, S, H, 0]: " choice
+    read -r -p "Enter choice [1-5, E, C, V, S, H, 0]: " choice
     case "${choice}" in
-        c|C|config) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" ;;
         1) "${PROJECT_ROOT}/scripts/01_build.sh" ;;
         2) "${PROJECT_ROOT}/scripts/02_run_tests.sh" ;;
         3) "${PROJECT_ROOT}/scripts/03_run_ubench.sh" ;;
         4) "${PROJECT_ROOT}/scripts/04_run_simulation.sh" ;;
         5) "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" --all ;;
-        s|S|slice) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/compare_slices.py" --all-golden ;;
-        6) run_interactive_exp ;;
-        7) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep ;;
+        e|E|exp|experiment) run_interactive_exp ;;
+        c|C|config) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" ;;
+        v|V|view|show) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" show ;;
+        s|S|sweep) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep ;;
         h|H|help) show_help ;;
         0|q|Q) echo "Goodbye!"; exit 0 ;;
         *) echo "Invalid option."; exit 1 ;;
@@ -109,18 +107,6 @@ else
     COMMAND="$1"
     shift || true
     case "${COMMAND}" in
-        c|cfg|config)
-            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" "$@"
-            ;;
-        edit|vi)
-            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" edit
-            ;;
-        show|view)
-            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" show
-            ;;
-        list|ls)
-            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" list
-            ;;
         1|build)
             "${PROJECT_ROOT}/scripts/01_build.sh" "$@"
             ;;
@@ -136,13 +122,22 @@ else
         5|gem5)
             "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" "$@"
             ;;
-        slice|slices)
-            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/compare_slices.py" "$@"
-            ;;
-        6|exp|experiment)
+        e|exp|experiment)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" "$@"
             ;;
-        7|sweep)
+        c|cfg|config)
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" "$@"
+            ;;
+        edit|vi)
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" edit
+            ;;
+        show|view)
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" show
+            ;;
+        list|ls)
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" list
+            ;;
+        s|sweep)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep "$@"
             ;;
         knobs|params|list-params)
