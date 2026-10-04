@@ -1,4 +1,13 @@
 ================================================================================
+[SUCCESS] TASK-031: Configure FunctionalUnitPool max_simple_alu=4 and restore 4-wide default.cfg parameters
+Time: 2026-10-04 18:42:20 | Duration: 30s | Attempts: 1/3 | Confidence: HIGH
+Task Granularity: Level 3
+Changes: include/tinyarmsim/uarch/ooo_core.hpp, configs/default/default.cfg
+Verification: Build PASS (0 warnings), Unit Tests PASS (185/185), verify_gem5.py PASS (100% ELF golden match)
+Attempt Trace:
+  • Attempt 1: PASS (Updated max_simple_alu=4 in FunctionalUnitPool, restored 4-wide/ROB=64 in default.cfg, 185/185 unit tests & 9 golden ELFs pass)
+================================================================================
+================================================================================
 [SUCCESS] TASK-030: Run full test suite, all ubench invariant suites, and all 9 ELF golden benchmarks
 Time: 2026-10-04 18:38:35 | Duration: 20s | Attempts: 1/3 | Confidence: HIGH
 Task Granularity: Level 1

@@ -29,7 +29,7 @@ struct FunctionalUnitPool {
     uint32_t load_count{0};
     uint32_t store_count{0};
 
-    uint32_t max_simple_alu{2};
+    uint32_t max_simple_alu{4};
     uint32_t max_complex_alu{1};
     uint32_t max_branch{1};
     uint32_t max_load{1};
