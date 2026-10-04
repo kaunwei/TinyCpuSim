@@ -25,12 +25,20 @@ while true; do
     exit 2
   fi
 
-  # Check remaining tasks in tasks.txt
-  REMAINING_TASKS=$(grep -v '^[[:space:]]*#' "$TASKS_FILE" 2>/dev/null | grep -v '^[[:space:]]*$' | wc -l || echo "0")
+  # Check remaining tasks in tasks.txt safely
+  REMAINING_TASKS=0
+  if [ -f "$TASKS_FILE" ]; then
+    RAW_COUNT=$(grep -v '^[[:space:]]*#' "$TASKS_FILE" 2>/dev/null | grep -v '^[[:space:]]*$' | wc -l) || true
+    REMAINING_TASKS=$(echo "$RAW_COUNT" | tr -dc '0-9')
+  fi
+  if [ -z "$REMAINING_TASKS" ]; then
+    REMAINING_TASKS=0
+  fi
   
   STATE="UNKNOWN"
   if [ -f "$STATUS_FILE" ]; then
-    STATE=$(grep -o '"state":[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | cut -d'"' -f4 || echo "UNKNOWN")
+    STATE=$(grep -o '"state":[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | cut -d'"' -f4 || true)
+    [ -z "$STATE" ] && STATE="UNKNOWN"
   fi
 
   # Check for terminal/blocking states
@@ -39,8 +47,8 @@ while true; do
     exit 1
   fi
 
-  # Check for completion (queue is empty and worker is no longer running)
-  if [ "$REMAINING_TASKS" -eq 0 ] && [ "$STATE" = "IDLE" ]; then
+  # Check for completion (queue is empty and worker is in IDLE or STOPPED state)
+  if [ "$REMAINING_TASKS" -eq 0 ] && { [ "$STATE" = "IDLE" ] || [ "$STATE" = "STOPPED" ]; }; then
     echo "[SENTINEL_COMPLETED] All tasks completed successfully in ${ELAPSED}s."
     exit 0
   fi
