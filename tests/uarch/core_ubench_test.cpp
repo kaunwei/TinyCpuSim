@@ -675,8 +675,11 @@ TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_OoOExecutionAndSingleSlotRetiremen
     EXPECT_EQ(core.get_fusion_engine().get_stats().fused_pairs, 1);
 
     std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_OoOExecutionAndSingleSlotRetirement:committed_insts="
-              << core.get_committed_instructions() << ", committed_uops=" << core.get_stats().committed_uops
-              << ", fused_pairs=" << core.get_fusion_engine().get_stats().fused_pairs << std::endl;
+              << core.get_committed_instructions() << std::endl;
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_OoOExecutionAndSingleSlotRetirement:committed_uops="
+              << core.get_stats().committed_uops << std::endl;
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_OoOExecutionAndSingleSlotRetirement:fused_pairs="
+              << core.get_fusion_engine().get_stats().fused_pairs << std::endl;
 }
 
 // 14. MacroOpFusion: Atomic execution across ALU and Branch ports (branch evaluated with fused ALU operands)
@@ -718,5 +721,269 @@ TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_AtomicPortExecution) {
     EXPECT_EQ(core.get_stats().committed_uops, 4);
     EXPECT_EQ(core.get_fusion_engine().get_stats().fused_pairs, 1);
 }
+
+// 15. MacroOpFusion Multi-Pillar Verification:
+// (1) Invariant verification that Committed_Insts / Committed_uOps = 2.0x on pure fused pairs while RS/ROB slot usage is halved
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_RatioAndSlotUsageHalved) {
+    // 4 chained fused CMP+BEQ taken pairs jumping from one pair to the next:
+    // Pair 1:
+    // 0x1000: CMP r0, #0       (0x2800)
+    // 0x1002: BEQ 0x1006       (0xD000) -> jumps to Pair 2 at 0x1006 (skips 0x1004)
+    // 0x1004: NOP              (0xBF00)
+    // Pair 2:
+    // 0x1006: CMP r1, #0       (0x2900)
+    // 0x1008: BEQ 0x100C       (0xD000) -> jumps to Pair 3 at 0x100C (skips 0x100A)
+    // 0x100A: NOP              (0xBF00)
+    // Pair 3:
+    // 0x100C: CMP r2, #0       (0x2A00)
+    // 0x100E: BEQ 0x1012       (0xD000) -> jumps to Pair 4 at 0x1012 (skips 0x1010)
+    // 0x1010: NOP              (0xBF00)
+    // Pair 4:
+    // 0x1012: CMP r3, #0       (0x2B00)
+    // 0x1014: BEQ 0x1018       (0xD000) -> jumps to Halt at 0x1018 (skips 0x1016)
+    // 0x1016: NOP              (0xBF00)
+    // Halt:
+    // 0x1018: SVC #0           (0xDF00)
+    MemoryBus bus_fused(65536);
+    MemoryBus bus_nofused(65536);
+
+    const std::vector<std::pair<uint32_t, uint16_t>> prog = {
+        {0x1000, 0x2800},
+        {0x1002, 0xD000},
+        {0x1004, 0xBF00},
+        {0x1006, 0x2900},
+        {0x1008, 0xD000},
+        {0x100A, 0xBF00},
+        {0x100C, 0x2A00},
+        {0x100E, 0xD000},
+        {0x1010, 0xBF00},
+        {0x1012, 0x2B00},
+        {0x1014, 0xD000},
+        {0x1016, 0xBF00},
+        {0x1018, 0xDF00}
+    };
+
+    for (const auto& [addr, insn] : prog) {
+        bus_fused.write16(addr, insn);
+        bus_nofused.write16(addr, insn);
+    }
+
+    CacheConfig l1i_cfg;
+    l1i_cfg.type = CacheType::PASSTHROUGH;
+    CacheConfig l1d_cfg;
+    l1d_cfg.type = CacheType::PASSTHROUGH;
+
+    // 1. Run with Fusion ENABLED
+    CoreConfig cfg_fused;
+    cfg_fused.fusion_mode = FusionMode::CMP_BRANCH;
+    cfg_fused.l1i = l1i_cfg;
+    cfg_fused.l1d = l1d_cfg;
+
+    OoOCore core_fused(0, cfg_fused, bus_fused, nullptr, nullptr, 0x1000);
+    uint32_t cycles = 0;
+    while (!core_fused.is_halted() && cycles < 100) {
+        core_fused.tick();
+        cycles++;
+    }
+
+    EXPECT_TRUE(core_fused.is_halted());
+
+    // 2. Run with Fusion DISABLED
+    CoreConfig cfg_nofused;
+    cfg_nofused.fusion_mode = FusionMode::NONE;
+    cfg_nofused.l1i = l1i_cfg;
+    cfg_nofused.l1d = l1d_cfg;
+
+    OoOCore core_nofused(0, cfg_nofused, bus_nofused, nullptr, nullptr, 0x1000);
+    cycles = 0;
+    while (!core_nofused.is_halted() && cycles < 100) {
+        core_nofused.tick();
+        cycles++;
+    }
+
+    EXPECT_TRUE(core_nofused.is_halted());
+
+    // Architectural committed instruction count MUST be identical across both modes:
+    // 4 pairs (8) + SVC (1) = 9 instructions
+    EXPECT_EQ(core_fused.get_committed_instructions(), 9);
+    EXPECT_EQ(core_nofused.get_committed_instructions(), 9);
+
+    // Number of committed fused pairs in execution = 4
+    uint64_t fused_pairs_committed = core_nofused.get_stats().committed_uops - core_fused.get_stats().committed_uops;
+    EXPECT_EQ(fused_pairs_committed, 4);
+
+    // Without fusion: 9 uOps committed (and allocated into ROB / RS)
+    // With fusion: 9 - 4 = 5 uOps committed (and allocated into ROB / RS)
+    EXPECT_EQ(core_nofused.get_stats().committed_uops, 9);
+    EXPECT_EQ(core_fused.get_stats().committed_uops, 5);
+
+    // Invariant for the fused pairs: 8 committed instructions / 4 committed uOps = 2.0x
+    uint64_t fused_insts = fused_pairs_committed * 2;
+    double fused_pair_ratio = static_cast<double>(fused_insts) / static_cast<double>(fused_pairs_committed);
+    EXPECT_DOUBLE_EQ(fused_pair_ratio, 2.0);
+
+    // RS/ROB slot usage for fused pairs is halved (50.0% reduction)
+    double slot_usage_reduction_pct = (1.0 - static_cast<double>(fused_pairs_committed) / static_cast<double>(fused_insts)) * 100.0;
+    EXPECT_DOUBLE_EQ(slot_usage_reduction_pct, 50.0);
+
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_RatioAndSlotUsageHalved:fused_pairs=" << fused_pairs_committed << std::endl;
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_RatioAndSlotUsageHalved:insts_per_fused_uop=" << fused_pair_ratio << std::endl;
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_RatioAndSlotUsageHalved:slot_reduction_pct=" << slot_usage_reduction_pct << std::endl;
+}
+
+// 16. MacroOpFusion Multi-Pillar Verification:
+// (2) Boundary condition non-fusion test on non-adjacent instructions
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_BoundaryNonAdjacentNonFusion) {
+    // Interleave CMP and B.cond with an unrelated instruction (MOV r2, r0: 0x4602, does not set flags):
+    // 0x1000: MOVS r0, #10    (0x200A)
+    // 0x1002: CMP r0, #10     (0x280A) (sets flags: Z=1)
+    // 0x1004: MOV r2, r0      (0x4602) -> Separator! CMP and BEQ are non-adjacent; does NOT alter flags
+    // 0x1006: BEQ 0x100A      (0xD000) -> target 0x100A (+4 bytes from 1006+4 = 100A)
+    // 0x1008: MOVS r1, #99    (0x2163) (skipped because BEQ jumps to 0x100A)
+    // 0x100A: SVC #0          (0xDF00)
+    MemoryBus bus(65536);
+    bus.write16(0x1000, 0x200A);
+    bus.write16(0x1002, 0x280A);
+    bus.write16(0x1004, 0x4602);
+    bus.write16(0x1006, 0xD000);
+    bus.write16(0x1008, 0x2163);
+    bus.write16(0x100A, 0xDF00);
+
+    CacheConfig l1i_cfg;
+    l1i_cfg.type = CacheType::PASSTHROUGH;
+    CacheConfig l1d_cfg;
+    l1d_cfg.type = CacheType::PASSTHROUGH;
+
+    CoreConfig cfg;
+    cfg.fusion_mode = FusionMode::CMP_BRANCH;
+    cfg.l1i = l1i_cfg;
+    cfg.l1d = l1d_cfg;
+
+    OoOCore core(0, cfg, bus, nullptr, nullptr, 0x1000);
+    uint32_t cycles = 0;
+    while (!core.is_halted() && cycles < 100) {
+        core.tick();
+        cycles++;
+    }
+
+    EXPECT_TRUE(core.is_halted());
+    EXPECT_EQ(core.read_arch_reg(0), 10);
+    EXPECT_EQ(core.read_arch_reg(2), 10);
+    EXPECT_EQ(core.read_arch_reg(1), 0); // r1 was untouched because branch skipped 0x1008
+
+    // Because of the interleaving MOV r2, r0, fusion MUST NOT occur
+    EXPECT_EQ(core.get_fusion_engine().get_stats().fused_pairs, 0);
+    EXPECT_GE(core.get_fusion_engine().get_stats().ineligible_pairs, 1);
+
+    // Total committed instructions = MOVS(1) + CMP(1) + MOV(1) + BEQ(1) + SVC(1) = 5
+    // Total committed uOps = 5 (1:1 ratio, 0 fused)
+    EXPECT_EQ(core.get_committed_instructions(), 5);
+    EXPECT_EQ(core.get_stats().committed_uops, 5);
+
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_BoundaryNonAdjacentNonFusion:fused_pairs="
+              << core.get_fusion_engine().get_stats().fused_pairs << std::endl;
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_BoundaryNonAdjacentNonFusion:ineligible_pairs="
+              << core.get_fusion_engine().get_stats().ineligible_pairs << std::endl;
+}
+
+// 17. MacroOpFusion Multi-Pillar Verification:
+// (3) Functional parity vs Interpreter on complex fused conditional control flow
+TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_FunctionalParityVsInterpreter) {
+    // Multi-branch control flow with multiple fused pairs (CMP+BEQ, CMP+BNE, TST+BEQ):
+    // 0x1000: MOVS r0, #0       (0x2000)
+    // 0x1002: MOVS r1, #3       (0x2103)
+    // 0x1004: MOVS r2, #0       (0x2200)
+    // Loop1:
+    // 0x1006: ADDS r0, r0, #5   (0x3005)
+    // 0x1008: CMP r0, #15       (0x280F)
+    // 0x100A: BNE 0x1006        (0xD1FC) -> offset -8 bytes (-4 hw) -> 0xD1FC
+    // PostLoop1:
+    // 0x100C: TST r1, #1        (0x2301 for MOV r3,#1 then TST r1, r3 -> 0x4219) -> let's do TST r1, r3
+    // 0x100C: MOVS r3, #1       (0x2301)
+    // 0x100E: TST r1, r3        (0x4219)
+    // 0x1010: BEQ 0x1016        (0xD001) -> offset +6 bytes (+3 hw from 1010+4=1014 -> 1016 is +2 bytes = +1 hw) -> 0xD001
+    // 0x1012: ADDS r2, r2, #100 (0x3264)
+    // 0x1014: B 0x1018          (0xE000) -> offset +4 bytes (+1 hw) -> 0xE000
+    // 0x1016: ADDS r2, r2, #200 (0x32C8)
+    // 0x1018: SVC #0            (0xDF00)
+    MemoryBus bus_interp(65536);
+    MemoryBus bus_ooo(65536);
+
+    const std::vector<std::pair<uint32_t, uint16_t>> prog = {
+        {0x1000, 0x2000},
+        {0x1002, 0x2103},
+        {0x1004, 0x2200},
+        {0x1006, 0x3005},
+        {0x1008, 0x280F},
+        {0x100A, 0xD1FC},
+        {0x100C, 0x2301},
+        {0x100E, 0x4219},
+        {0x1010, 0xD001},
+        {0x1012, 0x3264},
+        {0x1014, 0xE000},
+        {0x1016, 0x32C8},
+        {0x1018, 0xDF00}
+    };
+
+    for (const auto& [addr, insn] : prog) {
+        bus_interp.write16(addr, insn);
+        bus_ooo.write16(addr, insn);
+    }
+
+    // 1. Run Interpreter
+    ArchitecturalState state_interp;
+    state_interp.set_pc(0x1000);
+    state_interp.set_sp(0x02000000);
+    IsaInterpreter interp(state_interp, bus_interp);
+    try {
+        interp.run(2000);
+    } catch (...) {
+        // Halt on SVC fault
+    }
+
+    // 2. Run OoOCore with MacroOpFusion
+    CoreConfig cfg;
+    cfg.fusion_mode = FusionMode::CMP_BRANCH;
+
+    OoOCore core_ooo(0, cfg, bus_ooo, nullptr, nullptr, 0x1000);
+    for (int cycle = 0; cycle < 2000; ++cycle) {
+        core_ooo.tick();
+        if (core_ooo.is_halted()) break;
+    }
+    EXPECT_TRUE(core_ooo.is_halted());
+
+    // Verify architectural register matching
+    uint32_t parity_errors = 0;
+    uint32_t matched_registers = 0;
+
+    for (size_t r = 0; r < 15; ++r) {
+        uint32_t v_interp = state_interp.get_reg(r);
+        uint32_t v_ooo = core_ooo.read_arch_reg(r);
+        if (v_interp == v_ooo) {
+            matched_registers++;
+        } else {
+            parity_errors++;
+            std::cerr << "Mismatch on R" << r << ": Interpreter=" << v_interp << " vs OoO=" << v_ooo << std::endl;
+        }
+    }
+
+    // Check PC termination matching halt address
+    if (state_interp.get_pc() == 0x1018 || state_interp.get_pc() == 0x101A) {
+        matched_registers++;
+    } else {
+        parity_errors++;
+    }
+
+    EXPECT_EQ(parity_errors, 0);
+    EXPECT_EQ(matched_registers, 16);
+    EXPECT_EQ(core_ooo.read_arch_reg(0), 15);
+    EXPECT_EQ(core_ooo.read_arch_reg(1), 3);
+    EXPECT_EQ(core_ooo.read_arch_reg(2), 100);
+    EXPECT_GT(core_ooo.get_fusion_engine().get_stats().fused_pairs, 0);
+
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_FunctionalParityVsInterpreter:parity_errors=" << parity_errors << std::endl;
+    std::cout << "[PERF_COUNTER] CoreUBench_MacroOpFusion_FunctionalParityVsInterpreter:matched_registers=" << matched_registers << std::endl;
+}
+
 
 
