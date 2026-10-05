@@ -1,6 +1,6 @@
 # TinyCpuSim
 
-[![Build & Test](https://img.shields.io/badge/tests-186%2F186%20passed-brightgreen.svg)]()
+[![Build & Test](https://img.shields.io/badge/tests-233%2F233%20passed-brightgreen.svg)]()
 [![Standard](https://img.shields.io/badge/C%2B%2B-17-blue.svg)]()
 [![ISA](https://img.shields.io/badge/ISA-ARMv7--M%20%2F%20Thumb--2-orange.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
@@ -118,7 +118,7 @@ Architecture Exploration:
 ```bash
 # Workflow Steps
 ./run.sh build                      # [Step 1] Build simulator (Release mode)
-./run.sh test                       # [Step 2] Run 186 unit & regression tests (parallel ctest)
+./run.sh test                       # [Step 2] Run 233 unit & regression tests (parallel ctest)
 ./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks (<1% Δ)
 ./run.sh sim [elf] [config]         # [Step 4] Run simulation (zero-args reads current.cfg)
 ./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (100% PASS)
@@ -279,7 +279,7 @@ Automatically detects system CPU cores, configures CMake in Release mode, and bu
 ```bash
 ./scripts/02_run_tests.sh
 ```
-Runs all 186 unit and regression tests in parallel (`ctest -j`) with a 100% pass guarantee.
+Runs all 233 unit and regression tests in parallel (`ctest -j`) with a 100% pass guarantee.
 
 ---
 
@@ -387,7 +387,7 @@ Aggregate Throughput (IPC):0.801 inst/cycle (uOp IPC: 1.548)
 ## Project Directory Structure
 
 ```text
-TinyCpuSim/
+TinySim/
 ├── CMakeLists.txt            # Main CMake build configuration
 ├── README.md                 # Complete documentation & usage guide
 ├── run.sh                    # Unified launcher & workflow manager
@@ -407,7 +407,7 @@ TinyCpuSim/
 │   └── uarch/                # Cycle-accurate OoO pipeline stages
 ├── scripts/                  # Workflow scripts & multi-process Python tools
 │   ├── 01_build.sh           # Step 1: 1-click build script
-│   ├── 02_run_tests.sh       # Step 2: Full test suite runner (186 tests, parallel ctest)
+│   ├── 02_run_tests.sh       # Step 2: Full test suite runner (233 tests, parallel ctest)
 │   ├── 03_run_ubench.sh      # Step 3: Component microbenchmark runner
 │   ├── 04_run_simulation.sh  # Step 4: Full-system simulation runner
 │   ├── 05_compare_gem5.sh    # Step 5: gem5 golden comparison tool
@@ -423,7 +423,7 @@ TinyCpuSim/
 └── tests/                    # Tests and benchmarks
     ├── fixtures/             # Bare-metal ELF binaries & assembly sources
     ├── golden/gem5/          # gem5 reference statistics logs
-    └── unit & ubench tests   # 186 CTest GoogleTest cases
+    └── unit & ubench tests   # 233 CTest GoogleTest cases
 ```
 
 ---
