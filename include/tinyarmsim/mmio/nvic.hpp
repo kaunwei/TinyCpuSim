@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/state.hpp"
+#include "tinyarmsim/memory_bus.hpp"
 
 namespace tinyarmsim::mmio {
 
@@ -11,6 +13,7 @@ class NVICDevice : public MMIODevice {
 public:
     static constexpr uint32_t DEFAULT_BASE = 0xE000E000;
     static constexpr uint32_t DEFAULT_SPAN = 0x1000;
+    static constexpr uint32_t EXC_RETURN_THREAD_MSP = 0xFFFFFFF9u;
 
     explicit NVICDevice(uint32_t base = DEFAULT_BASE, uint32_t span = DEFAULT_SPAN)
         : base_(base), span_(span) {}
@@ -108,6 +111,65 @@ public:
                 break;
             }
         }
+    }
+
+    // Deep seam: polls all registered MMIO devices for IRQ lines, arbitrates against IABR,
+    // and performs Cortex-M 8-word hardware auto-stacking if a higher-priority IRQ is ready.
+    bool poll_and_try_enter_exception(ArchitecturalState& state, MemoryBus& bus) {
+        for (const auto& slot : bus.mmio_devices()) {
+            if (slot.dev && slot.dev.get() != this && slot.dev->has_pending_irq()) {
+                set_pending(slot.dev->irq_line());
+            }
+        }
+        int irq = get_highest_pending_irq();
+        if (irq < 0) return false;
+
+        // Check if an equal or higher-priority (lower index) IRQ is already active in IABR
+        for (uint32_t a = 0; a <= static_cast<uint32_t>(irq); ++a) {
+            if (iabr_ & (1u << a)) {
+                return false;
+            }
+        }
+
+        // Cortex-M hardware auto-stacking onto MSP (R13)
+        uint32_t sp = state.get_reg(13) - 32u;
+        bus.write32(sp,      state.get_reg(0));
+        bus.write32(sp + 4,  state.get_reg(1));
+        bus.write32(sp + 8,  state.get_reg(2));
+        bus.write32(sp + 12, state.get_reg(3));
+        bus.write32(sp + 16, state.get_reg(12));
+        bus.write32(sp + 20, state.get_reg(14)); // LR
+        bus.write32(sp + 24, state.get_pc());     // Return PC
+        bus.write32(sp + 28, state.get_cpsr());   // xPSR
+        state.set_reg(13, sp);
+        state.set_reg(14, EXC_RETURN_THREAD_MSP);
+
+        uint32_t vector_addr = vtor_ + (16u + static_cast<uint32_t>(irq)) * 4u;
+        uint32_t isr_addr = bus.read32(vector_addr) & ~1u;
+        state.set_pc(isr_addr);
+        acknowledge_irq(static_cast<uint32_t>(irq));
+        return true;
+    }
+
+    // Deep seam: checks if PC holds a Cortex-M EXC_RETURN magic value (0xFFFFFFF0 mask)
+    // and unstacks the 8-word exception frame back into ArchitecturalState.
+    static bool try_exit_exception(ArchitecturalState& state, MemoryBus& bus, NVICDevice* nvic) {
+        if ((state.get_pc() & 0xFFFFFFF0u) != 0xFFFFFFF0u) {
+            return false;
+        }
+        uint32_t sp = state.get_reg(13);
+        state.set_reg(0,  bus.read32(sp));
+        state.set_reg(1,  bus.read32(sp + 4));
+        state.set_reg(2,  bus.read32(sp + 8));
+        state.set_reg(3,  bus.read32(sp + 12));
+        state.set_reg(12, bus.read32(sp + 16));
+        state.set_reg(14, bus.read32(sp + 20));
+        uint32_t return_pc = bus.read32(sp + 24) & ~1u;
+        state.set_cpsr(bus.read32(sp + 28));
+        state.set_reg(13, sp + 32u);
+        state.set_pc(return_pc);
+        if (nvic) nvic->complete_active_irq();
+        return true;
     }
 
     [[nodiscard]] uint32_t vtor() const noexcept { return vtor_; }
