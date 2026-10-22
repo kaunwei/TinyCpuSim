@@ -255,3 +255,8 @@ add_executable(core_ubench_test tests/uarch/core_ubench_test.cpp)
 target_link_libraries(core_ubench_test PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(core_ubench_test)
 
+# Baremetal Firmware Platform Test
+add_executable(baremetal_firmware_test tests/baremetal_firmware_test.cpp)
+target_link_libraries(baremetal_firmware_test PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(baremetal_firmware_test TEST_PREFIX "baremetal_firmware_test.")
+
