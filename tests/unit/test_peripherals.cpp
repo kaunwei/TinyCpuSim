@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
+#include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/mmio/i2c.hpp"
 #include "tinyarmsim/mmio/spi.hpp"
 #include "tinyarmsim/mmio/crc32.hpp"
 #include "tinyarmsim/mmio/custom_device.hpp"
+#include "tinyarmsim/mmio/gpio.hpp"
+#include "tinyarmsim/mmio/dma.hpp"
 
 using namespace tinyarmsim;
 
@@ -231,5 +234,97 @@ TEST(CustomDeviceTest, MultiCycleLatencyAndOverrun) {
     custom.tick(2);
     EXPECT_NE(custom.read(0x10, mmio::AccessSize::Word) & 0x01u, 0u); // DONE = 1
     EXPECT_EQ(custom.read(0x0C, mmio::AccessSize::Word), 42u);
+}
+
+TEST(GpioTest, DirectionBsrrAndDebounceClockOverrun) {
+    mmio::GpioDevice gpio;
+    gpio.reset();
+
+    // Configure pins [3:0] as output (0x0F), pins [7:4] as input
+    gpio.write(0x00, 0x0Fu, mmio::AccessSize::Word);
+    // Atomic BSRR: set bits 0 and 2 (0x05)
+    gpio.write(0x0C, 0x05u, mmio::AccessSize::Word);
+    EXPECT_EQ(gpio.read(0x08, mmio::AccessSize::Word), 0x05u);
+    EXPECT_EQ(gpio.read(0x04, mmio::AccessSize::Word) & 0x0Fu, 0x05u);
+
+    // Atomic BSRR: reset bit 0 (1 << 16) and set bit 1 (0x02) -> 0x06
+    gpio.write(0x0C, (1u << 16) | 0x02u, mmio::AccessSize::Word);
+    EXPECT_EQ(gpio.read(0x08, mmio::AccessSize::Word), 0x06u);
+
+    // Enable interrupt on pin 4 (input button) and set DEBOUNCE = 4 ticks
+    gpio.write(0x10, (1u << 4), mmio::AccessSize::Word);
+    gpio.write(0x18, 4, mmio::AccessSize::Word);
+
+    gpio.inject_external_input(1u << 4);
+    EXPECT_FALSE(gpio.has_pending_irq()); // Still debouncing
+    EXPECT_EQ(gpio.read(0x04, mmio::AccessSize::Word) & (1u << 4), 0u);
+
+    // Bouncing input at tick 2 triggers OVR (bit 31)
+    gpio.tick(2);
+    gpio.inject_external_input(0);
+    EXPECT_NE(gpio.read(0x14, mmio::AccessSize::Word) & (1u << 31), 0u);
+
+    // Finish remaining 2 debounce ticks -> pin 4 settles high and fires IRQ
+    gpio.tick(2);
+    EXPECT_NE(gpio.read(0x04, mmio::AccessSize::Word) & (1u << 4), 0u);
+    EXPECT_TRUE(gpio.has_pending_irq());
+
+    // Clear ISR and OVR
+    gpio.write(0x14, (1u << 31) | (1u << 4), mmio::AccessSize::Word);
+    EXPECT_FALSE(gpio.has_pending_irq());
+    EXPECT_EQ(gpio.read(0x14, mmio::AccessSize::Word), 0u);
+}
+
+TEST(DmaTest, FastBurstAndTurboClockedMemToMemAndMemToMMIO) {
+    MemoryBus bus(1024 * 1024);
+    auto dma_dev = std::make_unique<mmio::DmaDevice>(bus);
+    auto gpio_dev = std::make_unique<mmio::GpioDevice>();
+    mmio::DmaDevice* dma = dma_dev.get();
+    mmio::GpioDevice* gpio = gpio_dev.get();
+    bus.register_device(std::move(dma_dev));
+    bus.register_device(std::move(gpio_dev));
+
+    // Prepare 4 source words in RAM at 0x1000
+    for (uint32_t i = 0; i < 4; ++i) {
+        bus.write32(0x1000 + i * 4, 0xA0u + i);
+    }
+
+    // 1. Clocked Mem-to-Mem DMA: CLKDIV = 2 (2 ticks per word -> 8 ticks total)
+    dma->write(0x14, 2, mmio::AccessSize::Word);      // CLKDIV = 2
+    dma->write(0x00, 0x1000, mmio::AccessSize::Word); // SRC
+    dma->write(0x04, 0x2000, mmio::AccessSize::Word); // DST
+    dma->write(0x08, 4, mmio::AccessSize::Word);      // CNDTR = 4 words
+    // CR: EN(1) | TCIE(2) | SRC_INC(4) | DST_INC(8) | SIZE_WORD(2 << 4 = 32) = 0x2F
+    dma->write(0x0C, 0x2Fu, mmio::AccessSize::Word);
+
+    EXPECT_NE(dma->read(0x10, mmio::AccessSize::Word) & 0x01u, 0u); // BUSY = 1
+    EXPECT_FALSE(dma->has_pending_irq());
+
+    // Colliding write to SRC after 4 ticks (2 words transferred) sets OVR (bit 3 = 0x08)
+    bus.tick(4);
+    EXPECT_EQ(dma->read(0x08, mmio::AccessSize::Word), 2u); // 2 words remaining
+    dma->write(0x00, 0x3000, mmio::AccessSize::Word);
+    EXPECT_NE(dma->read(0x10, mmio::AccessSize::Word) & 0x08u, 0u); // OVR = 1
+
+    // Finish remaining 4 ticks -> all 4 words copied, TCIF & IRQ asserted
+    bus.tick(4);
+    EXPECT_EQ(dma->read(0x10, mmio::AccessSize::Word) & 0x01u, 0u); // BUSY = 0
+    EXPECT_TRUE(dma->has_pending_irq());
+    for (uint32_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(bus.read32(0x2000 + i * 4), 0xA0u + i);
+    }
+
+    // Clear TCIF and OVR
+    dma->write(0x10, 0x0Au, mmio::AccessSize::Word);
+    EXPECT_FALSE(dma->has_pending_irq());
+
+    // 2. Fast 0-cycle Mem-to-MMIO (GPIO ODR at 0x40005008, fixed DST)
+    gpio->write(0x00, 0xFFu, mmio::AccessSize::Word); // MODER output
+    dma->write(0x14, 0, mmio::AccessSize::Word);      // CLKDIV = 0 (0-cycle burst)
+    dma->write(0x00, 0x100C, mmio::AccessSize::Word); // SRC (value 0xA3)
+    dma->write(0x04, 0x40005008, mmio::AccessSize::Word); // DST = GPIO0->ODR
+    dma->write(0x08, 1, mmio::AccessSize::Word);      // 1 word
+    dma->write(0x0C, 0x25u, mmio::AccessSize::Word);  // EN | SRC_INC | SIZE_WORD
+    EXPECT_EQ(gpio->read(0x08, mmio::AccessSize::Word), 0xA3u);
 }
 
