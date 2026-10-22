@@ -102,6 +102,14 @@ public:
         // Set entry point (mask out bit 0 for Thumb entry addresses)
         state.set_pc(e_entry & ~1u);
     }
+
+    // Cortex-M hardware reset sequence: loads initial MSP from VTOR+0 and Reset_Handler PC from VTOR+4
+    static void boot_cortex_m(const MemoryBus& bus, ArchitecturalState& state, uint32_t vtor_base = 0x00000000) {
+        uint32_t initial_msp = bus.read32(vtor_base);
+        uint32_t reset_vector = bus.read32(vtor_base + 4u);
+        state.set_sp(initial_msp);
+        state.set_pc(reset_vector & ~1u);
+    }
 };
 
 } // namespace tinyarmsim

@@ -33,6 +33,30 @@ g_pfnVectors:
 .type Reset_Handler, %function
 Reset_Handler:
     ldr sp, =_stack_top
+
+    /* Copy .data section from FLASH (_etext) to RAM (_sdata .. _edata) */
+    ldr r0, =_sdata
+    ldr r1, =_edata
+    ldr r2, =_etext
+1:
+    cmp r0, r1
+    bhs 2f
+    ldr r3, [r2], #4
+    str r3, [r0], #4
+    b 1b
+
+2:
+    /* Zero .bss section (_sbss .. _ebss) */
+    ldr r0, =_sbss
+    ldr r1, =_ebss
+    movs r2, #0
+3:
+    cmp r0, r1
+    bhs 4f
+    str r2, [r0], #4
+    b 3b
+
+4:
     bl main
     /* On return from main: clean exit via SVC #0 */
     svc #0

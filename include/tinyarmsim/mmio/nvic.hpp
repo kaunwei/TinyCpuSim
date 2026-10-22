@@ -121,6 +121,7 @@ public:
                 set_pending(slot.dev->irq_line());
             }
         }
+        if (state.get_primask()) return false; // Masked by CPSID i
         int irq = get_highest_pending_irq();
         if (irq < 0) return false;
 
