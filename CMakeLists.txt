@@ -143,6 +143,11 @@ add_executable(test_nvic_interrupt tests/unit/test_nvic_interrupt.cpp)
 target_link_libraries(test_nvic_interrupt PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(test_nvic_interrupt TEST_PREFIX "test_nvic_interrupt.")
 
+# Unit Test Peripherals (I2C, SPI, CRC32, Custom)
+add_executable(test_peripherals tests/unit/test_peripherals.cpp)
+target_link_libraries(test_peripherals PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(test_peripherals TEST_PREFIX "test_peripherals.")
+
 # uArch Cache Test
 add_executable(cache_test tests/uarch/cache_test.cpp)
 target_link_libraries(cache_test PRIVATE tinyarmsim_core gtest_main)
