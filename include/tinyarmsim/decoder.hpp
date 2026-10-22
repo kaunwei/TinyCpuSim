@@ -471,6 +471,23 @@ private:
             return instr;
         }
 
+        // 1.5 32-bit Load/Store Multiple (LDMIA.W / STMDB.W / PUSH.W / POP.W)
+        if ((w1 & 0xFE40) == 0xE800) {
+            bool is_load = ((w1 >> 4) & 0x1) != 0;
+            bool wback   = ((w1 >> 5) & 0x1) != 0;
+            uint8_t rn   = static_cast<uint8_t>(w1 & 0xF);
+            uint16_t rlist = w2 & 0xDFFF; // r0-r12, lr (bit 14), pc (bit 15)
+            if (rn == 13 && wback) {
+                instr.op = is_load ? Opcode::POP : Opcode::PUSH;
+            } else {
+                instr.op = is_load ? Opcode::LDM : Opcode::STM;
+                instr.rn = rn;
+                instr.writeback = wback;
+            }
+            instr.register_list = rlist;
+            return instr;
+        }
+
         // 2. 32-bit Data Processing (Modified Immediate): [15:11] == 11110, bit 9 == 0
         if ((w1 & 0xFBE0) == 0xF000 && (w2 & 0x8000) == 0) {
             uint8_t op4 = static_cast<uint8_t>((w1 >> 5) & 0xF);
@@ -570,6 +587,16 @@ private:
             return instr;
         }
 
+        // 3.5 32-bit Hardware Divide (SDIV / UDIV):
+        if (((w1 & 0xFFF0) == 0xFB90 || (w1 & 0xFFF0) == 0xFBB0) && (w2 & 0xF0F0) == 0xF0F0) {
+            bool is_unsigned = ((w1 >> 5) & 0x1) != 0;
+            instr.op = is_unsigned ? Opcode::UDIV : Opcode::SDIV;
+            instr.rn = static_cast<uint8_t>(w1 & 0xF);
+            instr.rd = static_cast<uint8_t>((w2 >> 8) & 0xF);
+            instr.rm = static_cast<uint8_t>(w2 & 0xF);
+            return instr;
+        }
+
         // 4. 32-bit System instructions (MRS / MSR):
         if (w1 == 0xF3EF && (w2 & 0xF000) == 0x8000) {
             instr.op = Opcode::MRS;
@@ -580,6 +607,15 @@ private:
         if ((w1 & 0xFFF0) == 0xF380 && (w2 & 0xFF00) == 0x8800) {
             instr.op = Opcode::MSR;
             instr.rn = static_cast<uint8_t>(w1 & 0xF);
+            return instr;
+        }
+
+        if (w1 == 0xF3BF && (w2 & 0xFF00) == 0x8F00) {
+            uint8_t op = static_cast<uint8_t>((w2 >> 4) & 0xF);
+            if (op == 0x4) instr.op = Opcode::DSB;
+            else if (op == 0x5) instr.op = Opcode::DMB;
+            else if (op == 0x6) instr.op = Opcode::ISB;
+            else instr.op = Opcode::NOP;
             return instr;
         }
 
@@ -606,6 +642,44 @@ private:
             return instr;
         }
 
+        // 5.1 32-bit Unconditional Branch (B.W):
+        if ((w1 & 0xF800) == 0xF000 && (w2 & 0xD000) == 0x9000) {
+            instr.op = Opcode::B;
+            uint32_t s = (w1 >> 10) & 0x1;
+            uint32_t imm10 = w1 & 0x3FF;
+            uint32_t j1 = (w2 >> 13) & 0x1;
+            uint32_t j2 = (w2 >> 11) & 0x1;
+            uint32_t imm11 = w2 & 0x7FF;
+            uint32_t i1 = (~(j1 ^ s)) & 0x1;
+            uint32_t i2 = (~(j2 ^ s)) & 0x1;
+            uint32_t raw_offset = (s << 24) | (i1 << 23) | (i2 << 22) | (imm10 << 12) | (imm11 << 1);
+            int32_t offset = static_cast<int32_t>(raw_offset << 7) >> 7;
+            instr.is_imm = true;
+            instr.is_relative = (pc == 0);
+            instr.imm = static_cast<uint32_t>((pc != 0) ? (static_cast<int32_t>(pc + 4) + offset) : offset);
+            return instr;
+        }
+
+        // 5.2 32-bit Conditional Branch (B<cond>.W):
+        if ((w1 & 0xF800) == 0xF000 && (w2 & 0xD000) == 0x8000) {
+            uint8_t cond_val = static_cast<uint8_t>((w1 >> 6) & 0xF);
+            if (cond_val < 0xE) {
+                instr.op = Opcode::B;
+                instr.cond = static_cast<ConditionCode>(cond_val);
+                uint32_t s = (w1 >> 10) & 0x1;
+                uint32_t imm6 = w1 & 0x3F;
+                uint32_t j1 = (w2 >> 13) & 0x1;
+                uint32_t j2 = (w2 >> 11) & 0x1;
+                uint32_t imm11 = w2 & 0x7FF;
+                uint32_t raw_offset = (s << 20) | (j2 << 19) | (j1 << 18) | (imm6 << 12) | (imm11 << 1);
+                int32_t offset = static_cast<int32_t>(raw_offset << 11) >> 11;
+                instr.is_imm = true;
+                instr.is_relative = (pc == 0);
+                instr.imm = static_cast<uint32_t>((pc != 0) ? (static_cast<int32_t>(pc + 4) + offset) : offset);
+                return instr;
+            }
+        }
+
         // 6. 32-bit Load/Store (LDR/STR.W):
         if ((w1 & 0xFE00) == 0xF800) {
             bool is_load = ((w1 >> 4) & 0x1) != 0;
@@ -618,6 +692,25 @@ private:
             instr.rn = rn;
             instr.is_imm = true;
             instr.imm = imm12;
+            if ((w1 & 0x0080) == 0 && rn != 15) {
+                if ((w2 & 0x0FC0) == 0x0000) {
+                    // Shifted register offset: [Rn, Rm, LSL #imm2]
+                    instr.is_imm = false;
+                    instr.rm = static_cast<uint8_t>(w2 & 0xF);
+                    instr.shift_type = ShiftType::LSL;
+                    instr.shift_amount = static_cast<uint8_t>((w2 >> 4) & 0x3);
+                } else if ((w2 & 0x0800) != 0) {
+                    // 8-bit immediate with P, U, W flags
+                    bool p = ((w2 >> 10) & 0x1) != 0;
+                    bool u = ((w2 >> 9) & 0x1) != 0;
+                    bool w = ((w2 >> 8) & 0x1) != 0;
+                    instr.is_imm = true;
+                    instr.imm = w2 & 0xFFu;
+                    instr.pre_indexed = p;
+                    instr.add_offset = u;
+                    instr.writeback = w;
+                }
+            }
 
             if (size_code == 0b00) {
                 instr.op = is_load ? Opcode::LDRB : Opcode::STRB;

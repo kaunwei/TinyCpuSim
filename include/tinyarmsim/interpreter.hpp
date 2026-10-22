@@ -469,10 +469,14 @@ public:
             case Opcode::LDRSB:
             case Opcode::LDRSH: {
                 uint32_t base = (instr.rn == REG_PC) ? ((current_pc + 4) & ~3u) : state_.get_reg(instr.rn);
-                uint32_t offset = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
-                uint32_t addr = base + offset;
+                uint32_t offset = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) << instr.shift_amount);
+                uint32_t offset_addr = instr.add_offset ? (base + offset) : (base - offset);
+                uint32_t addr = instr.pre_indexed ? offset_addr : base;
 
                 uint32_t loaded_val = read_mem(addr, instr.mem_size, instr.is_signed_mem);
+                if (instr.writeback) {
+                    write_reg(instr.rn, offset_addr);
+                }
                 if (instr.rd == REG_PC) {
                     write_pc(loaded_val & ~1u);
                 } else {
@@ -485,11 +489,15 @@ public:
             case Opcode::STRB:
             case Opcode::STRH: {
                 uint32_t base = state_.get_reg(instr.rn);
-                uint32_t offset = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
-                uint32_t addr = base + offset;
+                uint32_t offset = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) << instr.shift_amount);
+                uint32_t offset_addr = instr.add_offset ? (base + offset) : (base - offset);
+                uint32_t addr = instr.pre_indexed ? offset_addr : base;
                 uint32_t val = state_.get_reg(instr.rd);
 
                 write_mem(addr, val, instr.mem_size);
+                if (instr.writeback) {
+                    write_reg(instr.rn, offset_addr);
+                }
                 break;
             }
 

@@ -176,3 +176,105 @@ TEST(SystemControlTest, Thumb1BareMetalExtensionsAndPrimask) {
     EXPECT_EQ(state.get_reg(5), 0xFFFF8056u);
 
 }
+
+TEST(SystemControlTest, Thumb2DivideBranchPushPopAndIndexedLdrStr) {
+    ArchitecturalState state;
+    MemoryBus bus{1024 * 1024};
+    IsaInterpreter interp(state, bus);
+
+    // 1. Test UDIV and SDIV (including div by zero)
+    // UDIV R2, R0, R1: w1 = 0xFBB0, w2 = 0xF2F1
+    // SDIV R3, R0, R1: w1 = 0xFB90, w2 = 0xF3F1
+    state.set_reg(0, 100u);
+    state.set_reg(1, 20u);
+    bus.write16(0x2000, 0xFBB0); bus.write16(0x2002, 0xF2F1); // UDIV R2, R0, R1
+    bus.write16(0x2004, 0xFB90); bus.write16(0x2006, 0xF3F1); // SDIV R3, R0, R1
+    state.set_pc(0x2000);
+    interp.step();
+    EXPECT_EQ(state.get_reg(2), 5u);
+    interp.step();
+    EXPECT_EQ(state.get_reg(3), 5u);
+
+    // Signed negative division and division by zero
+    state.set_reg(0, static_cast<uint32_t>(-100));
+    state.set_reg(1, 20u);
+    bus.write16(0x2008, 0xFB90); bus.write16(0x200A, 0xF3F1); // SDIV R3, R0, R1 -> -5
+    state.set_reg(4, 0u);
+    bus.write16(0x200C, 0xFBB0); bus.write16(0x200E, 0xF5F4); // UDIV R5, R0, R4 -> 0
+    bus.write16(0x2010, 0xFB90); bus.write16(0x2012, 0xF6F4); // SDIV R6, R0, R4 -> 0
+    interp.step();
+    EXPECT_EQ(static_cast<int32_t>(state.get_reg(3)), -5);
+    interp.step();
+    EXPECT_EQ(state.get_reg(5), 0u);
+    interp.step();
+    EXPECT_EQ(state.get_reg(6), 0u);
+
+    // 2. Test PUSH.W and POP.W with high registers (r8, r9, lr)
+    // PUSH.W {r8, r9, lr}: w1 = 0xE92D, w2 = (1<<8)|(1<<9)|(1<<14) = 0x4300
+    // POP.W  {r8, r9, pc}: w1 = 0xE8BD, w2 = (1<<8)|(1<<9)|(1<<15) = 0x8300
+    state.set_sp(0x20000);
+    state.set_reg(8, 0x11112222u);
+    state.set_reg(9, 0x33334444u);
+    state.set_lr(0x2021u); // return to 0x2020 with thumb bit
+    bus.write16(0x2014, 0xE92D); bus.write16(0x2016, 0x4300);
+    bus.write16(0x2018, 0xE8BD); bus.write16(0x201A, 0x8300);
+    interp.step(); // PUSH.W
+    EXPECT_EQ(state.get_sp(), 0x20000u - 12u);
+    state.set_reg(8, 0u);
+    state.set_reg(9, 0u);
+    interp.step(); // POP.W {r8, r9, pc}
+    EXPECT_EQ(state.get_sp(), 0x20000u);
+    EXPECT_EQ(state.get_reg(8), 0x11112222u);
+    EXPECT_EQ(state.get_reg(9), 0x33334444u);
+    EXPECT_EQ(state.get_pc(), 0x2020u);
+
+    // 3. Test Extended LDR.W / STR.W (post-indexed, negative offset, shifted register)
+    state.set_reg(0, 0x30000u);
+    state.set_reg(1, 0xCAFEBABEu);
+    // STR.W R1, [R0], #4 (post-indexed: P=0, U=1, W=1, imm8=4 -> w2 = 0x1B04)
+    // w1 = 0xF840 (size=10, L=0, rn=0)
+    bus.write16(0x2020, 0xF840); bus.write16(0x2022, 0x1B04);
+    // LDR.W R2, [R0, #-4] (negative offset: P=1, U=0, W=0, imm8=4 -> w2 = 0x2C04)
+    // w1 = 0xF850 (size=10, L=1, rn=0)
+    bus.write16(0x2024, 0xF850); bus.write16(0x2026, 0x2C04);
+    // LDR.W R3, [R0, R4, LSL #2] (shifted register: w1 = 0xF850, w2 = (3<<12) | (2<<4) | 4 = 0x3024)
+    state.set_reg(4, 2u);
+    bus.write32(0x30004u + 8u, 0xDEADBEEFu);
+    bus.write16(0x2028, 0xF850); bus.write16(0x202A, 0x3024);
+
+    interp.step(); // STR.W R1, [R0], #4
+    EXPECT_EQ(state.get_reg(0), 0x30004u);
+    EXPECT_EQ(bus.read32(0x30000u), 0xCAFEBABEu);
+    interp.step(); // LDR.W R2, [R0, #-4]
+    EXPECT_EQ(state.get_reg(2), 0xCAFEBABEu);
+    interp.step(); // LDR.W R3, [R0, R4, LSL #2]
+    EXPECT_EQ(state.get_reg(3), 0xDEADBEEFu);
+
+    // 4. Test DMB (0xF3BF 0x8F5F), DSB (0xF3BF 0x8F4F), ISB (0xF3BF 0x8F6F)
+    bus.write16(0x202C, 0xF3BF); bus.write16(0x202E, 0x8F5F);
+    bus.write16(0x2030, 0xF3BF); bus.write16(0x2032, 0x8F4F);
+    bus.write16(0x2034, 0xF3BF); bus.write16(0x2036, 0x8F6F);
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x2030u);
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x2034u);
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x2038u);
+
+    // 5. Test B.W and B<cond>.W
+    // At PC=0x2038: B.W +8 (target = 0x2038 + 4 + 8 = 0x2044)
+    // s=0, j1=1, j2=1 (so i1=1, i2=1? No, for s=0, i1 = ~(j1^0)&1 = ~j1&1, so j1=1 -> i1=0, j2=1 -> i2=0!)
+    // Thus for positive small offset: s=0, j1=1, j2=1 -> i1=0, i2=0, imm10=0, imm11=4 (4<<1 = 8):
+    // w1 = 0xF000, w2 = 0x9000 | (1<<13) | (1<<11) | 4 = 0xB804
+    bus.write16(0x2038, 0xF000); bus.write16(0x203A, 0xB804);
+    // At PC=0x2044: BEQ.W +8 (target = 0x2044 + 4 + 8 = 0x2050)
+    // cond=0 (EQ), s=0, j1=0, j2=0, imm6=0, imm11=4 -> w1 = 0xF000, w2 = 0x8004
+    bus.write16(0x2044, 0xF000); bus.write16(0x2046, 0x8004);
+
+    interp.step(); // B.W -> 0x2044
+    EXPECT_EQ(state.get_pc(), 0x2044u);
+
+    state.set_flags(false, true, false, false); // Z = 1 (EQ true)
+    interp.step(); // BEQ.W -> 0x2050
+    EXPECT_EQ(state.get_pc(), 0x2050u);
+}
