@@ -138,6 +138,11 @@ add_executable(test_mmio_bus tests/unit/test_mmio_bus.cpp)
 target_link_libraries(test_mmio_bus PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(test_mmio_bus TEST_PREFIX "test_mmio_bus.")
 
+# Unit Test NVIC Interrupt
+add_executable(test_nvic_interrupt tests/unit/test_nvic_interrupt.cpp)
+target_link_libraries(test_nvic_interrupt PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(test_nvic_interrupt TEST_PREFIX "test_nvic_interrupt.")
+
 # uArch Cache Test
 add_executable(cache_test tests/uarch/cache_test.cpp)
 target_link_libraries(cache_test PRIVATE tinyarmsim_core gtest_main)

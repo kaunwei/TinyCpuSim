@@ -16,6 +16,7 @@
 #include "tinyarmsim/faults.hpp"
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
 #include "tinyarmsim/uarch/slice_manager.hpp"
+#include "tinyarmsim/mmio/nvic.hpp"
 
 namespace tinyarmsim {
 
@@ -41,6 +42,10 @@ public:
 
     [[nodiscard]] uarch::SliceManager* get_slice_manager() const noexcept {
         return slice_manager_;
+    }
+
+    void attach_nvic(mmio::NVICDevice* nvic) noexcept {
+        nvic_ = nvic;
     }
 
     void set_logging(bool enable) noexcept {
@@ -601,6 +606,36 @@ public:
     }
 
     void step() {
+        if (nvic_) {
+            // Poll devices for interrupts
+            for (const auto& slot : bus_.mmio_devices()) {
+                if (slot.dev && slot.dev->has_pending_irq()) {
+                    nvic_->set_pending(slot.dev->irq_line());
+                }
+            }
+            int irq = nvic_->get_highest_pending_irq();
+            if (irq >= 0) {
+                // Auto-stacking onto MSP (R13)
+                uint32_t sp = state_.get_reg(13);
+                sp -= 32;
+                bus_.write32(sp, state_.get_reg(0));
+                bus_.write32(sp + 4, state_.get_reg(1));
+                bus_.write32(sp + 8, state_.get_reg(2));
+                bus_.write32(sp + 12, state_.get_reg(3));
+                bus_.write32(sp + 16, state_.get_reg(12));
+                bus_.write32(sp + 20, state_.get_reg(14)); // LR
+                bus_.write32(sp + 24, state_.get_pc());     // PC return address
+                bus_.write32(sp + 28, state_.get_cpsr());   // xPSR
+                state_.set_reg(13, sp);
+                state_.set_reg(14, 0xFFFFFFF9u);            // EXC_RETURN
+                uint32_t vector_addr = nvic_->vtor() + (16 + static_cast<uint32_t>(irq)) * 4;
+                uint32_t isr_addr = bus_.read32(vector_addr) & ~1u;
+                state_.set_pc(isr_addr);
+                nvic_->acknowledge_irq(static_cast<uint32_t>(irq));
+                return;
+            }
+        }
+
         uint32_t pc = state_.get_pc();
         uint16_t first_halfword = bus_.read16(pc);
         if (Decoder::is_32bit_thumb(first_halfword)) {
@@ -610,6 +645,23 @@ public:
         } else {
             const DecodedInstruction& instr = opcode_cache_.get_16(first_halfword);
             execute(instr);
+        }
+
+        if ((state_.get_pc() & 0xFFFFFFF0u) == 0xFFFFFFF0u) {
+            // Exception unstacking
+            uint32_t sp = state_.get_reg(13);
+            state_.set_reg(0, bus_.read32(sp));
+            state_.set_reg(1, bus_.read32(sp + 4));
+            state_.set_reg(2, bus_.read32(sp + 8));
+            state_.set_reg(3, bus_.read32(sp + 12));
+            state_.set_reg(12, bus_.read32(sp + 16));
+            state_.set_reg(14, bus_.read32(sp + 20));
+            uint32_t return_pc = bus_.read32(sp + 24) & ~1u;
+            state_.set_cpsr(bus_.read32(sp + 28));
+            state_.set_reg(13, sp + 32);
+            state_.set_pc(return_pc);
+            if (nvic_) nvic_->complete_active_irq();
+            return;
         }
 
         check_and_trigger_slice();
@@ -716,6 +768,7 @@ private:
     TraceRecord trace_{};
     uarch::TopDownProfiler* profiler_{nullptr};
     uarch::SliceManager* slice_manager_{nullptr};
+    mmio::NVICDevice* nvic_{nullptr};
 };
 
 } // namespace tinyarmsim
