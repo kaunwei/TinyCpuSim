@@ -24,7 +24,17 @@ public:
         if (offset == 0x04) return reg_b_;
         if (offset == 0x08) return cmd_;
         if (offset == 0x0C) return result_;
-        if (offset == 0x10) return status_;
+        if (offset == 0x10) {
+            // bit 0: READY/DONE, bit 1: BUSY, bit 2: OVR
+            uint32_t st = status_;
+            if (busy_ticks_ > 0) {
+                st |= 0x02u;  // BUSY
+                st &= ~0x01u; // Not READY
+            }
+            if (ovr_) st |= 0x04u;
+            return st;
+        }
+        if (offset == 0x14) return latency_;
         return 0;
     }
 
@@ -34,8 +44,32 @@ public:
         } else if (offset == 0x04) {
             reg_b_ = value;
         } else if (offset == 0x08) {
+            if (busy_ticks_ > 0) {
+                ovr_ = true;
+                return;
+            }
             cmd_ = value;
-            execute_cmd();
+            if (latency_ == 0) {
+                execute_cmd();
+            } else {
+                status_ &= ~0x01u;
+                busy_ticks_ = latency_;
+            }
+        } else if (offset == 0x10) {
+            if (value & 0x04u) ovr_ = false; // Write-1-to-clear OVR
+        } else if (offset == 0x14) {
+            latency_ = value;
+        }
+    }
+
+    void tick(uint64_t cycles) override {
+        if (busy_ticks_ > 0) {
+            if (cycles >= busy_ticks_) {
+                busy_ticks_ = 0;
+                execute_cmd();
+            } else {
+                busy_ticks_ -= cycles;
+            }
         }
     }
 
@@ -45,6 +79,9 @@ public:
         cmd_ = 0;
         result_ = 0;
         status_ = 0;
+        latency_ = 0;
+        busy_ticks_ = 0;
+        ovr_ = false;
     }
 
 private:
@@ -56,7 +93,7 @@ private:
         } else if (cmd_ == 3) { // XOR
             result_ = reg_a_ ^ reg_b_;
         }
-        status_ = 0x01; // DONE
+        status_ = 0x01u; // DONE / READY
     }
 
     uint32_t base_;
@@ -66,6 +103,9 @@ private:
     uint32_t cmd_{0};
     uint32_t result_{0};
     uint32_t status_{0};
+    uint32_t latency_{0};
+    uint64_t busy_ticks_{0};
+    bool ovr_{false};
 };
 
 } // namespace tinyarmsim::mmio

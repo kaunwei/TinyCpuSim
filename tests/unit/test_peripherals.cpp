@@ -146,3 +146,90 @@ TEST(CustomDeviceTest, AccelMathOperations) {
     EXPECT_EQ(custom.read(0x0C, mmio::AccessSize::Word), 0u);
     EXPECT_EQ(custom.read(0x10, mmio::AccessSize::Word), 0u);
 }
+
+TEST(I2CTest, TurboClockTimingAndOverrunProtection) {
+    mmio::I2CDevice i2c;
+    i2c.reset();
+
+    // Set Turbo CLKDIV = 2 (START = 4 ticks, Byte = 18 ticks)
+    i2c.write(0x10, 2, mmio::AccessSize::Word);
+    i2c.write(0x0C, 0x50, mmio::AccessSize::Word);
+
+    // Issue START -> 2 * 2 = 4 ticks busy
+    i2c.write(0x00, 0x01, mmio::AccessSize::Word);
+    EXPECT_NE(i2c.read(0x04, mmio::AccessSize::Word) & 0x01u, 0u); // BUSY
+    i2c.tick(4);
+    EXPECT_EQ(i2c.read(0x04, mmio::AccessSize::Word) & 0x01u, 0u); // Idle
+
+    // Send EEPROM address offset 0x20 -> 9 * 2 = 18 ticks
+    i2c.write(0x08, 0x20, mmio::AccessSize::Byte);
+    EXPECT_NE(i2c.read(0x04, mmio::AccessSize::Word) & 0x01u, 0u); // BUSY
+
+    // Colliding write at tick 10 sets OVR (bit 4)
+    i2c.tick(10);
+    i2c.write(0x08, 0x99, mmio::AccessSize::Byte);
+    EXPECT_NE(i2c.read(0x04, mmio::AccessSize::Word) & 0x10u, 0u); // OVR = 1
+
+    // Complete remaining 8 ticks
+    i2c.tick(8);
+    EXPECT_EQ(i2c.read(0x04, mmio::AccessSize::Word) & 0x01u, 0u); // BUSY = 0
+
+    // Clear OVR and write data byte 0x77 properly
+    i2c.write(0x04, 0x10u, mmio::AccessSize::Word);
+    EXPECT_EQ(i2c.read(0x04, mmio::AccessSize::Word) & 0x10u, 0u);
+
+    i2c.write(0x08, 0x77, mmio::AccessSize::Byte);
+    i2c.tick(18);
+    EXPECT_EQ(i2c.read_eeprom_direct(0x20), 0x77u);
+}
+
+TEST(SpiTest, TurboClockTimingAndOverrunProtection) {
+    mmio::SpiDevice spi;
+    spi.reset();
+
+    // Set Turbo CLKDIV = 2 -> 8 SCLK bits * 2 = 16 ticks per byte
+    spi.write(0x10, 2, mmio::AccessSize::Word);
+    spi.write(0x0C, 0, mmio::AccessSize::Word); // CS = 0
+
+    spi.write(0x08, 0x9F, mmio::AccessSize::Byte);
+    uint32_t sr = spi.read(0x04, mmio::AccessSize::Word);
+    EXPECT_NE(sr & 0x01u, 0u); // BSY = 1
+    EXPECT_EQ(sr & 0x04u, 0u); // RXNE = 0
+
+    // Colliding write after 8 ticks triggers OVR (bit 3 = 0x08)
+    spi.tick(8);
+    spi.write(0x08, 0x00, mmio::AccessSize::Byte);
+    EXPECT_NE(spi.read(0x04, mmio::AccessSize::Word) & 0x08u, 0u); // OVR = 1
+
+    // Finish remaining 8 ticks -> JEDEC ID 0xEF ready
+    spi.tick(8);
+    sr = spi.read(0x04, mmio::AccessSize::Word);
+    EXPECT_EQ(sr & 0x01u, 0u); // BSY = 0
+    EXPECT_NE(sr & 0x04u, 0u); // RXNE = 1
+    EXPECT_EQ(spi.read(0x08, mmio::AccessSize::Byte), 0xEFu);
+}
+
+TEST(CustomDeviceTest, MultiCycleLatencyAndOverrun) {
+    mmio::CustomDevice custom;
+    custom.reset();
+
+    custom.write(0x14, 5, mmio::AccessSize::Word); // LATENCY = 5 ticks
+    custom.write(0x00, 6, mmio::AccessSize::Word); // A = 6
+    custom.write(0x04, 7, mmio::AccessSize::Word); // B = 7
+    custom.write(0x08, 2, mmio::AccessSize::Word); // CMD = MUL
+
+    EXPECT_EQ(custom.read(0x10, mmio::AccessSize::Word) & 0x01u, 0u); // Not DONE
+    EXPECT_NE(custom.read(0x10, mmio::AccessSize::Word) & 0x02u, 0u); // BUSY = 1
+    EXPECT_EQ(custom.read(0x0C, mmio::AccessSize::Word), 0u);
+
+    // Colliding CMD write at tick 3 triggers OVR (bit 2 = 0x04)
+    custom.tick(3);
+    custom.write(0x08, 1, mmio::AccessSize::Word);
+    EXPECT_NE(custom.read(0x10, mmio::AccessSize::Word) & 0x04u, 0u);
+
+    // Finish remaining 2 ticks -> 6 * 7 = 42
+    custom.tick(2);
+    EXPECT_NE(custom.read(0x10, mmio::AccessSize::Word) & 0x01u, 0u); // DONE = 1
+    EXPECT_EQ(custom.read(0x0C, mmio::AccessSize::Word), 42u);
+}
+
