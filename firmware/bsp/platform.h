@@ -14,7 +14,14 @@ typedef struct {
     volatile uint32_t STATUS;
     volatile uint32_t CONTROL;
     volatile uint32_t BAUD;
+    volatile uint32_t CLKDIV;
 } UART_TypeDef;
+
+#define UART_STATUS_TX_READY (1U << 0)
+#define UART_STATUS_RX_VALID (1U << 1)
+#define UART_STATUS_TX_EMPTY (1U << 2)
+#define UART_STATUS_BUSY     (1U << 3)
+#define UART_STATUS_OVR      (1U << 4)
 
 typedef struct {
     volatile uint32_t LOAD;
@@ -23,6 +30,7 @@ typedef struct {
     volatile uint32_t INTCLR;
     volatile uint32_t RIS;
     volatile uint32_t MIS;
+    volatile uint32_t PSC;
 } TIMER_TypeDef;
 
 typedef struct {
@@ -30,14 +38,27 @@ typedef struct {
     volatile uint32_t SR;
     volatile uint32_t DR;
     volatile uint32_t ADDR;
+    volatile uint32_t CLKDIV;
 } I2C_TypeDef;
+
+#define I2C_SR_BUSY (1U << 0)
+#define I2C_SR_ACK  (1U << 1)
+#define I2C_SR_RXNE (1U << 2)
+#define I2C_SR_TXE  (1U << 3)
+#define I2C_SR_OVR  (1U << 4)
 
 typedef struct {
     volatile uint32_t CR;
     volatile uint32_t SR;
     volatile uint32_t DR;
     volatile uint32_t CS;
+    volatile uint32_t CLKDIV;
 } SPI_TypeDef;
+
+#define SPI_SR_BSY  (1U << 0)
+#define SPI_SR_TXE  (1U << 1)
+#define SPI_SR_RXNE (1U << 2)
+#define SPI_SR_OVR  (1U << 3)
 
 typedef struct {
     volatile uint32_t DR;
@@ -51,7 +72,12 @@ typedef struct {
     volatile uint32_t CMD;
     volatile uint32_t RESULT;
     volatile uint32_t STATUS;
+    volatile uint32_t LATENCY;
 } CUSTOM_TypeDef;
+
+#define CUSTOM_STATUS_DONE (1U << 0)
+#define CUSTOM_STATUS_BUSY (1U << 1)
+#define CUSTOM_STATUS_OVR  (1U << 2)
 
 typedef struct {
     volatile uint32_t ISER;
