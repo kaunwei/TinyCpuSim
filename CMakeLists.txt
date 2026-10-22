@@ -133,6 +133,11 @@ add_executable(test_config tests/unit/test_config.cpp)
 target_link_libraries(test_config PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(test_config)
 
+# Unit Test MMIO Bus
+add_executable(test_mmio_bus tests/unit/test_mmio_bus.cpp)
+target_link_libraries(test_mmio_bus PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(test_mmio_bus TEST_PREFIX "test_mmio_bus.")
+
 # uArch Cache Test
 add_executable(cache_test tests/uarch/cache_test.cpp)
 target_link_libraries(cache_test PRIVATE tinyarmsim_core gtest_main)
