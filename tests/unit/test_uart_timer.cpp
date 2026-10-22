@@ -161,3 +161,99 @@ TEST(UartTimerNvicTest, IrqBindingToNvic) {
     }
     EXPECT_TRUE(nvic->is_pending(1));
 }
+
+TEST(TimerTest, PrescalerDividesBusClock) {
+    mmio::TimerDevice timer;
+    timer.reset();
+
+    // PSC = 3 (divide by 4), LOAD = 10 -> requires 40 bus ticks to underflow
+    timer.write(0x18, 3, mmio::AccessSize::Word);
+    timer.write(0x00, 10, mmio::AccessSize::Word);
+    timer.write(0x08, 0x07, mmio::AccessSize::Word); // Enable | Periodic | IRQ
+
+    timer.tick(19);
+    EXPECT_EQ(timer.read(0x04, mmio::AccessSize::Word), 6u); // 19 / 4 = 4 decrements -> 10 - 4 = 6
+    EXPECT_FALSE(timer.has_pending_irq());
+
+    timer.tick(21); // Total 40 ticks -> 10 decrements -> underflow
+    EXPECT_TRUE(timer.has_pending_irq());
+    EXPECT_EQ(timer.read(0x04, mmio::AccessSize::Word), 10u);
+}
+
+TEST(UartTest, TurboClockTimingAndOverrunProtection) {
+    mmio::UartDevice uart;
+    uart.reset();
+
+    // Set Turbo CLKDIV = 2 -> 8N1 frame (10 bits) takes 20 ticks
+    uart.write(0x10, 2, mmio::AccessSize::Word);
+    uart.write(0x00, 'A', mmio::AccessSize::Byte);
+
+    // Immediately after write: BUSY=1 (bit 3), TX_READY=0 (bit 0), output still empty
+    uint32_t st = uart.read(0x04, mmio::AccessSize::Word);
+    EXPECT_EQ(st & 0x01u, 0u);
+    EXPECT_NE(st & 0x08u, 0u);
+    EXPECT_EQ(uart.get_tx_output(), "");
+
+    // Colliding write after 10 ticks triggers OVR (bit 4) and is dropped
+    uart.tick(10);
+    uart.write(0x00, 'X', mmio::AccessSize::Byte);
+    st = uart.read(0x04, mmio::AccessSize::Word);
+    EXPECT_NE(st & 0x10u, 0u); // OVR = 1
+
+    // Finish remaining 10 ticks -> 'A' emitted, 'X' ignored
+    uart.tick(10);
+    st = uart.read(0x04, mmio::AccessSize::Word);
+    EXPECT_NE(st & 0x01u, 0u); // TX_READY = 1
+    EXPECT_EQ(st & 0x08u, 0u); // BUSY = 0
+    EXPECT_EQ(uart.get_tx_output(), "A");
+
+    // Clear OVR via write-1-to-clear
+    uart.write(0x04, 0x10u, mmio::AccessSize::Word);
+    EXPECT_EQ(uart.read(0x04, mmio::AccessSize::Word) & 0x10u, 0u);
+}
+
+TEST(TimerTest, InterpreterStepAutomaticallyTicksTimerAndTriggersISR) {
+    MemoryBus bus(64 * 1024 * 1024);
+    ArchitecturalState state;
+    IsaInterpreter interp(state, bus);
+
+    auto timer_dev = std::make_unique<mmio::TimerDevice>();
+    auto nvic_dev = std::make_unique<mmio::NVICDevice>();
+    mmio::TimerDevice* timer = timer_dev.get();
+    mmio::NVICDevice* nvic = nvic_dev.get();
+
+    bus.register_device(std::move(timer_dev));
+    bus.register_device(std::move(nvic_dev));
+    interp.attach_nvic(nvic);
+
+    // Vector table at 0x1000; Timer0 is IRQ 1 -> offset (16 + 1)*4 = 0x44 -> 0x1044
+    nvic->set_vtor(0x1000);
+    bus.write32(0x1044, 0x2000 | 1);
+    nvic->write(0x100, (1u << 1), mmio::AccessSize::Word); // Enable IRQ 1
+
+    // ISR at 0x2000:
+    // MOVS R4, #99 (0x2463)
+    // BX LR        (0x4770)
+    bus.write16(0x2000, 0x2463);
+    bus.write16(0x2002, 0x4770);
+
+    // Main loop at 0x0100: fill with NOPs (MOV R8, R8 = 0x46C0)
+    for (uint32_t addr = 0x0100; addr < 0x0140; addr += 2) {
+        bus.write16(addr, 0x46C0);
+    }
+
+    state.set_reg(13, 0x10000); // SP
+    state.set_pc(0x0100);
+    state.set_reg(4, 0);
+
+    // Configure Timer0: PSC = 1 (2 ticks per count), LOAD = 3 -> fires after 6 steps
+    timer->write(0x18, 1, mmio::AccessSize::Word);
+    timer->write(0x00, 3, mmio::AccessSize::Word);
+    timer->write(0x08, 0x05, mmio::AccessSize::Word); // Enable | One-shot | IRQ Enable
+
+    for (int i = 0; i < 12; ++i) {
+        interp.step();
+    }
+
+    EXPECT_EQ(state.get_reg(4), 99u);
+}

@@ -615,24 +615,35 @@ public:
             }
             int irq = nvic_->get_highest_pending_irq();
             if (irq >= 0) {
-                // Auto-stacking onto MSP (R13)
-                uint32_t sp = state_.get_reg(13);
-                sp -= 32;
-                bus_.write32(sp, state_.get_reg(0));
-                bus_.write32(sp + 4, state_.get_reg(1));
-                bus_.write32(sp + 8, state_.get_reg(2));
-                bus_.write32(sp + 12, state_.get_reg(3));
-                bus_.write32(sp + 16, state_.get_reg(12));
-                bus_.write32(sp + 20, state_.get_reg(14)); // LR
-                bus_.write32(sp + 24, state_.get_pc());     // PC return address
-                bus_.write32(sp + 28, state_.get_cpsr());   // xPSR
-                state_.set_reg(13, sp);
-                state_.set_reg(14, 0xFFFFFFF9u);            // EXC_RETURN
-                uint32_t vector_addr = nvic_->vtor() + (16 + static_cast<uint32_t>(irq)) * 4;
-                uint32_t isr_addr = bus_.read32(vector_addr) & ~1u;
-                state_.set_pc(isr_addr);
-                nvic_->acknowledge_irq(static_cast<uint32_t>(irq));
-                return;
+                uint32_t active = nvic_->read(0x300, mmio::AccessSize::Word);
+                bool can_preempt = true;
+                for (uint32_t a = 0; a <= static_cast<uint32_t>(irq); ++a) {
+                    if (active & (1u << a)) {
+                        can_preempt = false;
+                        break;
+                    }
+                }
+                if (can_preempt) {
+                    // Auto-stacking onto MSP (R13)
+                    uint32_t sp = state_.get_reg(13);
+                    sp -= 32;
+                    bus_.write32(sp, state_.get_reg(0));
+                    bus_.write32(sp + 4, state_.get_reg(1));
+                    bus_.write32(sp + 8, state_.get_reg(2));
+                    bus_.write32(sp + 12, state_.get_reg(3));
+                    bus_.write32(sp + 16, state_.get_reg(12));
+                    bus_.write32(sp + 20, state_.get_reg(14)); // LR
+                    bus_.write32(sp + 24, state_.get_pc());     // PC return address
+                    bus_.write32(sp + 28, state_.get_cpsr());   // xPSR
+                    state_.set_reg(13, sp);
+                    state_.set_reg(14, 0xFFFFFFF9u);            // EXC_RETURN
+                    uint32_t vector_addr = nvic_->vtor() + (16 + static_cast<uint32_t>(irq)) * 4;
+                    uint32_t isr_addr = bus_.read32(vector_addr) & ~1u;
+                    state_.set_pc(isr_addr);
+                    nvic_->acknowledge_irq(static_cast<uint32_t>(irq));
+                    bus_.tick(1);
+                    return;
+                }
             }
         }
 
@@ -646,6 +657,7 @@ public:
             const DecodedInstruction& instr = opcode_cache_.get_16(first_halfword);
             execute(instr);
         }
+        bus_.tick(1);
 
         if ((state_.get_pc() & 0xFFFFFFF0u) == 0xFFFFFFF0u) {
             // Exception unstacking

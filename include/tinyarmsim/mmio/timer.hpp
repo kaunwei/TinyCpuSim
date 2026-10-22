@@ -25,6 +25,7 @@ public:
         if (offset == 0x08) return control_;
         if (offset == 0x10) return raw_irq_ ? 1u : 0u; // RIS
         if (offset == 0x14) return (raw_irq_ && ((control_ & 0x04u) != 0)) ? 1u : 0u; // MIS
+        if (offset == 0x18) return psc_; // Prescaler
         return 0;
     }
 
@@ -32,12 +33,17 @@ public:
         if (offset == 0x00) {
             load_ = value;
             value_ = value;
+            psc_counter_ = 0;
         } else if (offset == 0x04) {
             value_ = value;
+            psc_counter_ = 0;
         } else if (offset == 0x08) {
             control_ = value;
         } else if (offset == 0x0C) {
-            raw_irq_ = false; // Clear interrupt
+            raw_irq_ = false; // INTCLR
+        } else if (offset == 0x18) {
+            psc_ = value;
+            psc_counter_ = 0;
         }
     }
 
@@ -45,17 +51,23 @@ public:
         if ((control_ & 0x01u) == 0) return; // Not enabled
         if (load_ == 0) return;
 
-        if (cycles >= value_) {
+        uint64_t step_ticks = static_cast<uint64_t>(psc_) + 1ULL;
+        psc_counter_ += cycles;
+        uint64_t decrements = psc_counter_ / step_ticks;
+        if (decrements == 0) return;
+        psc_counter_ %= step_ticks;
+
+        if (decrements >= value_) {
             raw_irq_ = true;
             if ((control_ & 0x02u) != 0) { // Periodic auto-reload
-                uint64_t rem = (cycles - value_) % load_;
+                uint64_t rem = (decrements - value_) % load_;
                 value_ = static_cast<uint32_t>(load_ - rem);
             } else {
                 value_ = 0;
                 control_ &= ~0x01u; // One-shot disables timer
             }
         } else {
-            value_ -= static_cast<uint32_t>(cycles);
+            value_ -= static_cast<uint32_t>(decrements);
         }
     }
 
@@ -63,6 +75,8 @@ public:
         load_ = 0;
         value_ = 0;
         control_ = 0;
+        psc_ = 0;
+        psc_counter_ = 0;
         raw_irq_ = false;
     }
 
@@ -76,6 +90,8 @@ private:
     uint32_t load_{0};
     uint32_t value_{0};
     uint32_t control_{0}; // Bit 0: Enable, Bit 1: Periodic, Bit 2: IRQ Enable
+    uint32_t psc_{0};     // Prescaler: divides bus clock by (psc_ + 1)
+    uint64_t psc_counter_{0};
     bool raw_irq_{false};
 };
 
