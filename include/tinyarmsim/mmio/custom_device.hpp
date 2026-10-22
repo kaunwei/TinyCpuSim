@@ -6,8 +6,7 @@
 
 namespace tinyarmsim::mmio {
 
-// User-Defined Hardware Accelerator Example
-class CustomDevice : public MMIODevice {
+class CustomDevice : public ClockedMMIODevice {
 public:
     static constexpr uint32_t DEFAULT_BASE = 0x50000000;
     static constexpr uint32_t DEFAULT_SPAN = 0x1000;
@@ -25,13 +24,12 @@ public:
         if (offset == 0x08) return cmd_;
         if (offset == 0x0C) return result_;
         if (offset == 0x10) {
-            // bit 0: READY/DONE, bit 1: BUSY, bit 2: OVR
             uint32_t st = status_;
-            if (busy_ticks_ > 0) {
-                st |= 0x02u;  // BUSY
-                st &= ~0x01u; // Not READY
+            if (is_busy()) {
+                st |= 0x02u;
+                st &= ~0x01u;
             }
-            if (ovr_) st |= 0x04u;
+            if (has_overrun()) st |= 0x04u;
             return st;
         }
         if (offset == 0x14) return latency_;
@@ -44,58 +42,40 @@ public:
         } else if (offset == 0x04) {
             reg_b_ = value;
         } else if (offset == 0x08) {
-            if (busy_ticks_ > 0) {
-                ovr_ = true;
-                return;
-            }
+            if (check_and_flag_overrun()) return;
             cmd_ = value;
-            if (latency_ == 0) {
-                execute_cmd();
-            } else {
-                status_ &= ~0x01u;
-                busy_ticks_ = latency_;
-            }
+            status_ &= ~0x01u;
+            schedule_busy(latency_);
         } else if (offset == 0x10) {
-            if (value & 0x04u) ovr_ = false; // Write-1-to-clear OVR
+            if (value & 0x04u) clear_overrun();
         } else if (offset == 0x14) {
             latency_ = value;
         }
     }
 
-    void tick(uint64_t cycles) override {
-        if (busy_ticks_ > 0) {
-            if (cycles >= busy_ticks_) {
-                busy_ticks_ = 0;
-                execute_cmd();
-            } else {
-                busy_ticks_ -= cycles;
-            }
-        }
-    }
-
     void reset() override {
+        reset_clock_state();
         reg_a_ = 0;
         reg_b_ = 0;
         cmd_ = 0;
         result_ = 0;
         status_ = 0;
         latency_ = 0;
-        busy_ticks_ = 0;
-        ovr_ = false;
+    }
+
+protected:
+    void on_transfer_complete() override {
+        if (cmd_ == 1) {
+            result_ = reg_a_ + reg_b_;
+        } else if (cmd_ == 2) {
+            result_ = reg_a_ * reg_b_;
+        } else if (cmd_ == 3) {
+            result_ = reg_a_ ^ reg_b_;
+        }
+        status_ = 0x01u;
     }
 
 private:
-    void execute_cmd() {
-        if (cmd_ == 1) { // ADD
-            result_ = reg_a_ + reg_b_;
-        } else if (cmd_ == 2) { // MUL
-            result_ = reg_a_ * reg_b_;
-        } else if (cmd_ == 3) { // XOR
-            result_ = reg_a_ ^ reg_b_;
-        }
-        status_ = 0x01u; // DONE / READY
-    }
-
     uint32_t base_;
     uint32_t span_;
     uint32_t reg_a_{0};
@@ -104,8 +84,6 @@ private:
     uint32_t result_{0};
     uint32_t status_{0};
     uint32_t latency_{0};
-    uint64_t busy_ticks_{0};
-    bool ovr_{false};
 };
 
 } // namespace tinyarmsim::mmio
