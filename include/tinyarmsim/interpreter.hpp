@@ -623,22 +623,7 @@ public:
         }
         bus_.tick(1);
 
-        if ((state_.get_pc() & 0xFFFFFFF0u) == 0xFFFFFFF0u) {
-            // Exception unstacking
-            uint32_t sp = state_.get_reg(13);
-            state_.set_reg(0, bus_.read32(sp));
-            state_.set_reg(1, bus_.read32(sp + 4));
-            state_.set_reg(2, bus_.read32(sp + 8));
-            state_.set_reg(3, bus_.read32(sp + 12));
-            state_.set_reg(12, bus_.read32(sp + 16));
-            state_.set_reg(14, bus_.read32(sp + 20));
-            uint32_t return_pc = bus_.read32(sp + 24) & ~1u;
-            state_.set_cpsr(bus_.read32(sp + 28));
-            state_.set_reg(13, sp + 32);
-            state_.set_pc(return_pc);
-            if (nvic_) nvic_->complete_active_irq();
-            return;
-        }
+        if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) { return; }
 
         check_and_trigger_slice();
     }
