@@ -143,6 +143,11 @@ add_executable(test_nvic_interrupt tests/unit/test_nvic_interrupt.cpp)
 target_link_libraries(test_nvic_interrupt PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(test_nvic_interrupt TEST_PREFIX "test_nvic_interrupt.")
 
+# Unit Test Core MMIO Peripherals (UART0, Timer0)
+add_executable(test_uart_timer tests/unit/test_uart_timer.cpp)
+target_link_libraries(test_uart_timer PRIVATE tinyarmsim_core gtest_main)
+gtest_discover_tests(test_uart_timer TEST_PREFIX "test_uart_timer.")
+
 # Unit Test Peripherals (I2C, SPI, CRC32, Custom)
 add_executable(test_peripherals tests/unit/test_peripherals.cpp)
 target_link_libraries(test_peripherals PRIVATE tinyarmsim_core gtest_main)
