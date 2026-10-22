@@ -12,6 +12,7 @@
 #include "tinyarmsim/mmio/nvic.hpp"
 #include "tinyarmsim/mmio/gpio.hpp"
 #include "tinyarmsim/mmio/dma.hpp"
+#include "tinyarmsim/mmio/soc_platform.hpp"
 
 using namespace tinyarmsim;
 
@@ -20,30 +21,7 @@ TEST(BaremetalFirmwareTest, FullPeripheralSystemExecution) {
     ArchitecturalState state;
     IsaInterpreter interp(state, bus);
 
-    auto uart = std::make_unique<mmio::UartDevice>();
-    auto timer = std::make_unique<mmio::TimerDevice>();
-    auto i2c = std::make_unique<mmio::I2CDevice>();
-    auto spi = std::make_unique<mmio::SpiDevice>();
-    auto crc = std::make_unique<mmio::Crc32Device>();
-    auto custom = std::make_unique<mmio::CustomDevice>();
-    auto nvic = std::make_unique<mmio::NVICDevice>();
-
-    mmio::UartDevice* uart_ptr = uart.get();
-    [[maybe_unused]] mmio::CustomDevice* custom_ptr = custom.get();
-    [[maybe_unused]] mmio::Crc32Device* crc_ptr = crc.get();
-    mmio::NVICDevice* nvic_ptr = nvic.get();
-    (void)custom_ptr;
-    (void)crc_ptr;
-
-    bus.register_device(std::move(uart));
-    bus.register_device(std::move(timer));
-    bus.register_device(std::move(i2c));
-    bus.register_device(std::move(spi));
-    bus.register_device(std::move(crc));
-    bus.register_device(std::move(custom));
-    bus.register_device(std::move(nvic));
-
-    interp.attach_nvic(nvic_ptr);
+    auto soc = mmio::SoCPeripherals::attach_all(bus, interp);
 
     // 1. Test UART MMIO via Interpreter
     state.set_reg(1, 0x40000000); // UART0 DATA
@@ -63,7 +41,7 @@ TEST(BaremetalFirmwareTest, FullPeripheralSystemExecution) {
     str_k.mem_size = 4;
     interp.execute(str_k);
 
-    EXPECT_EQ(uart_ptr->get_tx_output(), "OK");
+    EXPECT_EQ(soc.uart->get_tx_output(), "OK");
 
     // 2. Test Custom Accel via bus
     bus.write32(0x50000000, 10); // A = 10
