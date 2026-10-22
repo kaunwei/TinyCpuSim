@@ -333,6 +333,79 @@ private:
             return instr;
         }
 
+        // 14.1 System Hints: WFE (0xBF20), WFI (0xBF30), SEV (0xBF40), IT (0xBF01-0xBFEF)
+        if ((raw_instr & 0xFF00) == 0xBF00) {
+            if (raw_instr == 0xBF30 || raw_instr == 0xBF20) {
+                instr.op = Opcode::WFI;
+            } else {
+                instr.op = Opcode::NOP;
+            }
+            return instr;
+        }
+
+        // 14.2 Form PC/SP-relative address: ADR Rd, #imm8 (0xA000) / ADD Rd, SP, #imm8 (0xA800)
+        if ((raw_instr & 0xF000) == 0xA000) {
+            bool from_sp = ((raw_instr >> 11) & 0x1) != 0;
+            uint8_t rd = static_cast<uint8_t>((raw_instr >> 8) & 0x7);
+            uint32_t imm8 = (raw_instr & 0xFFu) * 4u;
+            instr.rd = rd;
+            instr.is_imm = true;
+            instr.imm = imm8;
+            if (from_sp) {
+                instr.op = Opcode::ADD;
+                instr.rn = 13; // SP
+            } else {
+                instr.op = Opcode::ADR;
+                instr.rn = 15; // PC
+            }
+            return instr;
+        }
+
+        // 14.3 Adjust SP: ADD SP, SP, #imm7 (0xB000) / SUB SP, SP, #imm7 (0xB080)
+        if ((raw_instr & 0xFF00) == 0xB000) {
+            bool is_sub = ((raw_instr >> 7) & 0x1) != 0;
+            instr.op = is_sub ? Opcode::SUB : Opcode::ADD;
+            instr.rd = 13;
+            instr.rn = 13;
+            instr.is_imm = true;
+            instr.imm = (raw_instr & 0x7Fu) * 4u;
+            instr.set_flags = false;
+            return instr;
+        }
+
+        // 14.4 Sign/Zero Extend: SXTH (0xB200), SXTB (0xB240), UXTH (0xB280), UXTB (0xB2C0)
+        if ((raw_instr & 0xFF00) == 0xB200) {
+            uint8_t op2 = static_cast<uint8_t>((raw_instr >> 6) & 0x3);
+            instr.rm = static_cast<uint8_t>((raw_instr >> 3) & 0x7);
+            instr.rd = static_cast<uint8_t>(raw_instr & 0x7);
+            switch (op2) {
+                case 0b00: instr.op = Opcode::SXTH; break;
+                case 0b01: instr.op = Opcode::SXTB; break;
+                case 0b10: instr.op = Opcode::UXTH; break;
+                case 0b11: instr.op = Opcode::UXTB; break;
+            }
+            return instr;
+        }
+
+        // 14.5 Byte Reverse: REV (0xBA00), REV16 (0xBA40), REVSH (0xBAC0)
+        if ((raw_instr & 0xFF00) == 0xBA00) {
+            uint8_t op2 = static_cast<uint8_t>((raw_instr >> 6) & 0x3);
+            instr.rm = static_cast<uint8_t>((raw_instr >> 3) & 0x7);
+            instr.rd = static_cast<uint8_t>(raw_instr & 0x7);
+            if (op2 == 0b00) instr.op = Opcode::REV;
+            else if (op2 == 0b01) instr.op = Opcode::REV16;
+            else if (op2 == 0b11) instr.op = Opcode::REVSH;
+            else throw UndefinedInstructionException(raw_instr, pc);
+            return instr;
+        }
+
+        // 14.6 CPSIE / CPSID (0xB660 - 0xB67F)
+        if ((raw_instr & 0xFFE0) == 0xB660) {
+            bool disable = ((raw_instr >> 4) & 0x1) != 0;
+            instr.op = disable ? Opcode::CPSID : Opcode::CPSIE;
+            return instr;
+        }
+
         // 15. Software Interrupt (SVC #imm8): [15:8] == 0xDF
         if ((raw_instr & 0xFF00) == 0xDF00) {
             instr.op = Opcode::SVC;

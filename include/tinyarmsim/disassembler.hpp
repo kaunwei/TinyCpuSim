@@ -197,6 +197,32 @@ public:
                 break;
             }
 
+            case Opcode::SXTB:
+            case Opcode::SXTH:
+            case Opcode::UXTB:
+            case Opcode::UXTH:
+            case Opcode::REV:
+            case Opcode::REV16:
+            case Opcode::REVSH: {
+                oss << op_str << " " << reg_name(instr.rd) << ", " << reg_name(instr.rm);
+                break;
+            }
+            case Opcode::UDIV:
+            case Opcode::SDIV: {
+                oss << op_str << " " << reg_name(instr.rd) << ", " << reg_name(instr.rn) << ", " << reg_name(instr.rm);
+                break;
+            }
+            case Opcode::ADR: {
+                oss << "adr " << reg_name(instr.rd) << ", #" << instr.imm;
+                break;
+            }
+            case Opcode::CPSIE: oss << "cpsie i"; break;
+            case Opcode::CPSID: oss << "cpsid i"; break;
+            case Opcode::WFI:   oss << "wfi"; break;
+            case Opcode::DMB:   oss << "dmb"; break;
+            case Opcode::DSB:   oss << "dsb"; break;
+            case Opcode::ISB:   oss << "isb"; break;
+
             case Opcode::NOP: {
                 oss << "nop";
                 break;

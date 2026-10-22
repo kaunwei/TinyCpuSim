@@ -28,6 +28,7 @@ public:
     void reset() noexcept {
         registers_.fill(0);
         cpsr_ = 0;
+        primask_ = false;
     }
 
     [[nodiscard]] uint32_t get_reg(size_t reg_num) const {
@@ -83,6 +84,9 @@ public:
         set_flag_z(val == 0);
     }
 
+    [[nodiscard]] bool get_primask() const noexcept { return primask_; }
+    void set_primask(bool mask) noexcept { primask_ = mask; }
+
 private:
     void set_flag_bit(uint32_t bit, bool val) noexcept {
         if (val) {
@@ -94,6 +98,7 @@ private:
 
     std::array<uint32_t, NUM_REGISTERS> registers_{};
     uint32_t cpsr_{0};
+    bool primask_{false};
 };
 
 } // namespace tinyarmsim

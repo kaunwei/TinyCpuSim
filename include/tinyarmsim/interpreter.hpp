@@ -578,6 +578,84 @@ public:
             case Opcode::NOP:
                 break;
 
+            case Opcode::ADR: {
+                uint32_t aligned_pc = (current_pc + 4u) & ~3u;
+                write_reg(instr.rd, aligned_pc + instr.imm);
+                break;
+            }
+            case Opcode::SXTB: {
+                int32_t sext = static_cast<int8_t>(state_.get_reg(instr.rm) & 0xFFu);
+                write_reg(instr.rd, static_cast<uint32_t>(sext));
+                break;
+            }
+            case Opcode::SXTH: {
+                int32_t sext = static_cast<int16_t>(state_.get_reg(instr.rm) & 0xFFFFu);
+                write_reg(instr.rd, static_cast<uint32_t>(sext));
+                break;
+            }
+            case Opcode::UXTB: {
+                write_reg(instr.rd, state_.get_reg(instr.rm) & 0xFFu);
+                break;
+            }
+            case Opcode::UXTH: {
+                write_reg(instr.rd, state_.get_reg(instr.rm) & 0xFFFFu);
+                break;
+            }
+            case Opcode::REV: {
+                uint32_t v = state_.get_reg(instr.rm);
+                uint32_t r = ((v & 0x000000FFu) << 24) |
+                             ((v & 0x0000FF00u) << 8)  |
+                             ((v & 0x00FF0000u) >> 8)  |
+                             ((v & 0xFF000000u) >> 24);
+                write_reg(instr.rd, r);
+                break;
+            }
+            case Opcode::REV16: {
+                uint32_t v = state_.get_reg(instr.rm);
+                uint32_t r = ((v & 0x00FF0000u) << 8) |
+                             ((v & 0xFF000000u) >> 8) |
+                             ((v & 0x000000FFu) << 8) |
+                             ((v & 0x0000FF00u) >> 8);
+                write_reg(instr.rd, r);
+                break;
+            }
+            case Opcode::REVSH: {
+                uint16_t swapped = static_cast<uint16_t>(((state_.get_reg(instr.rm) & 0xFFu) << 8) |
+                                                         ((state_.get_reg(instr.rm) >> 8) & 0xFFu));
+                int32_t sext = static_cast<int16_t>(swapped);
+                write_reg(instr.rd, static_cast<uint32_t>(sext));
+                break;
+            }
+            case Opcode::UDIV: {
+                uint32_t num = state_.get_reg(instr.rn);
+                uint32_t den = state_.get_reg(instr.rm);
+                write_reg(instr.rd, (den == 0) ? 0u : (num / den));
+                break;
+            }
+            case Opcode::SDIV: {
+                int32_t num = static_cast<int32_t>(state_.get_reg(instr.rn));
+                int32_t den = static_cast<int32_t>(state_.get_reg(instr.rm));
+                int32_t res = 0;
+                if (den == 0) res = 0;
+                else if (num == static_cast<int32_t>(0x80000000u) && den == -1) res = static_cast<int32_t>(0x80000000u);
+                else res = num / den;
+                write_reg(instr.rd, static_cast<uint32_t>(res));
+                break;
+            }
+            case Opcode::CPSIE: {
+                state_.set_primask(false);
+                break;
+            }
+            case Opcode::CPSID: {
+                state_.set_primask(true);
+                break;
+            }
+            case Opcode::WFI:
+            case Opcode::DMB:
+            case Opcode::DSB:
+            case Opcode::ISB:
+                break;
+
             case Opcode::SVC:
                 log_trace();
                 if (instr.imm == 0x50) { // m5_reset_stats

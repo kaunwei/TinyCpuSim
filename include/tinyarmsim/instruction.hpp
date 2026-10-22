@@ -52,6 +52,24 @@ enum class Opcode {
     STM,
     PUSH,
     POP,
+    // Sign/Zero Extend & Byte Reverse & Divide
+    SXTB,
+    SXTH,
+    UXTB,
+    UXTH,
+    REV,
+    REV16,
+    REVSH,
+    UDIV,
+    SDIV,
+    ADR,
+    // System & Barriers
+    CPSIE,
+    CPSID,
+    WFI,
+    DMB,
+    DSB,
+    ISB,
     // System
     MRS,
     MSR,
@@ -102,6 +120,22 @@ enum class Opcode {
         case Opcode::STM: return "STM";
         case Opcode::PUSH: return "PUSH";
         case Opcode::POP: return "POP";
+        case Opcode::SXTB: return "SXTB";
+        case Opcode::SXTH: return "SXTH";
+        case Opcode::UXTB: return "UXTB";
+        case Opcode::UXTH: return "UXTH";
+        case Opcode::REV: return "REV";
+        case Opcode::REV16: return "REV16";
+        case Opcode::REVSH: return "REVSH";
+        case Opcode::UDIV: return "UDIV";
+        case Opcode::SDIV: return "SDIV";
+        case Opcode::ADR: return "ADR";
+        case Opcode::CPSIE: return "CPSIE";
+        case Opcode::CPSID: return "CPSID";
+        case Opcode::WFI: return "WFI";
+        case Opcode::DMB: return "DMB";
+        case Opcode::DSB: return "DSB";
+        case Opcode::ISB: return "ISB";
         case Opcode::MRS: return "MRS";
         case Opcode::MSR: return "MSR";
         case Opcode::SVC: return "SVC";
@@ -162,6 +196,7 @@ struct DecodedInstruction {
     bool is_load{false};
     uint8_t mem_size{4}; // 1 = byte, 2 = halfword, 4 = word
     bool is_signed_mem{false};
+    bool add_offset{true}; // true = base + offset, false = base - offset
     bool writeback{false};
     bool pre_indexed{true};
     uint16_t register_list{0}; // Bitmask for LDM/STM/PUSH/POP
