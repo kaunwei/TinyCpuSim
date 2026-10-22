@@ -24,7 +24,9 @@ g_pfnVectors:
     /* External Interrupts (16+) */
     .word UART_IRQHandler
     .word Timer_IRQHandler
-    .space 14 * 4, 0
+    .word GPIO_IRQHandler
+    .word DMA_IRQHandler
+    .space 12 * 4, 0
 
 .section .text.Reset_Handler, "ax", %progbits
 .global Reset_Handler
@@ -52,3 +54,7 @@ Default_Handler:
 .set UART_IRQHandler, Default_Handler
 .weak Timer_IRQHandler
 .set Timer_IRQHandler, Default_Handler
+.weak GPIO_IRQHandler
+.set GPIO_IRQHandler, Default_Handler
+.weak DMA_IRQHandler
+.set DMA_IRQHandler, Default_Handler

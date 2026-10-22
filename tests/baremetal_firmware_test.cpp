@@ -10,6 +10,8 @@
 #include "tinyarmsim/mmio/crc32.hpp"
 #include "tinyarmsim/mmio/custom_device.hpp"
 #include "tinyarmsim/mmio/nvic.hpp"
+#include "tinyarmsim/mmio/gpio.hpp"
+#include "tinyarmsim/mmio/dma.hpp"
 
 using namespace tinyarmsim;
 
@@ -177,4 +179,112 @@ TEST(BaremetalFirmwareTest, ClockedPeripheralsAndTimerInterruptViaInterpreter) {
     EXPECT_EQ(spi_ptr->read(0x04, mmio::AccessSize::Word) & 0x08u, 0u);  // No SPI OVR
     EXPECT_EQ(custom_ptr->read(0x0C, mmio::AccessSize::Word), 42u);
     EXPECT_EQ(custom_ptr->read(0x10, mmio::AccessSize::Word) & 0x04u, 0u); // No Custom OVR
+}
+
+TEST(BaremetalFirmwareTest, GpioDebounceAndDmaBurstWithInterruptsViaInterpreter) {
+    MemoryBus bus(64 * 1024 * 1024);
+    ArchitecturalState state;
+    IsaInterpreter interp(state, bus);
+
+    auto gpio = std::make_unique<mmio::GpioDevice>();
+    auto dma = std::make_unique<mmio::DmaDevice>(bus);
+    auto nvic = std::make_unique<mmio::NVICDevice>();
+
+    mmio::GpioDevice* gpio_ptr = gpio.get();
+    mmio::DmaDevice* dma_ptr = dma.get();
+    mmio::NVICDevice* nvic_ptr = nvic.get();
+
+    bus.register_device(std::move(gpio));
+    bus.register_device(std::move(dma));
+    bus.register_device(std::move(nvic));
+    interp.attach_nvic(nvic_ptr);
+
+    // Setup NVIC Vector Table at 0x1000:
+    // IRQ 2 (GPIO0) -> offset (16 + 2)*4 = 0x48 -> 0x1048 -> ISR at 0x2000
+    // IRQ 3 (DMA0)  -> offset (16 + 3)*4 = 0x4C -> 0x104C -> ISR at 0x2100
+    nvic_ptr->set_vtor(0x1000);
+    bus.write32(0x1048, 0x2000 | 1);
+    bus.write32(0x104C, 0x2100 | 1);
+    nvic_ptr->write(0x100, (1u << 2) | (1u << 3), mmio::AccessSize::Word);
+
+    // GPIO0 ISR at 0x2000:
+    // Clear GPIO0 ISR bit 4, set R6 = 1, and return
+    // 0x2000: LDR R0, [PC, #8] (0x4802) -> load &GPIO0->ISR (0x40005014)
+    // 0x2002: MOVS R1, #0x10   (0x2110)
+    // 0x2004: STR R1, [R0, #0] (0x6001)
+    // 0x2006: MOVS R6, #1      (0x2601)
+    // 0x2008: BX LR            (0x4770)
+    // 0x200A: NOP              (0xBF00)
+    // 0x200C: 0x40005014
+    bus.write16(0x2000, 0x4802);
+    bus.write16(0x2002, 0x2110);
+    bus.write16(0x2004, 0x6001);
+    bus.write16(0x2006, 0x2601);
+    bus.write16(0x2008, 0x4770);
+    bus.write16(0x200A, 0xBF00);
+    bus.write32(0x200C, 0x40005014);
+
+    // DMA0 ISR at 0x2100:
+    // Clear DMA0 SR bit 1 (TCIF), set R7 = 1, and return
+    // 0x2100: LDR R0, [PC, #8] (0x4802) -> load &DMA0->SR (0x40006010)
+    // 0x2102: MOVS R1, #2      (0x2102)
+    // 0x2104: STR R1, [R0, #0] (0x6001)
+    // 0x2106: MOVS R7, #1      (0x2701)
+    // 0x2108: BX LR            (0x4770)
+    // 0x210A: NOP              (0xBF00)
+    // 0x210C: 0x40006010
+    bus.write16(0x2100, 0x4802);
+    bus.write16(0x2102, 0x2102);
+    bus.write16(0x2104, 0x6001);
+    bus.write16(0x2106, 0x2701);
+    bus.write16(0x2108, 0x4770);
+    bus.write16(0x210A, 0xBF00);
+    bus.write32(0x210C, 0x40006010);
+
+    // Main Thumb program at 0x0100:
+    // Wait until both R6 != 0 (GPIO IRQ fired) and R7 != 0 (DMA IRQ fired), then exit with R0 = 0
+    // 0x0100: CMP R6, #0  (0x2E00)
+    // 0x0102: BEQ 0x0100  (0xD0FD)
+    // 0x0104: CMP R7, #0  (0x2F00)
+    // 0x0106: BEQ 0x0100  (0xD0FB)
+    // 0x0108: MOVS R0, #0 (0x2000)
+    // 0x010A: SVC #0      (0xDF00)
+    bus.write16(0x0100, 0x2E00);
+    bus.write16(0x0102, 0xD0FD);
+    bus.write16(0x0104, 0x2F00);
+    bus.write16(0x0106, 0xD0FB);
+    bus.write16(0x0108, 0x2000);
+    bus.write16(0x010A, 0xDF00);
+
+    state.set_reg(13, 0x10000);
+    state.set_pc(0x0100);
+    state.set_reg(6, 0);
+    state.set_reg(7, 0);
+
+    // Configure GPIO0: pins [3:0] output, pin 4 input with IRQ enabled, DEBOUNCE = 6 ticks
+    gpio_ptr->write(0x00, 0x0Fu, mmio::AccessSize::Word);
+    gpio_ptr->write(0x10, (1u << 4), mmio::AccessSize::Word); // IER pin 4
+    gpio_ptr->write(0x18, 6, mmio::AccessSize::Word);         // DEBOUNCE = 6 ticks
+    gpio_ptr->inject_external_input(1u << 4);
+
+    // Prepare 4 words in RAM at 0x3000 and configure DMA0 with Turbo CLKDIV = 2 (8 ticks total)
+    for (uint32_t i = 0; i < 4; ++i) {
+        bus.write32(0x3000 + i * 4, 0xCAFE0000u + i);
+    }
+    dma_ptr->write(0x14, 2, mmio::AccessSize::Word);      // CLKDIV = 2 ticks/word
+    dma_ptr->write(0x00, 0x3000, mmio::AccessSize::Word); // SRC
+    dma_ptr->write(0x04, 0x4000, mmio::AccessSize::Word); // DST
+    dma_ptr->write(0x08, 4, mmio::AccessSize::Word);      // 4 words
+    dma_ptr->write(0x0C, 0x2Fu, mmio::AccessSize::Word);  // EN | TCIE | SRC_INC | DST_INC | WORD
+
+    // Run interpreter: step() drives bus.tick(1), completing GPIO debounce (6 ticks) & DMA (8 ticks)
+    uint32_t exit_code = interp.run(200);
+    EXPECT_EQ(exit_code, 0u);
+    EXPECT_EQ(state.get_reg(6), 1u); // GPIO0 ISR executed
+    EXPECT_EQ(state.get_reg(7), 1u); // DMA0 ISR executed
+
+    for (uint32_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(bus.read32(0x4000 + i * 4), 0xCAFE0000u + i);
+    }
+    EXPECT_EQ(dma_ptr->read(0x10, mmio::AccessSize::Word) & 0x08u, 0u); // Zero DMA OVR
 }

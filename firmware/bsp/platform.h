@@ -6,6 +6,8 @@
 #define I2C0_BASE        0x40002000U
 #define SPI0_BASE        0x40003000U
 #define CRC0_BASE        0x40004000U
+#define GPIO0_BASE       0x40005000U
+#define DMA0_BASE        0x40006000U
 #define CUSTOM0_BASE     0x50000000U
 #define NVIC_BASE        0xE000E000U
 
@@ -67,6 +69,39 @@ typedef struct {
 } CRC_TypeDef;
 
 typedef struct {
+    volatile uint32_t MODER;
+    volatile uint32_t IDR;
+    volatile uint32_t ODR;
+    volatile uint32_t BSRR;
+    volatile uint32_t IER;
+    volatile uint32_t ISR;
+    volatile uint32_t DEBOUNCE;
+    volatile uint32_t BUSY;
+} GPIO_TypeDef;
+
+typedef struct {
+    volatile uint32_t SRC;
+    volatile uint32_t DST;
+    volatile uint32_t CNDTR;
+    volatile uint32_t CR;
+    volatile uint32_t SR;
+    volatile uint32_t CLKDIV;
+} DMA_TypeDef;
+
+#define DMA_CR_EN      (1U << 0)
+#define DMA_CR_TCIE    (1U << 1)
+#define DMA_CR_SRC_INC (1U << 2)
+#define DMA_CR_DST_INC (1U << 3)
+#define DMA_CR_SIZE_B  (0U << 4)
+#define DMA_CR_SIZE_H  (1U << 4)
+#define DMA_CR_SIZE_W  (2U << 4)
+
+#define DMA_SR_BUSY    (1U << 0)
+#define DMA_SR_TCIF    (1U << 1)
+#define DMA_SR_TEIF    (1U << 2)
+#define DMA_SR_OVR     (1U << 3)
+
+typedef struct {
     volatile uint32_t REG_A;
     volatile uint32_t REG_B;
     volatile uint32_t CMD;
@@ -94,5 +129,7 @@ typedef struct {
 #define I2C0    ((I2C_TypeDef*)I2C0_BASE)
 #define SPI0    ((SPI_TypeDef*)SPI0_BASE)
 #define CRC0    ((CRC_TypeDef*)CRC0_BASE)
+#define GPIO0   ((GPIO_TypeDef*)GPIO0_BASE)
+#define DMA0    ((DMA_TypeDef*)DMA0_BASE)
 #define CUSTOM0 ((CUSTOM_TypeDef*)CUSTOM0_BASE)
 #define NVIC    ((NVIC_TypeDef*)(NVIC_BASE + 0x100))
