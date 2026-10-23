@@ -327,6 +327,7 @@ TEST(BaremetalFirmwareTest, FullCortexMBootAndBareMetalInstructionSuiteWithPrima
     bus.write16(0x0001011C, 0xB004);
     bus.write16(0x0001011E, 0x2000);
     bus.write16(0x00010120, 0xDF00);
+    bus.write16(0x00010122, 0x2001); // MOVS R0, #1: must not execute after SVC exits
 
     state.set_reg(2, 0x1050);
     state.set_reg(3, 0x10);
@@ -376,4 +377,5 @@ TEST(BaremetalFirmwareTest, FullCortexMBootAndBareMetalInstructionSuiteWithPrima
     EXPECT_FALSE(state.get_primask());
     EXPECT_EQ(state.get_reg(5), 77u);
     EXPECT_EQ(state.get_sp(), 0x00030000u);
+    EXPECT_EQ(state.get_pc(), 0x00010120u); // Exception return resumed at SVC #0
 }

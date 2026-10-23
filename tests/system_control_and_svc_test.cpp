@@ -139,6 +139,7 @@ TEST(SystemControlTest, Thumb1BareMetalExtensionsAndPrimask) {
     // Test SXTB, SXTH, UXTB, UXTH
     // R0 = 0x00008080
     state.set_reg(0, 0x00008080);
+    state.set_flags(true, false, true, true);
     // SXTB R3, R0: 0xB240 | (0 << 3) | 3 = 0xB243
     // SXTH R4, R0: 0xB200 | (0 << 3) | 4 = 0xB204
     // UXTB R5, R0: 0xB2C0 | (0 << 3) | 5 = 0xB2C5
@@ -155,6 +156,10 @@ TEST(SystemControlTest, Thumb1BareMetalExtensionsAndPrimask) {
     EXPECT_EQ(state.get_reg(5), 0x80u);       // UXTB
     interp.step();
     EXPECT_EQ(state.get_reg(6), 0x8080u);     // UXTH
+    EXPECT_TRUE(state.get_flag_n());
+    EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c());
+    EXPECT_TRUE(state.get_flag_v());
 
     // Test REV, REV16, REVSH
     // R0 = 0x12345680
@@ -174,6 +179,10 @@ TEST(SystemControlTest, Thumb1BareMetalExtensionsAndPrimask) {
     EXPECT_EQ(state.get_reg(4), 0x34128056u);
     interp.step();
     EXPECT_EQ(state.get_reg(5), 0xFFFF8056u);
+    EXPECT_TRUE(state.get_flag_n());
+    EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c());
+    EXPECT_TRUE(state.get_flag_v());
 
 }
 
@@ -254,12 +263,18 @@ TEST(SystemControlTest, Thumb2DivideBranchPushPopAndIndexedLdrStr) {
     bus.write16(0x202C, 0xF3BF); bus.write16(0x202E, 0x8F5F);
     bus.write16(0x2030, 0xF3BF); bus.write16(0x2032, 0x8F4F);
     bus.write16(0x2034, 0xF3BF); bus.write16(0x2036, 0x8F6F);
+    state.set_pc(0x202C);
+    state.set_flags(true, false, true, true);
     interp.step();
     EXPECT_EQ(state.get_pc(), 0x2030u);
     interp.step();
     EXPECT_EQ(state.get_pc(), 0x2034u);
     interp.step();
     EXPECT_EQ(state.get_pc(), 0x2038u);
+    EXPECT_TRUE(state.get_flag_n());
+    EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c());
+    EXPECT_TRUE(state.get_flag_v());
 
     // 5. Test B.W and B<cond>.W
     // At PC=0x2038: B.W +8 (target = 0x2038 + 4 + 8 = 0x2044)
