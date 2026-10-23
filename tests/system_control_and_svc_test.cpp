@@ -293,3 +293,113 @@ TEST(SystemControlTest, Thumb2DivideBranchPushPopAndIndexedLdrStr) {
     interp.step(); // BEQ.W -> 0x2050
     EXPECT_EQ(state.get_pc(), 0x2050u);
 }
+
+TEST(SystemControlTest, ConditionalWideBranchesMatchAssemblerForForwardAndBackwardNZCV) {
+    ArchitecturalState state;
+    MemoryBus bus{1024 * 1024};
+    IsaInterpreter interp(state, bus);
+
+    // Raw halfwords from arm-none-eabi-as -mcpu=cortex-m3 -mthumb:
+    // 0000 f000 8006 beq.w 0010; 0004 f040 8004 bne.w 0010
+    // 0008 f43f affe beq.w 0008; 000c f47f affc bne.w 0008
+    // 0010 bf00 nop. Check both branch outcomes without deriving expected
+    // PCs from the decoder's displacement logic.
+    bus.write16(0x4000, 0xF000); bus.write16(0x4002, 0x8006); // BEQ forward
+    bus.write16(0x4004, 0xF040); bus.write16(0x4006, 0x8004); // BNE forward
+    bus.write16(0x4008, 0xF43F); bus.write16(0x400A, 0xAFFE); // BEQ backward
+    bus.write16(0x400C, 0xF47F); bus.write16(0x400E, 0xAFFC); // BNE backward
+
+    state.set_pc(0x4000);
+    state.set_flags(false, true, true, false); // NZCV=0110, EQ true
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4010u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_TRUE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x4000);
+    state.set_flags(false, false, true, false); // NZCV=0010, EQ false
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4004u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x4004);
+    state.set_flags(false, false, true, false); // NZCV=0010, NE true
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4010u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x4004);
+    state.set_flags(false, true, true, false); // NZCV=0110, NE false
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4008u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_TRUE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x4008);
+    state.set_flags(false, true, true, false); // NZCV=0110, EQ true
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4008u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_TRUE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x4008);
+    state.set_flags(false, false, true, false); // NZCV=0010, EQ false
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x400Cu);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x400C);
+    state.set_flags(false, false, true, false); // NZCV=0010, NE true
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4008u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+
+    state.set_pc(0x400C);
+    state.set_flags(false, true, true, false); // NZCV=0110, NE false
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x4010u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_TRUE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c()); EXPECT_FALSE(state.get_flag_v());
+}
+
+TEST(SystemControlTest, DivideBoundariesReturnDefinedResultsAndPreserveNZCV) {
+    ArchitecturalState state;
+    MemoryBus bus{1024 * 1024};
+    IsaInterpreter interp(state, bus);
+    state.set_flags(true, false, true, true);
+
+    // UDIV UINT_MAX / 2 = 0x7fffffff.
+    state.set_reg(0, 0xFFFFFFFFu);
+    state.set_reg(1, 2u);
+    bus.write16(0x4100, 0xFBB0);
+    bus.write16(0x4102, 0xF2F1);
+    // SDIV INT_MIN / 1 preserves INT_MIN; divide-by-zero returns zero.
+    state.set_reg(3, 0x80000000u);
+    state.set_reg(4, 1u);
+    bus.write16(0x4104, 0xFB93);
+    bus.write16(0x4106, 0xF5F4);
+    state.set_reg(6, 0xFFFFFFFFu);
+    state.set_reg(7, 0u);
+    bus.write16(0x4108, 0xFBB0);
+    bus.write16(0x410A, 0xF5F8);
+    bus.write16(0x410C, 0xFB90);
+    bus.write16(0x410E, 0xF5F8);
+
+    state.set_pc(0x4100);
+    interp.step();
+    EXPECT_EQ(state.get_reg(2), 0x7FFFFFFFu);
+    interp.step();
+    EXPECT_EQ(state.get_reg(5), 0x80000000u);
+    interp.step();
+    EXPECT_EQ(state.get_reg(5), 0u);
+    interp.step();
+    EXPECT_EQ(state.get_reg(5), 0u);
+    EXPECT_TRUE(state.get_flag_n());
+    EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c());
+    EXPECT_TRUE(state.get_flag_v());
+}
