@@ -690,6 +690,8 @@ private:
         // 6. 32-bit Load/Store (LDR/STR.W):
         if ((w1 & 0xFE00) == 0xF800) {
             bool is_load = ((w1 >> 4) & 0x1) != 0;
+            bool is_signed_byte = (w1 & 0xFFF0) == 0xF910 || (w1 & 0xFFF0) == 0xF990;
+            bool is_signed_half = (w1 & 0xFFF0) == 0xF930 || (w1 & 0xFFF0) == 0xF9B0;
             uint8_t size_code = static_cast<uint8_t>((w1 >> 5) & 0x3);
             uint8_t rn = static_cast<uint8_t>(w1 & 0xF);
             uint8_t rd = static_cast<uint8_t>((w2 >> 12) & 0xF);
@@ -719,7 +721,13 @@ private:
                 }
             }
 
-            if (size_code == 0b00) {
+            if (is_signed_byte) {
+                instr.op = Opcode::LDRSB;
+                instr.mem_size = 1;
+            } else if (is_signed_half) {
+                instr.op = Opcode::LDRSH;
+                instr.mem_size = 2;
+            } else if (size_code == 0b00) {
                 instr.op = is_load ? Opcode::LDRB : Opcode::STRB;
                 instr.mem_size = 1;
             } else if (size_code == 0b01) {
@@ -729,6 +737,7 @@ private:
                 instr.op = is_load ? Opcode::LDR : Opcode::STR;
                 instr.mem_size = 4;
             }
+            instr.is_signed_mem = (is_signed_byte || is_signed_half) && is_load;
             return instr;
         }
 

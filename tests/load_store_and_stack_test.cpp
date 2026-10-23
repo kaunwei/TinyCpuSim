@@ -289,3 +289,59 @@ TEST_F(LoadStoreTest, Thumb2MultipleTransfersHonorDirectionAndAscendingRegisters
     EXPECT_EQ(state.get_lr(), 0xEEEEEEEEu);
     EXPECT_EQ(state.get_sp(), 0x500u);
 }
+
+TEST(DecoderLoadStoreTest, DecodeWideSignedByteImmediate12Load) {
+    ArchitecturalState state;
+    MemoryBus bus{1024 * 1024};
+    IsaInterpreter interpreter{state, bus};
+    state.set_reg(0, 0x1000);
+    bus.write8(0x1001, 0x80);
+    bus.write8(0x1003, 0x7F);
+    state.set_flags(true, false, true, true);
+
+    auto instruction = Decoder::decode32(0xF990, 0x1001);
+    EXPECT_EQ(instruction.op, Opcode::LDRSB);
+    EXPECT_EQ(instruction.mem_size, 1u);
+    EXPECT_TRUE(instruction.is_signed_mem);
+    interpreter.execute(instruction);
+    EXPECT_EQ(state.get_reg(1), 0xFFFFFF80u);
+    auto positive = Decoder::decode32(0xF990, 0x1003);
+    interpreter.execute(positive);
+    EXPECT_EQ(state.get_reg(1), 0x7Fu);
+    const auto unsigned_byte = Decoder::decode32(0xF890, 0x1001);
+    EXPECT_EQ(unsigned_byte.op, Opcode::LDRB);
+    interpreter.execute(unsigned_byte);
+    EXPECT_EQ(state.get_reg(1), 0x80u);
+    EXPECT_TRUE(state.get_flag_n());
+    EXPECT_FALSE(state.get_flag_z());
+    EXPECT_TRUE(state.get_flag_c());
+    EXPECT_TRUE(state.get_flag_v());
+}
+
+TEST(DecoderLoadStoreTest, DecodeWideSignedHalfwordImmediate12Load) {
+    ArchitecturalState state;
+    MemoryBus bus{1024 * 1024};
+    IsaInterpreter interpreter{state, bus};
+    state.set_reg(0, 0x1000);
+    bus.write16(0x1002, 0x8001);
+    bus.write16(0x1004, 0x7F01);
+    state.set_flags(false, true, false, true);
+
+    auto instruction = Decoder::decode32(0xF9B0, 0x1002);
+    EXPECT_EQ(instruction.op, Opcode::LDRSH);
+    EXPECT_EQ(instruction.mem_size, 2u);
+    EXPECT_TRUE(instruction.is_signed_mem);
+    interpreter.execute(instruction);
+    EXPECT_EQ(state.get_reg(1), 0xFFFF8001u);
+    auto positive = Decoder::decode32(0xF9B0, 0x1004);
+    interpreter.execute(positive);
+    EXPECT_EQ(state.get_reg(1), 0x7F01u);
+    const auto unsigned_halfword = Decoder::decode32(0xF8B0, 0x1002);
+    EXPECT_EQ(unsigned_halfword.op, Opcode::LDRH);
+    interpreter.execute(unsigned_halfword);
+    EXPECT_EQ(state.get_reg(1), 0x8001u);
+    EXPECT_FALSE(state.get_flag_n());
+    EXPECT_TRUE(state.get_flag_z());
+    EXPECT_FALSE(state.get_flag_c());
+    EXPECT_TRUE(state.get_flag_v());
+}
