@@ -112,3 +112,33 @@ TEST(LoaderTest, CorruptElfThrowsLoaderException) {
 
     EXPECT_THROW(Loader::load_elf(stream, bus, state), LoaderException);
 }
+
+TEST(LoaderTest, FirmwareElfPreservesFlashLmaAndDefersRamInitialization) {
+    MemoryBus bus{1024 * 1024};
+    ArchitecturalState state;
+    std::vector<uint8_t> elf(52 + 64 + 12, 0);
+    elf[0] = 0x7f; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';
+    elf[4] = 1; elf[5] = 1; elf[6] = 1;
+    uint16_t machine = 40, phentsize = 32, phnum = 2;
+    uint32_t entry = 0x101, phoff = 52;
+    std::memcpy(&elf[18], &machine, 2); std::memcpy(&elf[24], &entry, 4);
+    std::memcpy(&elf[28], &phoff, 4); std::memcpy(&elf[42], &phentsize, 2);
+    std::memcpy(&elf[44], &phnum, 2);
+    const auto put32 = [&](size_t at, uint32_t value) { std::memcpy(&elf[at], &value, 4); };
+    const size_t text = 52, data = 84;
+    put32(text, 1); put32(text + 4, 116); put32(text + 8, 0x100); put32(text + 12, 0x100);
+    put32(text + 16, 8); put32(text + 20, 8);
+    put32(data, 1); put32(data + 4, 120); put32(data + 8, 0x400); put32(data + 12, 0x400);
+    put32(data + 16, 4); put32(data + 20, 8);
+    elf[116] = 0x00; elf[117] = 0x02; elf[118] = 0x00; elf[119] = 0x20;
+    elf[120] = 0x44; elf[121] = 0x33; elf[122] = 0x22; elf[123] = 0x11;
+    bus.write32(0x200, 0xaaaaaaaa);
+    std::stringstream stream(std::string(elf.begin(), elf.end()));
+    Loader::load_elf(stream, bus, state, Loader::ElfLoadMode::Firmware);
+    EXPECT_EQ(state.get_pc(), 0x100u);
+    EXPECT_EQ(bus.read32(0x100), 0x20000200u);
+    EXPECT_EQ(bus.read32(0x104), 0x11223344u);
+    EXPECT_EQ(bus.read32(0x400), 0x11223344u);
+    EXPECT_EQ(bus.read32(0x200), 0xaaaaaaaau);
+    EXPECT_EQ(bus.read32(0x204), 0u);
+}

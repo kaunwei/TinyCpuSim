@@ -18,6 +18,7 @@ public:
 
 class Loader {
 public:
+    enum class ElfLoadMode { Default, Firmware };
     static void load_raw(std::istream& stream, MemoryBus& bus, uint32_t base_address) {
         std::vector<uint8_t> buffer((std::istreambuf_iterator<char>(stream)),
                                      std::istreambuf_iterator<char>());
@@ -27,6 +28,11 @@ public:
     }
 
     static void load_elf(std::istream& stream, MemoryBus& bus, ArchitecturalState& state) {
+        load_elf(stream, bus, state, ElfLoadMode::Default);
+    }
+
+    static void load_elf(std::istream& stream, MemoryBus& bus, ArchitecturalState& state,
+                         ElfLoadMode mode) {
         std::vector<uint8_t> data((std::istreambuf_iterator<char>(stream)),
                                   std::istreambuf_iterator<char>());
 
@@ -73,12 +79,14 @@ public:
             uint32_t p_type;
             uint32_t p_offset;
             uint32_t p_vaddr;
+            uint32_t p_paddr;
             uint32_t p_filesz;
             uint32_t p_memsz;
 
             std::memcpy(&p_type, &data[ph_offset + 0], 4);
             std::memcpy(&p_offset, &data[ph_offset + 4], 4);
             std::memcpy(&p_vaddr, &data[ph_offset + 8], 4);
+            std::memcpy(&p_paddr, &data[ph_offset + 12], 4);
             std::memcpy(&p_filesz, &data[ph_offset + 16], 4);
             std::memcpy(&p_memsz, &data[ph_offset + 20], 4);
 
@@ -87,14 +95,15 @@ public:
                     throw LoaderException("PT_LOAD segment data exceeds file size");
                 }
 
-                // Copy payload from file
+                const uint32_t load_address = mode == ElfLoadMode::Firmware ? p_paddr : p_vaddr;
                 for (uint32_t b = 0; b < p_filesz; ++b) {
-                    bus.write8(p_vaddr + b, data[p_offset + b]);
+                    bus.write8(load_address + b, data[p_offset + b]);
                 }
 
-                // Zero-fill remaining BSS (p_memsz - p_filesz)
-                for (uint32_t b = p_filesz; b < p_memsz; ++b) {
-                    bus.write8(p_vaddr + b, 0);
+                if (mode == ElfLoadMode::Default || load_address == p_vaddr) {
+                    for (uint32_t b = p_filesz; b < p_memsz; ++b) {
+                        bus.write8(p_vaddr + b, 0);
+                    }
                 }
             }
         }
