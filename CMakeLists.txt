@@ -256,7 +256,36 @@ target_link_libraries(core_ubench_test PRIVATE tinyarmsim_core gtest_main)
 gtest_discover_tests(core_ubench_test)
 
 # Baremetal Firmware Platform Test
+option(ENABLE_BAREMETAL_FIRMWARE "Build and run the Cortex-M firmware acceptance fixture" ON)
+set(ARM_NONE_EABI_GCC "" CACHE FILEPATH "Arm GNU compiler for bare-metal firmware")
+if (ENABLE_BAREMETAL_FIRMWARE)
+    if (NOT ARM_NONE_EABI_GCC)
+        find_program(ARM_NONE_EABI_GCC arm-none-eabi-gcc)
+    endif()
+    if (NOT ARM_NONE_EABI_GCC)
+        message(FATAL_ERROR "ENABLE_BAREMETAL_FIRMWARE requires arm-none-eabi-gcc")
+    endif()
+    set(BAREMETAL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/isa_boot_acceptance.elf")
+    add_custom_command(
+        OUTPUT "${BAREMETAL_ACCEPTANCE_ELF}"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/isa_boot_acceptance.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/isa_boot_acceptance.s"
+            -o "${BAREMETAL_ACCEPTANCE_ELF}"
+        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
+            firmware/apps/isa_boot_acceptance.c firmware/apps/isa_boot_acceptance.s
+        VERBATIM
+        COMMENT "Compiling Cortex-M3 bare-metal C boot acceptance ELF")
+    add_custom_target(baremetal_firmware_elf DEPENDS "${BAREMETAL_ACCEPTANCE_ELF}")
+endif()
 add_executable(baremetal_firmware_test tests/baremetal_firmware_test.cpp)
 target_link_libraries(baremetal_firmware_test PRIVATE tinyarmsim_core gtest_main)
+if (ENABLE_BAREMETAL_FIRMWARE)
+    add_dependencies(baremetal_firmware_test baremetal_firmware_elf)
+    target_compile_definitions(baremetal_firmware_test PRIVATE
+        BAREMETAL_ACCEPTANCE_ELF="${BAREMETAL_ACCEPTANCE_ELF}")
+endif()
 gtest_discover_tests(baremetal_firmware_test TEST_PREFIX "baremetal_firmware_test.")
 

@@ -1,4 +1,4 @@
-CC ?= arm-none-eabi-gcc
+CC = arm-none-eabi-gcc
 CFLAGS ?= -mcpu=cortex-m3 -mthumb -nostdlib -O2 -Wall -I bsp
 LDFLAGS ?= -T bsp/linker.ld
 
@@ -8,7 +8,7 @@ all: build/demo.elf
 
 build/demo.elf: $(SRCS)
 	@mkdir -p build
-	@which $(CC) >/dev/null 2>&1 && $(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@ || echo "Cross-compiler not present on runner, skipping host ELF build"
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@
 
 clean:
 	rm -rf build

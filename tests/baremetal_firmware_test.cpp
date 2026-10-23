@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <fstream>
 #include <memory>
 #include "tinyarmsim/interpreter.hpp"
 #include "tinyarmsim/memory_bus.hpp"
@@ -268,114 +269,28 @@ TEST(BaremetalFirmwareTest, GpioDebounceAndDmaBurstWithInterruptsViaInterpreter)
     EXPECT_EQ(dma_ptr->read(0x10, mmio::AccessSize::Word) & 0x08u, 0u); // Zero DMA OVR
 }
 
-TEST(BaremetalFirmwareTest, FullCortexMBootAndBareMetalInstructionSuiteWithPrimask) {
+#ifdef BAREMETAL_ACCEPTANCE_ELF
+TEST(BaremetalFirmwareTest, CompiledCortexMBootInitializesDataAndBssAndExits) {
     MemoryBus bus(64 * 1024 * 1024);
     ArchitecturalState state;
     IsaInterpreter interp(state, bus);
 
     auto soc = mmio::SoCPeripherals::attach_all(bus, interp);
+    std::ifstream elf(BAREMETAL_ACCEPTANCE_ELF, std::ios::binary);
+    ASSERT_TRUE(elf.good());
+    Loader::load_elf(elf, bus, state, Loader::ElfLoadMode::Firmware);
 
-    // Set up Cortex-M vector table at 0x00010000
     soc.nvic->set_vtor(0x00010000);
-    bus.write32(0x00010000, 0x00030000);         // Initial MSP
-    bus.write32(0x00010004, 0x00010100 | 1);     // Reset_Handler
-    bus.write32(0x00010044, 0x00010200 | 1);     // Timer0 IRQ 1 vector (offset (16 + 1)*4 = 0x44)
-    soc.nvic->write(0x100, (1u << 1), mmio::AccessSize::Word); // Enable IRQ 1
-
+    bus.write32(0x00020000, 0xA5A5A5A5u);
+    bus.write32(0x00020004, 0xA5A5A5A5u);
+    bus.write32(0x00020008, 0xA5A5A5A5u);
     Loader::boot_cortex_m(bus, state, 0x00010000);
     EXPECT_EQ(state.get_sp(), 0x00030000u);
-    EXPECT_EQ(state.get_pc(), 0x00010100u);
+    EXPECT_EQ(state.get_pc(), 0x00010080u);
 
-    // Timer0 ISR at 0x00010200:
-    // Clear Timer0 INTCLR (0x4000100C), set R5 = 77, BX LR
-    bus.write16(0x00010200, 0x4802); // LDR R0, [PC, #8] -> 0x0001020C
-    bus.write16(0x00010202, 0x2101); // MOVS R1, #1
-    bus.write16(0x00010204, 0x6001); // STR R1, [R0, #0]
-    bus.write16(0x00010206, 0x254D); // MOVS R5, #77
-    bus.write16(0x00010208, 0x4770); // BX LR
-    bus.write16(0x0001020A, 0xBF00); // NOP
-    bus.write32(0x0001020C, 0x4000100C);
-
-    // Bare-metal program at 0x00010100:
-    // 0x00010100: CPSID i               (0xB672)
-    // 0x00010102: SUB SP, SP, #16       (0xB084)
-    // 0x00010104: ADD R0, SP, #4        (0xA801)
-    // 0x00010106: PUSH.W {R4, R8, LR}   (0xE92D, 0x4110)
-    // 0x0001010A: UDIV R1, R2, R3       (0xFBB2, 0xF1F3)
-    // 0x0001010E: UXTB R1, R1           (0xB2C9)
-    // 0x00010110: REV R4, R4            (0xBA24)
-    // 0x00010112: DMB                   (0xF3BF, 0x8F5F)
-    // 0x00010116: POP.W {R4, R8, LR}    (0xE8BD, 0x4110)
-    // 0x0001011A: CPSIE i               (0xB662)
-    // 0x0001011C: ADD SP, SP, #16       (0xB004)
-    // 0x0001011E: MOVS R0, #0           (0x2000)
-    // 0x00010120: SVC #0                (0xDF00)
-    bus.write16(0x00010100, 0xB672);
-    bus.write16(0x00010102, 0xB084);
-    bus.write16(0x00010104, 0xA801);
-    bus.write16(0x00010106, 0xE92D);
-    bus.write16(0x00010108, 0x4110);
-    bus.write16(0x0001010A, 0xFBB2);
-    bus.write16(0x0001010C, 0xF1F3);
-    bus.write16(0x0001010E, 0xB2C9);
-    bus.write16(0x00010110, 0xBA24);
-    bus.write16(0x00010112, 0xF3BF);
-    bus.write16(0x00010114, 0x8F5F);
-    bus.write16(0x00010116, 0xE8BD);
-    bus.write16(0x00010118, 0x4110);
-    bus.write16(0x0001011A, 0xB662);
-    bus.write16(0x0001011C, 0xB004);
-    bus.write16(0x0001011E, 0x2000);
-    bus.write16(0x00010120, 0xDF00);
-    bus.write16(0x00010122, 0x2001); // MOVS R0, #1: must not execute after SVC exits
-
-    state.set_reg(2, 0x1050);
-    state.set_reg(3, 0x10);
-    state.set_reg(4, 0x11223344);
-    state.set_reg(5, 0);
-    state.set_reg(8, 0xAABBCCDD);
-    state.set_lr(0x00010501);
-
-    // Step 1: CPSID i -> PRIMASK == 1
-    interp.step();
-    EXPECT_TRUE(state.get_primask());
-
-    // Step 2 & 3: SUB SP, SP, #16; ADD R0, SP, #4
-    interp.step();
-    EXPECT_EQ(state.get_sp(), 0x0002FFF0u);
-    interp.step();
-    EXPECT_EQ(state.get_reg(0), 0x0002FFF4u);
-
-    // Start Timer0 (LOAD = 2, PSC = 0)
-    soc.timer->write(0x18, 0, mmio::AccessSize::Word);    // PSC = 0
-    soc.timer->write(0x00, 2, mmio::AccessSize::Word);    // LOAD = 2
-    soc.timer->write(0x08, 0x05, mmio::AccessSize::Word); // Enable | One-shot | IRQ_EN
-
-    // Step 5 instructions while PRIMASK == 1:
-    // 1. PUSH.W {R4, R8, LR}
-    // 2. UDIV R1, R2, R3 -> 0x105
-    // 3. UXTB R1, R1     -> 0x05
-    // 4. REV R4, R4      -> 0x44332211
-    // 5. DMB
-    for (int i = 0; i < 5; ++i) {
-        interp.step();
-    }
-    EXPECT_TRUE(state.get_primask());
-    EXPECT_TRUE(soc.nvic->is_pending(1)); // Timer0 IRQ is pending in NVIC ISPR
-    EXPECT_EQ(state.get_reg(5), 0u);      // Did NOT preempt while CPSID i is active!
-    EXPECT_EQ(state.get_reg(1), 0x05u);
-
-    // Step POP.W {R4, R8, LR} -> restores R4 to 0x11223344
-    interp.step();
-    EXPECT_EQ(state.get_reg(4), 0x11223344u);
-    EXPECT_EQ(state.get_reg(8), 0xAABBCCDDu);
-
-    // Run remaining program: CPSIE i unmasks IRQ 1, preempts into ISR (sets R5 = 77),
-    // returns via BX LR, deallocates stack (ADD SP, SP, #16), and exits cleanly via SVC #0
-    uint32_t exit_code = interp.run(50);
-    EXPECT_EQ(exit_code, 0u);
-    EXPECT_FALSE(state.get_primask());
-    EXPECT_EQ(state.get_reg(5), 77u);
-    EXPECT_EQ(state.get_sp(), 0x00030000u);
-    EXPECT_EQ(state.get_pc(), 0x00010120u); // Exception return resumed at SVC #0
+    EXPECT_EQ(interp.run(1000), 0u);
+    EXPECT_EQ(bus.read32(0x00020000), 0x13579BDFu);
+    EXPECT_EQ(bus.read32(0x00020004), 0x2468ACE0u);
+    EXPECT_EQ(bus.read32(0x00020008), 0u);
 }
+#endif
