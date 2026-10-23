@@ -209,3 +209,83 @@ TEST(DecoderLoadStoreTest, DecodeThumb16PushPop) {
     EXPECT_EQ(pop_instr.op, Opcode::POP);
     EXPECT_EQ(pop_instr.register_list, (1 << 0) | (1 << 1) | (1 << 15));
 }
+
+TEST(DecoderLoadStoreTest, DecodeThumb2MultipleTransferAddressingModes) {
+    const auto stmdb = Decoder::decode32(0xE920, 0x0006);
+    EXPECT_EQ(stmdb.op, Opcode::STM);
+    EXPECT_EQ(stmdb.rn, 0u);
+    EXPECT_EQ(stmdb.register_list, 0x0006u);
+    EXPECT_TRUE(stmdb.writeback);
+    EXPECT_FALSE(stmdb.add_offset);
+    EXPECT_TRUE(stmdb.pre_indexed);
+    EXPECT_EQ(stmdb.instr_size, 4u);
+
+    const auto stmdb_no_writeback = Decoder::decode32(0xE900, 0x0106);
+    EXPECT_EQ(stmdb_no_writeback.op, Opcode::STM);
+    EXPECT_FALSE(stmdb_no_writeback.writeback);
+    EXPECT_FALSE(stmdb_no_writeback.add_offset);
+
+    const auto stmia = Decoder::decode32(0xE8A0, 0x0106);
+    EXPECT_EQ(stmia.op, Opcode::STM);
+    EXPECT_TRUE(stmia.writeback);
+    EXPECT_TRUE(stmia.add_offset);
+
+    const auto ldmia = Decoder::decode32(0xE8B0, 0x0106);
+    EXPECT_EQ(ldmia.op, Opcode::LDM);
+    EXPECT_TRUE(ldmia.is_load);
+    EXPECT_TRUE(ldmia.writeback);
+    EXPECT_TRUE(ldmia.add_offset);
+
+    const auto push = Decoder::decode32(0xE92D, 0x4106);
+    EXPECT_EQ(push.op, Opcode::PUSH);
+    EXPECT_EQ(push.register_list, 0x4106u);
+    const auto pop = Decoder::decode32(0xE8BD, 0x8106);
+    EXPECT_EQ(pop.op, Opcode::POP);
+    EXPECT_EQ(pop.register_list, 0x8106u);
+}
+
+TEST_F(LoadStoreTest, Thumb2MultipleTransfersHonorDirectionAndAscendingRegisters) {
+    state.set_reg(0, 0x200);
+    state.set_reg(1, 0x11111111);
+    state.set_reg(2, 0x22222222);
+    interpreter.execute(Decoder::decode32(0xE920, 0x0006));
+    EXPECT_EQ(bus.read32(0x1F8), 0x11111111u);
+    EXPECT_EQ(bus.read32(0x1FC), 0x22222222u);
+    EXPECT_EQ(state.get_reg(0), 0x1F8u);
+
+    state.set_reg(3, 0x300);
+    state.set_reg(8, 0x88888888);
+    state.set_reg(12, 0xCCCCCCCC);
+    interpreter.execute(Decoder::decode32(0xE8A3, 0x1100));
+    EXPECT_EQ(bus.read32(0x300), 0x88888888u);
+    EXPECT_EQ(bus.read32(0x304), 0xCCCCCCCCu);
+    EXPECT_EQ(state.get_reg(3), 0x308u);
+
+    state.set_reg(3, 0x300);
+    state.set_reg(8, 0);
+    state.set_reg(12, 0);
+    interpreter.execute(Decoder::decode32(0xE8B3, 0x1100));
+    EXPECT_EQ(state.get_reg(8), 0x88888888u);
+    EXPECT_EQ(state.get_reg(12), 0xCCCCCCCCu);
+    EXPECT_EQ(state.get_reg(3), 0x308u);
+
+    state.set_reg(3, 0x340);
+    interpreter.execute(Decoder::decode32(0xE883, 0x1100));
+    EXPECT_EQ(bus.read32(0x340), 0x88888888u);
+    EXPECT_EQ(bus.read32(0x344), 0xCCCCCCCCu);
+    EXPECT_EQ(state.get_reg(3), 0x340u);
+
+    state.set_sp(0x500);
+    state.set_reg(8, 0x88888888);
+    state.set_lr(0xEEEEEEEE);
+    interpreter.execute(Decoder::decode32(0xE92D, 0x4100));
+    EXPECT_EQ(state.get_sp(), 0x4F8u);
+    EXPECT_EQ(bus.read32(0x4F8), 0x88888888u);
+    EXPECT_EQ(bus.read32(0x4FC), 0xEEEEEEEEu);
+    state.set_reg(8, 0);
+    state.set_lr(0);
+    interpreter.execute(Decoder::decode32(0xE8BD, 0x4100));
+    EXPECT_EQ(state.get_reg(8), 0x88888888u);
+    EXPECT_EQ(state.get_lr(), 0xEEEEEEEEu);
+    EXPECT_EQ(state.get_sp(), 0x500u);
+}

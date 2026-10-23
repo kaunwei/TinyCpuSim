@@ -538,7 +538,11 @@ public:
             // === Multiple Load/Store: LDM / STM ===
             case Opcode::STM: {
                 uint32_t base = state_.get_reg(instr.rn);
-                uint32_t cur_addr = base;
+                uint32_t byte_count = popcount(instr.register_list) * 4;
+                uint32_t start_addr = instr.instr_size == 2 ? base : instr.pre_indexed
+                    ? (instr.add_offset ? base + 4 : base - byte_count)
+                    : (instr.add_offset ? base : base - byte_count + 4);
+                uint32_t cur_addr = start_addr;
                 for (size_t i = 0; i < NUM_REGISTERS; ++i) {
                     if (instr.register_list & (1 << i)) {
                         write_mem(cur_addr, state_.get_reg(i), 4);
@@ -546,14 +550,18 @@ public:
                     }
                 }
                 if (instr.writeback) {
-                    write_reg(instr.rn, cur_addr);
+                    write_reg(instr.rn, instr.add_offset ? base + byte_count : base - byte_count);
                 }
                 break;
             }
 
             case Opcode::LDM: {
                 uint32_t base = state_.get_reg(instr.rn);
-                uint32_t cur_addr = base;
+                uint32_t byte_count = popcount(instr.register_list) * 4;
+                uint32_t start_addr = instr.instr_size == 2 ? base : instr.pre_indexed
+                    ? (instr.add_offset ? base + 4 : base - byte_count)
+                    : (instr.add_offset ? base : base - byte_count + 4);
+                uint32_t cur_addr = start_addr;
                 for (size_t i = 0; i < NUM_REGISTERS; ++i) {
                     if (instr.register_list & (1 << i)) {
                         uint32_t val = read_mem(cur_addr, 4, false);
@@ -566,7 +574,7 @@ public:
                     }
                 }
                 if (instr.writeback) {
-                    write_reg(instr.rn, cur_addr);
+                    write_reg(instr.rn, instr.add_offset ? base + byte_count : base - byte_count);
                 }
                 break;
             }

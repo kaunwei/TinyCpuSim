@@ -310,6 +310,8 @@ private:
             instr.rn = rn;
             instr.register_list = rlist;
             instr.writeback = true;
+            instr.pre_indexed = false;
+            instr.add_offset = true;
             return instr;
         }
 
@@ -471,12 +473,14 @@ private:
             return instr;
         }
 
-        // 1.5 32-bit Load/Store Multiple (LDMIA.W / STMDB.W / PUSH.W / POP.W)
-        if ((w1 & 0xFE40) == 0xE800) {
+        // 1.5 32-bit Load/Store Multiple (increment/decrement, before/after)
+        if ((w1 & 0xFE00) == 0xE800) {
             bool is_load = ((w1 >> 4) & 0x1) != 0;
+            bool pre_indexed = ((w1 >> 8) & 0x1) != 0;
+            bool add_offset = ((w1 >> 7) & 0x1) != 0;
             bool wback   = ((w1 >> 5) & 0x1) != 0;
             uint8_t rn   = static_cast<uint8_t>(w1 & 0xF);
-            uint16_t rlist = w2 & 0xDFFF; // r0-r12, lr (bit 14), pc (bit 15)
+            uint16_t rlist = w2;
             if (rn == 13 && wback) {
                 instr.op = is_load ? Opcode::POP : Opcode::PUSH;
             } else {
@@ -484,6 +488,9 @@ private:
                 instr.rn = rn;
                 instr.writeback = wback;
             }
+            instr.is_load = is_load;
+            instr.pre_indexed = pre_indexed;
+            instr.add_offset = add_offset;
             instr.register_list = rlist;
             return instr;
         }
