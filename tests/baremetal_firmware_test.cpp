@@ -1,6 +1,13 @@
 #include <gtest/gtest.h>
 #include <fstream>
+#include <iterator>
 #include <memory>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <array>
 #include "tinyarmsim/interpreter.hpp"
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/instruction.hpp"
@@ -365,19 +372,136 @@ TEST(BaremetalFirmwareTest, CompiledCortexMBootInitializesDataAndBssAndExits) {
     auto soc = mmio::SoCPeripherals::attach_all(bus, interp);
     std::ifstream elf(BAREMETAL_ACCEPTANCE_ELF, std::ios::binary);
     ASSERT_TRUE(elf.good());
-    Loader::load_elf(elf, bus, state, Loader::ElfLoadMode::Firmware);
+    const std::vector<uint8_t> elf_bytes((std::istreambuf_iterator<char>(elf)),
+                                         std::istreambuf_iterator<char>());
+    ASSERT_GE(elf_bytes.size(), 52u);
+    uint32_t section_offset = 0;
+    uint16_t section_entry_size = 0;
+    uint16_t section_count = 0;
+    std::memcpy(&section_offset, &elf_bytes[32], sizeof(section_offset));
+    std::memcpy(&section_entry_size, &elf_bytes[46], sizeof(section_entry_size));
+    std::memcpy(&section_count, &elf_bytes[48], sizeof(section_count));
+    ASSERT_GT(section_entry_size, 0u);
+    ASSERT_LE(static_cast<size_t>(section_offset) +
+                  static_cast<size_t>(section_entry_size) * section_count,
+              elf_bytes.size());
+
+    struct ElfSection {
+        uint32_t type;
+        uint32_t address;
+        uint32_t offset;
+        uint32_t size;
+        uint32_t link;
+        uint32_t entry_size;
+    };
+    std::vector<ElfSection> sections(section_count);
+    for (uint16_t i = 0; i < section_count; ++i) {
+        const size_t offset = section_offset + static_cast<size_t>(i) * section_entry_size;
+        uint32_t fields[10]{};
+        ASSERT_GE(section_entry_size, sizeof(fields));
+        std::memcpy(fields, &elf_bytes[offset], sizeof(fields));
+        sections[i] = {fields[1], fields[3], fields[4], fields[5], fields[6], fields[9]};
+    }
+    bool symbol_tables_valid = true;
+    const auto symbol_address = [&](const std::string& name) -> uint32_t {
+        for (const ElfSection& section : sections) {
+            if (section.type != 2u && section.type != 11u) {
+                continue;
+            }
+            if (section.link >= sections.size()) {
+                symbol_tables_valid = false;
+                continue;
+            }
+            const ElfSection& strings = sections[section.link];
+            if (static_cast<size_t>(section.offset) + section.size > elf_bytes.size() ||
+                static_cast<size_t>(strings.offset) + strings.size > elf_bytes.size() ||
+                section.entry_size == 0u) {
+                symbol_tables_valid = false;
+                continue;
+            }
+            for (uint32_t entry = 0; entry + section.entry_size <= section.size;
+                 entry += section.entry_size) {
+                uint32_t name_offset = 0;
+                uint32_t value = 0;
+                std::memcpy(&name_offset, &elf_bytes[section.offset + entry], sizeof(name_offset));
+                std::memcpy(&value, &elf_bytes[section.offset + entry + 4], sizeof(value));
+                if (name_offset >= strings.size) {
+                    continue;
+                }
+                const char* symbol_name = reinterpret_cast<const char*>(
+                    &elf_bytes[strings.offset + name_offset]);
+                const size_t remaining = strings.size - name_offset;
+                const void* terminator = std::memchr(symbol_name, '\0', remaining);
+                if (terminator != nullptr && name == symbol_name) {
+                    return value & ~1u;
+                }
+            }
+        }
+        ADD_FAILURE() << "ELF symbol not found: " << name;
+        return 0u;
+    };
+
+    const uint32_t initialized_address = symbol_address("initialized_value");
+    const uint32_t zero_address = symbol_address("zero_value");
+    const uint32_t acceptance_address = symbol_address("acceptance_result");
+    const uint32_t results_address = symbol_address("acceptance_results");
+    const uint32_t marker_address = symbol_address("isa_address_marker");
+    EXPECT_TRUE(symbol_tables_valid);
+    ASSERT_NE(initialized_address, 0u);
+    ASSERT_NE(zero_address, 0u);
+    ASSERT_NE(acceptance_address, 0u);
+    ASSERT_NE(results_address, 0u);
+    ASSERT_NE(marker_address, 0u);
+
+    bool found_data = false;
+    bool found_bss = false;
+    for (const ElfSection& section : sections) {
+        if (section.type == 1u && section.size != 0u && initialized_address >= section.address &&
+            initialized_address + 4u <= section.address + section.size) {
+            found_data = true;
+        }
+        if (section.type == 8u && section.size != 0u && zero_address >= section.address &&
+            zero_address + 4u <= section.address + section.size) {
+            found_bss = true;
+        }
+    }
+    ASSERT_TRUE(found_data);
+    ASSERT_TRUE(found_bss);
+
+    std::ifstream firmware_elf(BAREMETAL_ACCEPTANCE_ELF, std::ios::binary);
+    ASSERT_TRUE(firmware_elf.good());
+    Loader::load_elf(firmware_elf, bus, state, Loader::ElfLoadMode::Firmware);
 
     soc.nvic->set_vtor(0x00010000);
-    bus.write32(0x00020000, 0xA5A5A5A5u);
-    bus.write32(0x00020004, 0xA5A5A5A5u);
-    bus.write32(0x00020008, 0xA5A5A5A5u);
+    bus.write32(initialized_address, 0xA5A5A5A5u);
+    bus.write32(acceptance_address, 0xA5A5A5A5u);
+    bus.write32(zero_address, 0xA5A5A5A5u);
+    for (uint32_t offset = 0; offset < sizeof(uint32_t) * 13u; offset += sizeof(uint32_t)) {
+        bus.write32(results_address + offset, 0xA5A5A5A5u);
+    }
     Loader::boot_cortex_m(bus, state, 0x00010000);
     EXPECT_EQ(state.get_sp(), 0x00030000u);
     EXPECT_EQ(state.get_pc(), 0x00010080u);
 
     EXPECT_EQ(interp.run(1000), 0u);
-    EXPECT_EQ(bus.read32(0x00020000), 0x13579BDFu);
-    EXPECT_EQ(bus.read32(0x00020004), 0x2468ACE0u);
-    EXPECT_EQ(bus.read32(0x00020008), 0u);
+    EXPECT_EQ(bus.read32(initialized_address), 0x13579BDFu);
+    EXPECT_EQ(bus.read32(acceptance_address), 0xA11CE55Au);
+    EXPECT_EQ(bus.read32(zero_address), 0u);
+
+    const uint32_t expected_results[] = {
+        12u, marker_address, 0xFFFFFF80u, 0xFFFFFF80u, 0x80u, 0x80u,
+        0x78563412u, 0x34127856u, 0x7856u, 20u, 0xFFFFFFE7u, 1u, 1u};
+    std::vector<uint32_t> actual_results;
+    actual_results.reserve(13u);
+    for (size_t i = 0; i < 13u; ++i) {
+        const uint32_t actual = bus.read32(results_address + static_cast<uint32_t>(i * 4u));
+        actual_results.push_back(actual);
+        EXPECT_EQ(actual, expected_results[i]) << "acceptance result slot " << i;
+    }
+
+    std::vector<uint32_t> mutant_results = actual_results;
+    mutant_results[9] = 19u;
+    mutant_results[12] = 0u;
+    EXPECT_NE(mutant_results, std::vector<uint32_t>(expected_results, expected_results + 13));
 }
 #endif
