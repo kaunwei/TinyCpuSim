@@ -1,41 +1,42 @@
-# Evidence and exact commands
+<!-- REPORT_META: Task=TASK-051 | Commit=6f0f42e58686fd43c5c7ab7b0192121b02b965de -->
+# Verified observations and exact commands
 
-Source HEAD: `6f0f42e58686fd43c5c7ab7b0192121b02b965de`.
+Working directory is the human repository root. Natural-function and board-runner binaries were compiled from current source headers at the metadata commit. Product sources were not modified.
 
-## Acceptance test
+## Positive bounded firmware acceptance
 
-Command: `ctest --test-dir build -R baremetal_firmware_test --output-on-failure`
+`.worker-tree/build/baremetal_firmware_test` was run directly: **5/5 PASS**, cases listed in probe_results.json. The separate proper CTest command `/usr/bin/ctest --test-dir .worker-tree/build -R CompiledCortexMBootInitializesDataAndBssAndExits --no-tests=error --output-on-failure` ran **1/1 PASS**. These are distinct measured commands, not an executable-name filter assumption.
 
-Outcome: 5/5 passed (tests 269–273): FullPeripheralSystemExecution; ClockedPeripheralsAndTimerInterruptViaInterpreter; GpioDebounceAndDmaBurstWithInterruptsViaInterpreter; VectorResetAndPrimaskPreserveInterruptedContext; CompiledCortexMBootInitializesDataAndBssAndExits.
+`/tmp/task051-reliable/fw-runner .worker-tree/build/isa_boot_acceptance.elf 0`: rc0, finalPC0x100AC. The fixture uses O1/no-if-conversion and proves its own bounded contract.
 
-## Public CLI probes
+## Fresh normal-O2 unchanged BSP/demo (primary)
 
-Command: `./build/tinyarmsim build/isa_boot_acceptance.elf`
+```bash
+/usr/bin/g++ -std=c++20 -I .worker-tree/include /tmp/task051-reliable/direct.cpp -o /tmp/task051-reliable/direct
+/usr/bin/g++ -std=c++20 -I .worker-tree/include /tmp/task051-reliable/fw-runner.cpp -o /tmp/task051-reliable/fw-runner
+/usr/bin/arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -nostdlib -O0 -Wl,-Ttext=0x10000,-e,probe_select /tmp/task051-reliable/probes.c -o /tmp/task051-reliable/O0.elf
+/usr/bin/arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -nostdlib -O2 -Wl,-Ttext=0x10000,-e,probe_select /tmp/task051-reliable/probes.c -o /tmp/task051-reliable/O2.elf
+/usr/bin/arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -O2 -ffreestanding -fno-builtin -nostdlib -Wall -Wextra -I .worker-tree/firmware/bsp -T .worker-tree/firmware/bsp/linker.ld .worker-tree/firmware/bsp/startup.s .worker-tree/firmware/bsp/*.c .worker-tree/firmware/apps/demo_all_peripherals.c -o /tmp/task051-reliable/demo-O2.elf
+/tmp/task051-reliable/fw-runner /tmp/task051-reliable/demo-O2.elf 0
+/tmp/task051-reliable/fw-runner .worker-tree/build/isa_boot_acceptance.elf 0
+```
 
-Outcome: simulation failed with exit/R0=1 after 88 instructions. This executable path does not attach SoC peripherals, use `ElfLoadMode::Firmware`, set VTOR, or call `boot_cortex_m`; see `src/main.cpp:242-289`.
+The freshly compiled demo first fails at **actualPC0x10204, F04F4380, MOV.W r3,#0x40000000 in uart_init**. Board composition and reset have occurred; the first failure precedes UART register access. Later peripherals are not assessed by this halted run.
 
-Command: `./build/tinyarmsim /tmp/task051/demo.elf`
+Secondary older ELF: `/tmp/task051-reliable/fw-runner /tmp/task051/demo.elf 0` fails at actualPC0x101F8 F04F4280 MOV.W r2,#0x40000000. The older file is not substituted for fresh compilation provenance.
 
-Outcome: simulation failed after 61 instructions with `Undefined instruction 0xF04F4280 at PC 0x00000000` (CLI reported PC). `demo.elf` is the existing ELF noted in the task. This does not isolate an ISA fault from missing firmware board setup.
+## Exact public CLI commands
 
-A preliminary command against `/tmp/task051-reliable/demo-O2.elf` returned input-open error because that path does not exist; the reliable directory contains `demo-O2.elf`, while `/tmp/task051/demo.elf` was used for the requested demo probe. A preliminary non-firmware `tests/fixtures/test_arithmetic.elf` CLI smoke run passed with exit 0; it is not counted as firmware evidence.
+`.worker-tree/build/tinyarmsim --elf .worker-tree/build/isa_boot_acceptance.elf --max-steps 50000`: exit/R0=1,88instructions, no explicit CPU fault.
 
-## Direct board-runner demo
+`.worker-tree/build/tinyarmsim --elf /tmp/task051/demo.elf --max-steps 50000`: exit1 after61instructions, UndefinedInstruction F04F4280, error-messagePC0. Source src/main.cpp#L266 uses default ELF load; no SoC attach or vector reset appears in main. Board-runner captured architectural PC, rather than generic exception messagePC, establishes the actual fault location.
 
-Command: `/tmp/task051-reliable/fw-runner /tmp/task051/demo.elf 0`
+## Natural C semantics
 
-Outcome: runner returned 2; actual exception PC `0x101f8`, halfwords `0xF04F 0x4280`, message `Undefined instruction 0xF04F4280 at PC 0x00000000`. Runner setup is confirmed by source: SoC peripherals attached, VTOR set to `0x10000`, Firmware load mode, and `boot_cortex_m` at `0x10000`. Therefore the demo has a real instruction gap after board initialization. The CLI-reported PC for the same encoding was 0 because its generic reporter differs; use runner’s captured state PC for actual fault location.
+Full sources/commands in probe_sources.md; all12 raw rows in probe_results.json. Inputs are R0 assigned **after** load, SP0x30000, LR0x8001, return sentinel0x8000. No startup executes for these direct functions, and no BSS symbols carry inputs/results. The earlier TASK051 harness with startup-erased input or reordered BSS is not used.
 
-## Reliable natural-C evidence supplied for this continuation
+**3 PASS,9 FAIL**: O0select0/1 ->9/7 (2pass); O2select0/1 ->7/7 (1wrong,1pass). NEGS(+128/-128) returns0 at O0/O2 (4wrong; expected-128/+128). Negative-literal compare(-128/-127) faults at CMN.W O0PC0x1003E F1130F80 / O2PC0x10010 F1100F80 (4faults).
 
-Input artifact: `/tmp/task051-reliable/results.json` (12 fresh rows). Function source: `/tmp/task051-reliable/probes.c`. Harness source: `/tmp/task051-reliable/direct.cpp`. Exact runner source: `/tmp/task051-reliable/fw-runner.cpp`. The reliable artifact reports direct-call initialization after C function load, R0 input assignment after load, SP=`0x30000`, LR=`0x8001` sentinel. It avoids startup/BSS overlap with input. No prior invalid `/tmp/task051` semantic-zero results are used.
+O2select disassembly: 2800 CMP r0,#0; BF0C ITE EQ; 2009 MOVEQ r0,#9; 2007 MOVNE r0,#7;4770 BX LR. Both assignments execute because IT is treated as NOP. Negation words are O0 425B and O2 4240. Compare reaches CMN.W before its later ITE, so its measured failure must not be attributed to IT. Tested signed inputs+/-128 are ordinary defined arithmetic inputs.
 
-Compiler identity: `arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009`. Ordinary function-probe flags recorded by artifact: `-mcpu=cortex-m3 -mthumb -O0` or `-O2`, freestanding ELF/linker path; no `-fno-if-conversion` flags. This invocation attempted a separate reproduction by linking `startup.s` and `probes.c` directly; both attempts failed because `probes.c` has functions but no `main` (`undefined reference to main`). This failed check did not alter artifacts and is not a probe result. The validated 12-row results remain source-of-record.
-
-Observed rows: O0 select inputs 0/1 => 9/7 pass; O2 select 0/1 => 7/7 (input 0 mismatch); negate inputs `0x80` and `0xffffff80` => 0 at O0/O2 (four mismatches); compare inputs `0xffffff80` and `0xffffff81` fault at O0 `F113 0F80`, PC `0x1003e`, and O2 `F110 0F80`, PC `0x10010` (four faults). Counts: 2 pass, 10 not passing expected behavior (4 wrong values from negate, 2 wrong select results, and 4 compare faults: two inputs at each optimization level).
-
-Exact passing direct harness pattern in the validated source: `MemoryBus bus(64u*1024u*1024u); ArchitecturalState s; IsaInterpreter cpu(s,bus); Loader::load_elf(f,bus,s,Loader::ElfLoadMode::Firmware); s.set_pc(entry & ~1u); s.set_sp(0x30000); s.set_lr(0x8001); s.set_reg(0,input);` then step until PC reaches `0x8000` sentinel (maximum 200 steps); capture fault PC and raw halfwords on exception. The post-load `set_reg(0,input)` is essential for reliable direct-function semantics.
-
-The board-runner source `/tmp/task051-reliable/fw-runner.cpp` documents `SoCPeripherals::attach_all`, `soc.nvic->set_vtor(0x10000)`, Firmware load mode and `Loader::boot_cortex_m`; no successful demo-board runner result was supplied in this invocation. Do not infer demo health from acceptance tests.
-
-No product, test, fixture, or ELF files were edited. The five declared report files are the only intended outputs.
+No gem5 calibration was reopened; no claim of broad ISA, BSP or RTOS readiness follows from the positive curated fixture.

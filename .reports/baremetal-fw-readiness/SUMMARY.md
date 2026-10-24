@@ -3,36 +3,39 @@
 
 ## Readiness matrix
 
-| Probe | Outcome | Boundary |
-|---|---|---|
-| Existing firmware acceptance | 5/5 CTest pass | MMIO, timed devices/IRQ, GPIO/DMA, vector reset/context, compiled Cortex-M data/BSS/SVC. |
-| Public CLI, compiled acceptance ELF | Fail: R0/exit 1 after 88 instructions | CLI defaults to generic ELF load then interpreter run; lacks SoC attach and Cortex-M reset setup. Not an isolated ISA finding. |
-| Public CLI, `/tmp/task051/demo.elf` | Fail after 61 instructions: undefined `0xF04F4280` (CLI-reported PC `0`) | Same setup limitation; cannot attribute solely to ISA. |
-| Natural C probes | 12 rows; 2 expected results, 10 mismatches/faults | `/tmp/task051-reliable/results.json`; ordinary GCC `-O0/-O2`, direct function harness, input assigned after load, SP=`0x30000`, LR=`0x8001`. |
-| Full peripheral demo via board runner | Fail: undefined `0xF04F4280` at actual PC `0x101f8` | `/tmp/task051-reliable/fw-runner /tmp/task051/demo.elf 0`; board attaches SoC, sets VTOR, firmware-loads and boots. Isolated instruction limitation remains after setup. |
+| Probe | Outcome | Meaning |
+| --- | --- | --- |
+| Direct firmware test binary | 5/5 PASS | Existing MMIO, IRQ, GPIO/DMA, vector reset/context and compiled data/BSS/SVC acceptance. |
+| Curated ELF through explicit board runner | rc0 | Firmware loader + SoC + VTOR/vector reset works for the curated fixture. |
+| Public CLI curated ELF | exit/R0=1 after88 instructions | CLI uses default ELF load; no board/vector-reset composition. |
+| Natural C, ordinary O0/O2 | **12 rows:3 pass,9 fail** | 5 wrong results (IT:1,NEGS:4),4 CMN.W faults; direct arguments avoid BSS/startup input loss. |
+| Fresh unmodified BSP/demo, ordinary O2, explicit board runner | **PC0x10204 F04F4380 MOV.W r3,#0x40000000** | First ISA failure in uart_init after complete board/reset setup. |
 
-At O0, select returns 9/7 for inputs 0/1. At O2, select returns 7/7 (input 0 expected 9; BF0C ITE EQ). Negation returns 0 for `0x80` and `0xffffff80` at both O0/O2 (425B/4240 NEGS families). Compare against literal `-128` faults on `F113 0F80` (O0 PC `0x1003e`) and `F110 0F80` (O2 PC `0x10010`), CMN.W encodings. These examples are not a compatibility survey. C signed `-INT_MIN` is undefined; do not generalize these observations as portable C behavior. The fixture's restricted `-O1 -fno-if-conversion -fno-if-conversion2` flags are not ordinary compiler compatibility evidence.
+Older /tmp/task051/demo.elf is secondary evidence only: board runner faults at0x101F8 F04F4280 (MOV.W r2,#0x40000000); public CLI reports the same encoding after61 instructions. Fresh demo-O2 was compiled from unchanged repository sources with the exact commands in probe_sources.md.
 
-## Topology and coupling
+## Priority gaps and topology
 
-Generic CLI caller: `src/main.cpp:242-289` constructs flat `MemoryBus`, state and interpreter, calls default `Loader::load_elf`, then `run`. Firmware loader API: `include/tinyarmsim/loader.hpp:30-121`; Firmware mode loads PT_LOAD at p_paddr and conditionally leaves VMA zero-fill to startup, while `boot_cortex_m` reads MSP/PC from VTOR. Board composition: `include/tinyarmsim/mmio/soc_platform.hpp:19-64` registers UART/timer/I2C/SPI/CRC/GPIO/DMA/custom/NVIC and attaches NVIC. Bus ownership/tick/reset: `include/tinyarmsim/memory_bus.hpp:14-105`; register/flag state: `include/tinyarmsim/state.hpp:22-73`. BSP startup copies .data, clears .bss, calls main and SVC (`firmware/bsp/startup.s:31-63`); linker FLASH/RAM map is `firmware/bsp/linker.ld:3-41`.
+1. **ITSTATE/predication:** O2 `x?7:9` uses BF0C ITE EQ and returns7 for input0 (expected9); input1 returns7 correctly. O0 select returns9/7 correctly. IT becomes NOP at include/tinyarmsim/decoder.hpp#L338.
+2. **NEGS/RSB:** +/-128 both return0 at O0/O2 (425B/4240); decoder.hpp#L146 maps to generic RSB and interpreter.hpp#L270 subtracts register operands instead of0-input.
+3. **CMN.W:** `x==-128` faults at O0PC0x1003E F1130F80 and O2PC0x10010 F1100F80 for both-128/-127. Later IT code is not reached in these probes.
+4. **MOV.W immediate:** fresh ordinaryO2 BSP cannot materialize its UART base, as measured above.
+5. **CLI board entry:** src/main.cpp#L242 constructs bus/state/interpreter; #L266 calls default Loader::load_elf, without SoC attach or vector reset. Firmware mode LMA loading is loader.hpp#L98; vector reset #L116. SoCPeripherals::attach_all (mmio/soc_platform.hpp#L31) owns device registration and NVIC hookup. Startup copies data/clears BSS and calls main/SVC (firmware/bsp/startup.s#L34).
 
-Compiled firmware acceptance independently composes board attach and verifies ELF symbols/data/BSS at `tests/baremetal_firmware_test.cpp:366-470`, then checks boot/run results later in that test. CLI failures are separate from the direct board-runner result: the latter has SoC/reset setup and still faults at a concrete instruction. CLI setup is incomplete; demo also exposes an ISA gap on the board path.
+The compiled acceptance composes these seams and checks symbol-based records at tests/baremetal_firmware_test.cpp#L367. Its O1/no-if-conversion flags (CMakeLists.txt#L272) are a bounded fixture contract, not ordinary compiler compatibility. These experiments do not establish general firmware or RTOS readiness. Calibration remains closed.
 
 ## Expand–Migrate–Contract matrix
 
-| Phase | Seam and gate |
-|---|---|
-| Expand | Add opt-in board firmware entry path around SoC attach, Firmware load and vector reset; preserve generic CLI. Gate: CLI acceptance passes. |
-| Migrate | Route compiled acceptance through that public seam, retaining focused unit tests. Gate each migration green; generic ELF behavior remains covered. |
-| Contract | Remove duplicate test setup only after public path covers data/BSS, SVC and IRQ/reset. Gate: all five acceptance cases remain green and no old composition callers remain. |
-
-No implementation proposed. Metadata source HEAD is unchanged. `scripts/extract_skeleton.sh` is absent from this worker checkout; `03-micro.md` contains bounded declaration/call skeletons and 10-line slices instead.
+| Seam | Expand | Migrate | Contract / gate |
+| --- | --- | --- | --- |
+| Decoder -> decoded instruction -> interpreter/state | Preserve ordinary compiled IT/NEGS/CMN/MOV examples as independent regressions | Implement each observable semantic family through existing seams | Remove silent/undefined fallbacks only after both-input tests pass; full functional regressions |
+| CLI -> Loader -> SoC/vector boot | Add opt-in coherent firmware board entry while retaining generic ELF path | Exercise curated fixture and natural BSP through public entry | Retire duplicated composition only when data/BSS, reset/IRQ and SVC are covered |
 
 ## Seam digest
 
-Seam: `Loader::load_elf` / `Loader::boot_cortex_m` with caller-composed `SoCPeripherals::attach_all`.
-Target Files: `.reports/baremetal-fw-readiness/{SUMMARY.md,03-micro.md,evidence.md,probe_results.json,probe_sources.md}`.
-Callers: CLI `src/main.cpp:242-289`; acceptance `tests/baremetal_firmware_test.cpp:366-470`.
-Glossary Additions: Firmware load mode (PT_LOAD physical address; startup handles separate VMA zero-fill); vector reset (MSP/PC from VTOR).
-Refactor Strategy: Expand–Migrate–Contract.
+Seam: Decoder/DecodedInstruction/IsaInterpreter/ArchitecturalState; CLI/Loader/SoCPeripherals.
+Target Files: include/tinyarmsim/{decoder.hpp,instruction.hpp,interpreter.hpp,state.hpp,loader.hpp}, src/main.cpp, include/tinyarmsim/mmio/soc_platform.hpp; research only, no implementation tickets.
+Callers: ordinary compiler functions and firmware uart_init (measured); CLI src/main.cpp#L266; compiled firmware acceptance tests/baremetal_firmware_test.cpp#L367.
+Glossary Additions: ITSTATE (conditional instruction block state); firmware load mode (physical/LMA placement).
+Refactor Strategy: Vertical-Slice for ISA behavior; Expand–Migrate–Contract for public firmware composition.
+
+03-micro.md contains actual human-helper extraction output plus exact ten-line source slices. probe_sources.md contains complete reproducible sources and commands; probe_results.json records all observations.

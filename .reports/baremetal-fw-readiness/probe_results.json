@@ -138,7 +138,7 @@
   "cli_and_bsp_probes": [
     {
       "probe": "public_cli_acceptance_elf",
-      "command": "./build/tinyarmsim build/isa_boot_acceptance.elf",
+      "command": ".worker-tree/build/tinyarmsim --elf .worker-tree/build/isa_boot_acceptance.elf --max-steps 50000",
       "result": "failed",
       "exit_code": 1,
       "r0": 1,
@@ -148,7 +148,7 @@
     },
     {
       "probe": "public_cli_demo_elf",
-      "command": "./build/tinyarmsim /tmp/task051/demo.elf",
+      "command": ".worker-tree/build/tinyarmsim --elf /tmp/task051/demo.elf --max-steps 50000",
       "result": "failed",
       "exit_code": 1,
       "instructions": 61,
@@ -160,8 +160,8 @@
       "classification": "CLI/BSP setup is absent; not an isolated ISA-only diagnosis"
     },
     {
-      "probe": "baremetal_firmware_acceptance_ctest",
-      "command": "ctest --test-dir build -R baremetal_firmware_test --output-on-failure",
+      "probe": "baremetal_firmware_acceptance_direct_binary",
+      "command": ".worker-tree/build/baremetal_firmware_test",
       "result": "passed",
       "passed": 5,
       "total": 5,
@@ -171,12 +171,49 @@
         "GpioDebounceAndDmaBurstWithInterruptsViaInterpreter",
         "VectorResetAndPrimaskPreserveInterruptedContext",
         "CompiledCortexMBootInitializesDataAndBssAndExits"
-      ]
+      ],
+      "classification": "Direct executable ran all five GoogleTest cases; not inferred from executable-name CTest filter."
+    },
+    {
+      "probe": "compiled_acceptance_correct_ctest_filter",
+      "command": "/usr/bin/ctest --test-dir .worker-tree/build -R CompiledCortexMBootInitializesDataAndBssAndExits --no-tests=error --output-on-failure",
+      "result": "passed",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "probe": "fresh_unmodified_bsp_demo_O2_explicit_board_runner",
+      "command": "/tmp/task051-reliable/fw-runner /tmp/task051-reliable/demo-O2.elf 0",
+      "result": "failed",
+      "exit_code": 2,
+      "first_fault": {
+        "actual_pc": "0x00010204",
+        "encoding": "0xF04F4380",
+        "instruction": "MOV.W r3,#0x40000000",
+        "function": "uart_init"
+      },
+      "provenance": "Fresh normal-O2 compile of unchanged .worker-tree/firmware BSP/demo; full build command in probe_sources.md; board SoC+VTOR+Firmware loader+vector reset explicit."
+    },
+    {
+      "probe": "curated_acceptance_explicit_board_runner",
+      "command": "/tmp/task051-reliable/fw-runner .worker-tree/build/isa_boot_acceptance.elf 0",
+      "result": "passed",
+      "firmware_return_code": 0,
+      "final_pc": "0x000100ac"
     }
   ],
   "limitations": [
-    "Natural C outcomes are bounded examples, not full ISA compatibility survey.",
-    "Public CLI lacks tested firmware board/reset composition; CLI errors do not isolate instruction semantics.",
-    "Board runner on existing demo faults after setup at actual PC 0x101f8 on F04F 4280; see cli_and_bsp_probes."
-  ]
+    "Natural C outcomes are bounded examples, not a full ISA compatibility survey.",
+    "Direct-function R0 inputs are assigned after ELF load; no startup/BSS input dependence.",
+    "Public CLI omits explicit firmware board/reset composition; its errors do not alone isolate ISA semantics.",
+    "Fresh ordinary-O2 demo board-runner result is primary; older /tmp/task051/demo.elf is secondary.",
+    "Board runner legacy cond/neg/cmp labels print fixed-address words only and are not semantic probe assertions."
+  ],
+  "natural_summary": {
+    "total": 12,
+    "passed": 3,
+    "failed": 9,
+    "wrong_results": 5,
+    "instruction_faults": 4
+  }
 }
