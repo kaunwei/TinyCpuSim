@@ -474,7 +474,7 @@ private:
         }
 
         // 1.5 32-bit Load/Store Multiple (increment/decrement, before/after)
-        if ((w1 & 0xFE00) == 0xE800) {
+        if ((w1 & 0xFE40) == 0xE800) {
             bool is_load = ((w1 >> 4) & 0x1) != 0;
             bool pre_indexed = ((w1 >> 8) & 0x1) != 0;
             bool add_offset = ((w1 >> 7) & 0x1) != 0;

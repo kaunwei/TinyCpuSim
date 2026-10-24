@@ -244,6 +244,19 @@ TEST(DecoderLoadStoreTest, DecodeThumb2MultipleTransferAddressingModes) {
     EXPECT_EQ(pop.register_list, 0x8106u);
 }
 
+TEST(DecoderLoadStoreTest, RejectsExclusiveAndDoublewordTransfers) {
+    const auto expect_undefined = [](uint16_t first, uint16_t second) {
+        EXPECT_THROW(Decoder::decode32(first, second), UndefinedInstructionException);
+        ArchitecturalState state;
+        MemoryBus bus{1024 * 1024};
+        IsaInterpreter interpreter{state, bus};
+        EXPECT_THROW(interpreter.execute(Decoder::decode32(first, second)), UndefinedInstructionException);
+    };
+
+    expect_undefined(0xE851, 0x0F00); // LDREX r0, [r1]
+    expect_undefined(0xE9D0, 0x0102); // LDRD r0, r1, [r0]
+}
+
 TEST_F(LoadStoreTest, Thumb2MultipleTransfersHonorDirectionAndAscendingRegisters) {
     state.set_reg(0, 0x200);
     state.set_reg(1, 0x11111111);
