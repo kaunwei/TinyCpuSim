@@ -1,0 +1,182 @@
+{
+  "task": "TASK-051",
+  "source_commit": "6f0f42e58686fd43c5c7ab7b0192121b02b965de",
+  "natural_c_probes": [
+    {
+      "opt": "O0",
+      "function": "probe_select",
+      "address": "0x10000",
+      "input": "0x0",
+      "expected": "0x9",
+      "actual": "0x9",
+      "passed": true,
+      "returncode": 0,
+      "output": "returned=1 input=0 actual=9 sp=30000 steps=13"
+    },
+    {
+      "opt": "O0",
+      "function": "probe_select",
+      "address": "0x10000",
+      "input": "0x1",
+      "expected": "0x7",
+      "actual": "0x7",
+      "passed": true,
+      "returncode": 0,
+      "output": "returned=1 input=1 actual=7 sp=30000 steps=14"
+    },
+    {
+      "opt": "O0",
+      "function": "probe_negate",
+      "address": "0x1001e",
+      "input": "0x80",
+      "expected": "0xffffff80",
+      "actual": "0x0",
+      "passed": false,
+      "returncode": 0,
+      "output": "returned=1 input=80 actual=0 sp=30000 steps=11"
+    },
+    {
+      "opt": "O0",
+      "function": "probe_negate",
+      "address": "0x1001e",
+      "input": "0xffffff80",
+      "expected": "0x80",
+      "actual": "0x0",
+      "passed": false,
+      "returncode": 0,
+      "output": "returned=1 input=ffffff80 actual=0 sp=30000 steps=11"
+    },
+    {
+      "opt": "O0",
+      "function": "probe_compare",
+      "address": "0x10034",
+      "input": "0xffffff80",
+      "expected": "0x1",
+      "actual": null,
+      "passed": false,
+      "returncode": 2,
+      "output": "fault_pc=1003e raw1=f113 raw2=f80 message=Undefined instruction 0xF1130F80 at PC 0x00000000"
+    },
+    {
+      "opt": "O0",
+      "function": "probe_compare",
+      "address": "0x10034",
+      "input": "0xffffff81",
+      "expected": "0x0",
+      "actual": null,
+      "passed": false,
+      "returncode": 2,
+      "output": "fault_pc=1003e raw1=f113 raw2=f80 message=Undefined instruction 0xF1130F80 at PC 0x00000000"
+    },
+    {
+      "opt": "O2",
+      "function": "probe_select",
+      "address": "0x10000",
+      "input": "0x0",
+      "expected": "0x9",
+      "actual": "0x7",
+      "passed": false,
+      "returncode": 0,
+      "output": "returned=1 input=0 actual=7 sp=30000 steps=5"
+    },
+    {
+      "opt": "O2",
+      "function": "probe_select",
+      "address": "0x10000",
+      "input": "0x1",
+      "expected": "0x7",
+      "actual": "0x7",
+      "passed": true,
+      "returncode": 0,
+      "output": "returned=1 input=1 actual=7 sp=30000 steps=5"
+    },
+    {
+      "opt": "O2",
+      "function": "probe_negate",
+      "address": "0x1000c",
+      "input": "0x80",
+      "expected": "0xffffff80",
+      "actual": "0x0",
+      "passed": false,
+      "returncode": 0,
+      "output": "returned=1 input=80 actual=0 sp=30000 steps=2"
+    },
+    {
+      "opt": "O2",
+      "function": "probe_negate",
+      "address": "0x1000c",
+      "input": "0xffffff80",
+      "expected": "0x80",
+      "actual": "0x0",
+      "passed": false,
+      "returncode": 0,
+      "output": "returned=1 input=ffffff80 actual=0 sp=30000 steps=2"
+    },
+    {
+      "opt": "O2",
+      "function": "probe_compare",
+      "address": "0x10010",
+      "input": "0xffffff80",
+      "expected": "0x1",
+      "actual": null,
+      "passed": false,
+      "returncode": 2,
+      "output": "fault_pc=10010 raw1=f110 raw2=f80 message=Undefined instruction 0xF1100F80 at PC 0x00000000"
+    },
+    {
+      "opt": "O2",
+      "function": "probe_compare",
+      "address": "0x10010",
+      "input": "0xffffff81",
+      "expected": "0x0",
+      "actual": null,
+      "passed": false,
+      "returncode": 2,
+      "output": "fault_pc=10010 raw1=f110 raw2=f80 message=Undefined instruction 0xF1100F80 at PC 0x00000000"
+    }
+  ],
+  "cli_and_bsp_probes": [
+    {
+      "probe": "public_cli_acceptance_elf",
+      "command": "./build/tinyarmsim build/isa_boot_acceptance.elf",
+      "result": "failed",
+      "exit_code": 1,
+      "r0": 1,
+      "instructions": 88,
+      "first_fault": null,
+      "classification": "public CLI uses default ELF load and interpreter run; no SoC attach or Cortex-M reset setup"
+    },
+    {
+      "probe": "public_cli_demo_elf",
+      "command": "./build/tinyarmsim /tmp/task051/demo.elf",
+      "result": "failed",
+      "exit_code": 1,
+      "instructions": 61,
+      "first_fault": {
+        "message": "Undefined instruction 0xF04F4280 at PC 0x00000000",
+        "reported_pc": "0x00000000",
+        "encoding": "0xF04F4280"
+      },
+      "classification": "CLI/BSP setup is absent; not an isolated ISA-only diagnosis"
+    },
+    {
+      "probe": "baremetal_firmware_acceptance_ctest",
+      "command": "ctest --test-dir build -R baremetal_firmware_test --output-on-failure",
+      "result": "passed",
+      "passed": 5,
+      "total": 5,
+      "cases": [
+        "FullPeripheralSystemExecution",
+        "ClockedPeripheralsAndTimerInterruptViaInterpreter",
+        "GpioDebounceAndDmaBurstWithInterruptsViaInterpreter",
+        "VectorResetAndPrimaskPreserveInterruptedContext",
+        "CompiledCortexMBootInitializesDataAndBssAndExits"
+      ]
+    }
+  ],
+  "limitations": [
+    "Natural C outcomes are bounded examples, not full ISA compatibility survey.",
+    "Public CLI lacks tested firmware board/reset composition; CLI errors do not isolate instruction semantics.",
+    "Board runner on existing demo faults after setup at actual PC 0x101f8 on F04F 4280; see cli_and_bsp_probes."
+  ]
+}
