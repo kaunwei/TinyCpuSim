@@ -257,13 +257,13 @@ gtest_discover_tests(core_ubench_test)
 
 # Baremetal Firmware Platform Test
 option(ENABLE_BAREMETAL_FIRMWARE "Build and run the Cortex-M firmware acceptance fixture" ON)
-set(ARM_NONE_EABI_GCC "" CACHE FILEPATH "Arm GNU compiler for bare-metal firmware")
 if (ENABLE_BAREMETAL_FIRMWARE)
     if (NOT ARM_NONE_EABI_GCC)
-        find_program(ARM_NONE_EABI_GCC arm-none-eabi-gcc)
+        find_program(_ARM_NONE_EABI_GCC arm-none-eabi-gcc)
+        set(ARM_NONE_EABI_GCC "${_ARM_NONE_EABI_GCC}")
     endif()
-    if (NOT ARM_NONE_EABI_GCC)
-        message(FATAL_ERROR "ENABLE_BAREMETAL_FIRMWARE requires arm-none-eabi-gcc")
+    if (NOT ARM_NONE_EABI_GCC OR NOT EXISTS "${ARM_NONE_EABI_GCC}" OR IS_DIRECTORY "${ARM_NONE_EABI_GCC}")
+        message(FATAL_ERROR "ENABLE_BAREMETAL_FIRMWARE requires ARM_NONE_EABI_GCC to name an existing arm-none-eabi-gcc executable; got '${ARM_NONE_EABI_GCC}'")
     endif()
     set(BAREMETAL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/isa_boot_acceptance.elf")
     add_custom_command(
