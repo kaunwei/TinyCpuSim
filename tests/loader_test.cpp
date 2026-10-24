@@ -114,31 +114,41 @@ TEST(LoaderTest, CorruptElfThrowsLoaderException) {
 }
 
 TEST(LoaderTest, FirmwareElfPreservesFlashLmaAndDefersRamInitialization) {
-    MemoryBus bus{1024 * 1024};
-    ArchitecturalState state;
-    std::vector<uint8_t> elf(52 + 64 + 12, 0);
+    std::vector<uint8_t> elf(52 + 32 + 8, 0);
     elf[0] = 0x7f; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';
     elf[4] = 1; elf[5] = 1; elf[6] = 1;
-    uint16_t machine = 40, phentsize = 32, phnum = 2;
-    uint32_t entry = 0x101, phoff = 52;
+    uint16_t machine = 40, phentsize = 32, phnum = 1;
+    uint32_t entry = 0x401, phoff = 52;
     std::memcpy(&elf[18], &machine, 2); std::memcpy(&elf[24], &entry, 4);
     std::memcpy(&elf[28], &phoff, 4); std::memcpy(&elf[42], &phentsize, 2);
     std::memcpy(&elf[44], &phnum, 2);
     const auto put32 = [&](size_t at, uint32_t value) { std::memcpy(&elf[at], &value, 4); };
-    const size_t text = 52, data = 84;
-    put32(text, 1); put32(text + 4, 116); put32(text + 8, 0x100); put32(text + 12, 0x100);
-    put32(text + 16, 8); put32(text + 20, 8);
-    put32(data, 1); put32(data + 4, 120); put32(data + 8, 0x400); put32(data + 12, 0x400);
+    const size_t data = 52;
+    put32(data, 1); put32(data + 4, 84); put32(data + 8, 0x800); put32(data + 12, 0x400);
     put32(data + 16, 4); put32(data + 20, 8);
-    elf[116] = 0x00; elf[117] = 0x02; elf[118] = 0x00; elf[119] = 0x20;
-    elf[120] = 0x44; elf[121] = 0x33; elf[122] = 0x22; elf[123] = 0x11;
-    bus.write32(0x200, 0xaaaaaaaa);
-    std::stringstream stream(std::string(elf.begin(), elf.end()));
-    Loader::load_elf(stream, bus, state, Loader::ElfLoadMode::Firmware);
-    EXPECT_EQ(state.get_pc(), 0x100u);
-    EXPECT_EQ(bus.read32(0x100), 0x20000200u);
-    EXPECT_EQ(bus.read32(0x104), 0x11223344u);
-    EXPECT_EQ(bus.read32(0x400), 0x11223344u);
-    EXPECT_EQ(bus.read32(0x200), 0xaaaaaaaau);
-    EXPECT_EQ(bus.read32(0x204), 0u);
+    elf[84] = 0x44; elf[85] = 0x33; elf[86] = 0x22; elf[87] = 0x11;
+
+    MemoryBus firmware_bus{1024 * 1024};
+    ArchitecturalState firmware_state;
+    firmware_bus.write32(0x800, 0xaaaaaaaa);
+    firmware_bus.write32(0x804, 0xbbbbbbbb);
+    std::stringstream firmware_stream(std::string(elf.begin(), elf.end()));
+    Loader::load_elf(firmware_stream, firmware_bus, firmware_state, Loader::ElfLoadMode::Firmware);
+    EXPECT_EQ(firmware_state.get_pc(), 0x400u);
+    EXPECT_EQ(firmware_bus.read32(0x400), 0x11223344u);
+    EXPECT_EQ(firmware_bus.read32(0x404), 0u);
+    EXPECT_EQ(firmware_bus.read32(0x800), 0xaaaaaaaau);
+    EXPECT_EQ(firmware_bus.read32(0x804), 0xbbbbbbbbu);
+
+    MemoryBus default_bus{1024 * 1024};
+    ArchitecturalState default_state;
+    default_bus.write32(0x400, 0xcccccccc);
+    default_bus.write32(0x800, 0xdddddddd);
+    default_bus.write32(0x804, 0xeeeeeeee);
+    std::stringstream default_stream(std::string(elf.begin(), elf.end()));
+    Loader::load_elf(default_stream, default_bus, default_state);
+    EXPECT_EQ(default_state.get_pc(), 0x400u);
+    EXPECT_EQ(default_bus.read32(0x400), 0xccccccccu);
+    EXPECT_EQ(default_bus.read32(0x800), 0x11223344u);
+    EXPECT_EQ(default_bus.read32(0x804), 0u);
 }
