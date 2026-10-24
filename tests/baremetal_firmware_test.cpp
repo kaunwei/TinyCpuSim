@@ -269,6 +269,93 @@ TEST(BaremetalFirmwareTest, GpioDebounceAndDmaBurstWithInterruptsViaInterpreter)
     EXPECT_EQ(dma_ptr->read(0x10, mmio::AccessSize::Word) & 0x08u, 0u); // Zero DMA OVR
 }
 
+TEST(BaremetalFirmwareTest, VectorResetAndPrimaskPreserveInterruptedContext) {
+    MemoryBus bus(64 * 1024 *  1024);
+    ArchitecturalState state;
+    IsaInterpreter interp(state, bus);
+
+    auto soc = mmio::SoCPeripherals::attach_all(bus, interp);
+    soc.nvic->set_vtor(0x00010000);
+    bus.write32(0x00010000, 0x00030000);
+    bus.write32(0x00010004, 0x00010100 | 1);
+    bus.write32(0x00010044, 0x00010200 | 1);
+    soc.nvic->write(0x100, 1u << 1, mmio::AccessSize::Word);
+
+    Loader::boot_cortex_m(bus, state, 0x00010000);
+    EXPECT_EQ(state.get_sp(), 0x00030000u);
+    EXPECT_EQ(state.get_pc(), 0x00010100u);
+
+    // Timer0 ISR clears its interrupt, changes a low register, then returns via EXC_RETURN.
+    bus.write16(0x00010200, 0x4802);
+    bus.write16(0x00010202, 0x2101);
+    bus.write16(0x00010204, 0x6001);
+    bus.write16(0x00010206, 0x254D);
+    bus.write16(0x00010208, 0x4770);
+    bus.write16(0x0001020A, 0xBF00);
+    bus.write32(0x0001020C, 0x4000100C);
+
+    // Keep interrupts masked while constructing and using the high-register stack frame.
+    bus.write16(0x00010100, 0xB672); // CPSID i
+    bus.write16(0x00010102, 0xB084); // SUB SP, SP, #16
+    bus.write16(0x00010104, 0xA801); // ADD R0, SP, #4
+    bus.write16(0x00010106, 0xE92D); // PUSH.W {R4, R8, LR}
+    bus.write16(0x00010108, 0x4110);
+    bus.write16(0x0001010A, 0xFBB2); // UDIV R1, R2, R3
+    bus.write16(0x0001010C, 0xF1F3);
+    bus.write16(0x0001010E, 0xB2C9); // UXTB R1, R1
+    bus.write16(0x00010110, 0xBA24); // REV R4, R4
+    bus.write16(0x00010112, 0xF3BF); // DMB
+    bus.write16(0x00010114, 0x8F5F);
+    bus.write16(0x00010116, 0xE8BD); // POP.W {R4, R8, LR}
+    bus.write16(0x00010118, 0x4110);
+    bus.write16(0x0001011A, 0xB662); // CPSIE i
+    bus.write16(0x0001011C, 0xB004); // ADD SP, SP, #16
+    bus.write16(0x0001011E, 0x2000); // MOVS R0, #0
+    bus.write16(0x00010120, 0xDF00); // SVC #0
+
+    state.set_reg(2, 0x1050);
+    state.set_reg(3, 0x10);
+    state.set_reg(4, 0x11223344);
+    state.set_reg(5, 0);
+    state.set_reg(8, 0xAABBCCDD);
+    state.set_lr(0x00010501);
+
+    interp.step();
+    EXPECT_TRUE(state.get_primask());
+    interp.step();
+    EXPECT_EQ(state.get_sp(), 0x0002FFF0u);
+    interp.step();
+    EXPECT_EQ(state.get_reg(0), 0x0002FFF4u);
+
+    soc.timer->write(0x18, 0, mmio::AccessSize::Word);
+    soc.timer->write(0x00, 2, mmio::AccessSize::Word);
+    soc.timer->write(0x08, 0x05, mmio::AccessSize::Word);
+
+    for (int i = 0; i < 5; ++i) {
+        interp.step();
+    }
+    EXPECT_TRUE(state.get_primask());
+    EXPECT_TRUE(soc.nvic->is_pending(1));
+    EXPECT_EQ(state.get_reg(5), 0u);
+    EXPECT_EQ(state.get_reg(1), 0x05u);
+    EXPECT_EQ(state.get_pc(), 0x00010116u);
+
+    interp.step();
+    EXPECT_EQ(state.get_reg(4), 0x11223344u);
+    EXPECT_EQ(state.get_reg(8), 0xAABBCCDDu);
+    EXPECT_EQ(state.get_pc(), 0x0001011Au);
+    EXPECT_EQ(state.get_sp(), 0x0002FFF0u);
+
+    ASSERT_EQ(interp.run(50), 0u);
+    EXPECT_FALSE(state.get_primask());
+    EXPECT_EQ(state.get_reg(5), 77u);
+    EXPECT_EQ(state.get_pc(), 0x00010120u);
+    EXPECT_EQ(state.get_sp(), 0x00030000u);
+    EXPECT_EQ(bus.read32(0x0002FFE8), 0x0001011Cu);
+    EXPECT_EQ(state.get_pc(), 0x00010120u);
+    EXPECT_EQ(state.get_sp(), 0x00030000u);
+}
+
 #ifdef BAREMETAL_ACCEPTANCE_ELF
 TEST(BaremetalFirmwareTest, CompiledCortexMBootInitializesDataAndBssAndExits) {
     MemoryBus bus(64 * 1024 * 1024);
