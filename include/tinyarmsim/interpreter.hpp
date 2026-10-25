@@ -105,7 +105,28 @@ public:
             trace_.disasm = instr.disasm.empty() ? std::string(opcode_to_string(instr.op)) : instr.disasm;
         }
 
-        if (!evaluate_condition(instr.cond)) {
+        uint16_t raw16 = static_cast<uint16_t>(instr.raw_hex);
+        if (instr.instr_size == 2 && (raw16 & 0xFF00u) == 0xBF00u &&
+            (raw16 & 0xFu) != 0 && ((raw16 >> 4) & 0xFu) < 0xEu) {
+            state_.set_it_state(static_cast<uint8_t>(raw16 & 0xFFu));
+            state_.advance_pc(instr.instr_size);
+            return;
+        }
+
+        uint8_t it_state = state_.get_it_state();
+        if (it_state != 0) {
+            ConditionCode it_condition = static_cast<ConditionCode>(it_state >> 4);
+            bool condition_passed = evaluate_condition(it_condition);
+            uint8_t low = static_cast<uint8_t>(it_state & 0xFu);
+            state_.set_it_state((low & 0x7u) == 0
+                                    ? 0
+                                    : static_cast<uint8_t>((it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
+            if (!condition_passed) {
+                state_.advance_pc(instr.instr_size);
+                log_trace("[condition false]");
+                return;
+            }
+        } else if (!evaluate_condition(instr.cond)) {
             state_.advance_pc(instr.instr_size);
             log_trace("[condition false]");
             return;

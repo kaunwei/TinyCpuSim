@@ -144,6 +144,7 @@ public:
         bus.write32(sp + 28, state.get_cpsr());   // xPSR
         state.set_reg(13, sp);
         state.set_reg(14, EXC_RETURN_THREAD_MSP);
+        state.set_it_state(0);
 
         uint32_t vector_addr = vtor_ + (16u + static_cast<uint32_t>(irq)) * 4u;
         uint32_t isr_addr = bus.read32(vector_addr) & ~1u;

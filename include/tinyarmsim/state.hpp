@@ -18,6 +18,7 @@ constexpr uint32_t FLAG_Z_BIT = 30; // Zero
 constexpr uint32_t FLAG_C_BIT = 29; // Carry
 constexpr uint32_t FLAG_V_BIT = 28; // Overflow
 constexpr uint32_t FLAG_T_BIT = 5;  // Thumb state
+constexpr uint32_t XPSR_ITSTATE_MASK = 0x0600FC00u;
 
 class ArchitecturalState {
 public:
@@ -59,6 +60,17 @@ public:
     // Status register and NZCV flags
     [[nodiscard]] uint32_t get_cpsr() const noexcept { return cpsr_; }
     void set_cpsr(uint32_t val) noexcept { cpsr_ = val; }
+
+    [[nodiscard]] uint8_t get_it_state() const noexcept {
+        return static_cast<uint8_t>(((cpsr_ >> 25) & 0x3u) |
+                                    ((cpsr_ >> 8) & 0xFCu));
+    }
+
+    void set_it_state(uint8_t value) noexcept {
+        cpsr_ = (cpsr_ & ~XPSR_ITSTATE_MASK) |
+                ((static_cast<uint32_t>(value) & 0x3u) << 25) |
+                ((static_cast<uint32_t>(value) & 0xFCu) << 8);
+    }
 
     [[nodiscard]] bool get_flag_n() const noexcept { return (cpsr_ & (1u << FLAG_N_BIT)) != 0; }
     [[nodiscard]] bool get_flag_z() const noexcept { return (cpsr_ & (1u << FLAG_Z_BIT)) != 0; }

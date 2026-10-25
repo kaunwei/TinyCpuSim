@@ -363,6 +363,115 @@ TEST(BaremetalFirmwareTest, VectorResetAndPrimaskPreserveInterruptedContext) {
     EXPECT_EQ(state.get_sp(), 0x00030000u);
 }
 
+TEST(BaremetalFirmwareTest, IrqPreservesItStateAndResumesThenAndElseSlots) {
+    struct Case {
+        uint16_t it;
+        bool zero;
+        uint32_t stacked_it;
+        uint32_t expected_r0;
+    };
+    const std::array<Case, 2> cases{{
+        {0xBF0C, true, 0x00000C00u, 1u},  // ITE EQ, Then executes and Else skips
+        {0xBF0C, false, 0x00000C00u, 2u}, // ITE EQ, Then skips and Else executes
+    }};
+
+    for (const auto& test : cases) {
+        MemoryBus bus(64 * 1024);
+        ArchitecturalState state;
+        IsaInterpreter interp(state, bus);
+        auto soc = mmio::SoCPeripherals::attach_all(bus, interp);
+        soc.nvic->set_vtor(0x1000);
+        bus.write32(0x1000 + (16u + 1u) * 4u, 0x1201);
+        bus.write16(0x1200, 0x4770); // BX LR (EXC_RETURN)
+        bus.write16(0x2000, test.it); // ITE EQ, next Then/Else slot is pending
+        bus.write16(0x2002, 0xF04F); // MOV.W r0, #1, Then EQ
+        bus.write16(0x2004, 0x0001);
+        bus.write16(0x2006, 0x4610); // MOV r0, r2, Else NE
+        bus.write16(0x2008, 0xDF00); // SVC terminates the public interpreter run
+        state.set_sp(0x8000);
+        state.set_pc(0x2000);
+        state.set_reg(0, 0xA0A1A2A3u);
+        state.set_reg(1, 1u);
+        state.set_reg(2, 2u);
+        state.set_reg(3, 0xD0D1D2D3u);
+        state.set_reg(12, 0xE0E1E2E3u);
+        state.set_lr(0x3456789Au);
+        state.set_cpsr(0xA1000000u | (test.zero ? (1u << FLAG_Z_BIT) : 0u));
+        state.set_primask(false);
+        soc.nvic->write(0x100, 1u << 1, mmio::AccessSize::Word);
+
+        interp.step(); // Install ITSTATE.
+        soc.nvic->set_pending(1);
+        interp.step(); // Enter exception before consuming the pending slot.
+        EXPECT_EQ(state.get_pc(), 0x1200u);
+        EXPECT_EQ(state.get_sp(), 0x7FE0u);
+        EXPECT_EQ(bus.read32(0x7FE0), 0xA0A1A2A3u);
+        EXPECT_EQ(bus.read32(0x7FE4), 1u);
+        EXPECT_EQ(bus.read32(0x7FE8), 2u);
+        EXPECT_EQ(bus.read32(0x7FEC), 0xD0D1D2D3u);
+        EXPECT_EQ(bus.read32(0x7FF0), 0xE0E1E2E3u);
+        EXPECT_EQ(bus.read32(0x7FF4), 0x3456789Au);
+        EXPECT_EQ(bus.read32(0x7FF8), 0x2002u);
+        EXPECT_EQ(bus.read32(0x7FFC), (0xA1000000u | test.stacked_it |
+                                      (test.zero ? (1u << FLAG_Z_BIT) : 0u)));
+        EXPECT_EQ(state.get_cpsr() & 0x0600FC00u, 0u);
+        EXPECT_FALSE(mmio::NVICDevice::try_exit_exception(state, bus, soc.nvic));
+        EXPECT_EQ(state.get_sp(), 0x7FE0u);
+
+        soc.nvic->write(0x100, 1u << 2, mmio::AccessSize::Word);
+        soc.nvic->set_pending(2);
+        EXPECT_FALSE(soc.nvic->poll_and_try_enter_exception(state, bus));
+        EXPECT_TRUE(soc.nvic->is_pending(2));
+        EXPECT_EQ(state.get_pc(), 0x1200u);
+        soc.nvic->clear_pending(2);
+
+        interp.step(); // Handler returns and restores the interrupted ITSTATE.
+        EXPECT_EQ(state.get_pc(), 0x2002u);
+        EXPECT_EQ(state.get_sp(), 0x8000u);
+        EXPECT_EQ(state.get_lr(), 0x3456789Au);
+        EXPECT_EQ(state.get_reg(0), 0xA0A1A2A3u);
+        EXPECT_EQ(state.get_reg(1), 1u);
+        EXPECT_EQ(state.get_reg(2), 2u);
+        EXPECT_EQ(state.get_reg(3), 0xD0D1D2D3u);
+        EXPECT_EQ(state.get_reg(12), 0xE0E1E2E3u);
+        EXPECT_EQ(state.get_cpsr(), bus.read32(0x7FFC));
+        EXPECT_EQ(state.get_it_state(), 0x0Cu);
+        EXPECT_FALSE(state.get_primask());
+        EXPECT_FALSE(soc.nvic->is_pending(1));
+
+        interp.step();
+        EXPECT_EQ(state.get_pc(), 0x2006u);
+        EXPECT_EQ(state.get_it_state(), 0x18u);
+        interp.step();
+        EXPECT_EQ(state.get_pc(), 0x2008u);
+        EXPECT_EQ(state.get_reg(0), test.expected_r0);
+    }
+}
+
+TEST(BaremetalFirmwareTest, UninterruptedItBlockConsumesMixedWidthSlots) {
+    for (bool zero : {true, false}) {
+        MemoryBus bus(0x1000);
+        ArchitecturalState state;
+        IsaInterpreter interp(state, bus);
+        bus.write16(0x100, 0xBF0C); // ITE EQ
+        bus.write16(0x102, 0x4608); // MOV r0, r1, Then EQ
+        bus.write16(0x104, 0xF04F); // MOV.W r0, #2, Else NE
+        bus.write16(0x106, 0x0002);
+        state.set_pc(0x100);
+        state.set_reg(1, 1u);
+        state.set_cpsr(zero ? (1u << FLAG_Z_BIT) : 0u);
+
+        interp.step();
+        interp.step();
+        EXPECT_EQ(state.get_pc(), 0x104u);
+        EXPECT_EQ(state.get_reg(0), zero ? 1u : 0u);
+        interp.step();
+        EXPECT_EQ(state.get_pc(), 0x108u);
+        EXPECT_EQ(state.get_reg(0), zero ? 1u : 2u);
+        EXPECT_EQ(state.get_it_state(), 0u);
+    }
+}
+
 #ifdef BAREMETAL_ACCEPTANCE_ELF
 TEST(BaremetalFirmwareTest, CompiledCortexMBootInitializesDataAndBssAndExits) {
     MemoryBus bus(64 * 1024 * 1024);
