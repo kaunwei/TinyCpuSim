@@ -141,6 +141,67 @@ TEST_F(ExtendedDataProcessingTest, RsbReverseSubtract) {
     EXPECT_EQ(state.get_reg(0), 25u);
 }
 
+TEST_F(ExtendedDataProcessingTest, ThumbNegSubtractsRegisterFromZero) {
+    struct NegCase {
+        uint16_t encoding;
+        uint32_t input;
+        uint32_t expected;
+        bool n;
+        bool z;
+        bool c;
+        bool v;
+    };
+    constexpr std::array cases{
+        NegCase{0x4240, 0x00000000u, 0x00000000u, false, true, true, false},
+        NegCase{0x4248, 0x00000080u, 0xFFFFFF80u, true, false, false, false},
+        NegCase{0x4248, 0xFFFFFF80u, 0x00000080u, false, false, false, false},
+        NegCase{0x4248, 0x80000000u, 0x80000000u, true, false, false, true},
+    };
+
+    for (const auto& test_case : cases) {
+        state.reset();
+        const uint8_t source = static_cast<uint8_t>((test_case.encoding >> 3) & 0x7);
+        state.set_reg(source, test_case.input);
+        state.set_flags(false, false, true, false);
+        const auto instruction = Decoder::decode16(test_case.encoding, 0x100);
+        interpreter.execute(instruction);
+        EXPECT_EQ(state.get_reg(instruction.rd), test_case.expected);
+        if (source != instruction.rd) {
+            EXPECT_EQ(state.get_reg(source), test_case.input);
+        }
+        EXPECT_EQ(state.get_flag_n(), test_case.n);
+        EXPECT_EQ(state.get_flag_z(), test_case.z);
+        EXPECT_EQ(state.get_flag_c(), test_case.c);
+        EXPECT_EQ(state.get_flag_v(), test_case.v);
+    }
+}
+
+TEST_F(ExtendedDataProcessingTest, ThumbNegCanWriteDistinctDestination) {
+    state.set_reg(0, 0xA5A5A5A5u);
+    state.set_reg(1, 0x00000080u);
+
+    const auto instruction = Decoder::decode16(0x4248, 0x200);
+    EXPECT_EQ(instruction.op, Opcode::RSB);
+    EXPECT_EQ(instruction.rd, 0u);
+    EXPECT_TRUE(instruction.is_imm);
+    EXPECT_EQ(instruction.imm, 0u);
+    interpreter.execute(instruction);
+
+    EXPECT_EQ(state.get_reg(0), 0xFFFFFF80u);
+    EXPECT_EQ(state.get_reg(1), 0x00000080u);
+}
+
+TEST_F(ExtendedDataProcessingTest, ThumbNegStepAdvancesProgramCounterByTwo) {
+    state.set_reg(1, 0x00000080u);
+    state.set_pc(0x100);
+    bus.write16(0x100, 0x4248);
+
+    interpreter.step();
+
+    EXPECT_EQ(state.get_reg(0), 0xFFFFFF80u);
+    EXPECT_EQ(state.get_pc(), 0x102u);
+}
+
 TEST_F(ExtendedDataProcessingTest, MulAndMla) {
     state.set_reg(1, 6);
     state.set_reg(2, 7);

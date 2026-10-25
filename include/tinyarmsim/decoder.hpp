@@ -143,7 +143,13 @@ private:
                 case 0b0110: instr.op = Opcode::SBC; break;
                 case 0b0111: instr.op = Opcode::ROR; break;
                 case 0b1000: instr.op = Opcode::TST; break;
-                case 0b1001: instr.op = Opcode::RSB; break;
+                case 0b1001:
+                    instr.op = Opcode::RSB;
+                    instr.rn = instr.rm;
+                    instr.rm = 0;
+                    instr.is_imm = true;
+                    instr.imm = 0;
+                    break;
                 case 0b1010: instr.op = Opcode::CMP; break;
                 case 0b1011: instr.op = Opcode::CMN; break;
                 case 0b1100: instr.op = Opcode::ORR; break;
