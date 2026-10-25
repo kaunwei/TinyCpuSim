@@ -333,7 +333,8 @@ TEST_F(ExtendedDataProcessingTest, MovWideModifiedImmediatePreservesFlagsAndAdva
         uint8_t destination;
         uint32_t value;
     };
-    const std::array<Case, 9> cases{{
+    const std::array<Case, 10> cases{{
+        {0xF04F, 0x0000, 0, 0x00000000u}, // assembler: MOV.W r0, #0
         {0xF04F, 0x4380, 3, 0x40000000u}, // assembler: MOV.W r3, #0x40000000
         {0xF04F, 0x4280, 2, 0x40000000u}, // assembler: MOV.W r2, #0x40000000
         {0xF04F, 0x0080, 0, 0x00000080u}, // ordinary 8-bit immediate
