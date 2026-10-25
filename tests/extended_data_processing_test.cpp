@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <array>
+#include <utility>
 #include "tinyarmsim/state.hpp"
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/instruction.hpp"
@@ -261,4 +263,76 @@ TEST(DecoderTest, DecodeThumb32Movt) {
     EXPECT_TRUE(instr.is_imm);
     EXPECT_EQ(instr.imm, 0x5678u);
     EXPECT_EQ(instr.instr_size, 4u);
+}
+
+TEST_F(ExtendedDataProcessingTest, DecodeAndExecuteCmnWideModifiedImmediate) {
+    const std::array<std::pair<uint16_t, uint16_t>, 2> encodings{{
+        {0xF113, 0x0F80}, {0xF110, 0x0F80}}};
+    for (const auto& [w1, w2] : encodings) {
+        const DecodedInstruction instr = Decoder::decode32(w1, w2);
+        EXPECT_EQ(instr.op, Opcode::CMN);
+        EXPECT_EQ(instr.rn, (w1 & 0xFu));
+        EXPECT_EQ(instr.imm, 128u);
+        EXPECT_TRUE(instr.is_imm);
+        EXPECT_TRUE(instr.set_flags);
+        EXPECT_EQ(instr.instr_size, 4u);
+
+        state.set_reg(0, 0xA5A5A5A5u);
+        state.set_reg(1, 0xFFFFFF80u);
+        state.set_reg(2, 0xFFFFFF81u);
+        state.set_reg(3, 0x12345678u);
+        state.set_reg(4, 0x7FFFFF80u);
+        state.set_reg(5, 0xFFFFFFFFu);
+
+        const uint8_t source = instr.rn;
+        const std::array<std::pair<uint32_t, uint32_t>, 4> cases{{
+            {0xFFFFFF80u, 0x60000000u}, // -128 + 128 = 0, Z and C
+            {0xFFFFFF81u, 0x20000000u}, // -127 + 128 = 1, carry
+            {0x7FFFFF80u, 0x90000000u}, // 0x7fffff80 + 128 = 0x80000000, N and V
+            {0xFFFFFFFFu, 0x20000000u}}}; // unsigned carry, wrapped result is zero
+        for (const auto& [operand, expected_nzcv] : cases) {
+            state.set_reg(source, operand);
+            state.set_flags(false, false, false, false);
+            state.set_pc(0x1000u);
+            const auto before = std::array<uint32_t, 15>{
+                state.get_reg(0), state.get_reg(1), state.get_reg(2), state.get_reg(3),
+                state.get_reg(4), state.get_reg(5), state.get_reg(6), state.get_reg(7),
+                state.get_reg(8), state.get_reg(9), state.get_reg(10), state.get_reg(11),
+                state.get_reg(12), state.get_reg(13), state.get_reg(14)};
+            interpreter.execute(instr);
+            EXPECT_EQ(state.get_pc(), 0x1004u);
+            for (size_t reg = 0; reg < before.size(); ++reg) {
+                EXPECT_EQ(state.get_reg(reg), before[reg]);
+            }
+            EXPECT_EQ(state.get_cpsr() & 0xF0000000u, expected_nzcv);
+            EXPECT_EQ(interpreter.evaluate_condition(ConditionCode::EQ), (expected_nzcv & 0x40000000u) != 0);
+            EXPECT_EQ(interpreter.evaluate_condition(ConditionCode::NE), (expected_nzcv & 0x40000000u) == 0);
+        }
+    }
+}
+
+TEST(DecoderTest, ModifiedImmediateExpansionPatternsAndUnsupportedNeighbors) {
+    const std::array<std::pair<uint16_t, uint16_t>, 4> expansion_cases{{
+        {0xF110, 0x0F80}, // #0x80
+        {0xF110, 0x1F80}, // #0x00800080
+        {0xF110, 0x2F80}, // #0x80008000
+        {0xF110, 0x3F80}}}; // #0x80808080
+    const std::array<uint32_t, 4> expected{{0x00000080u, 0x00800080u, 0x80008000u, 0x80808080u}};
+    for (size_t i = 0; i < expansion_cases.size(); ++i) {
+        const auto instr = Decoder::decode32(expansion_cases[i].first, expansion_cases[i].second);
+        EXPECT_EQ(instr.op, Opcode::CMN);
+        EXPECT_EQ(instr.imm, expected[i]);
+    }
+
+    const std::array<std::pair<uint16_t, uint16_t>, 3> rotated_cases{{
+        {0xF110, 0x4F00}, {0xF110, 0x4F80}, {0xF510, 0x0F00}}};
+    const std::array<uint32_t, 3> rotated_expected{{0x80000000u, 0x40000000u, 0x00800000u}};
+    for (size_t i = 0; i < rotated_cases.size(); ++i) {
+        const auto instr = Decoder::decode32(rotated_cases[i].first, rotated_cases[i].second);
+        EXPECT_EQ(instr.op, Opcode::CMN);
+        EXPECT_EQ(instr.imm, rotated_expected[i]);
+    }
+
+    EXPECT_THROW(Decoder::decode32(0xF190, 0x0F80), UndefinedInstructionException);
+    EXPECT_THROW(Decoder::decode32(0xF130, 0x0F80), UndefinedInstructionException);
 }
