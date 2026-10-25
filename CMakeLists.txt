@@ -285,6 +285,10 @@ if (ENABLE_BAREMETAL_FIRMWARE)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_firmware_test.py"
             "$<TARGET_FILE:tinycpusim>" "${BAREMETAL_ACCEPTANCE_ELF}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/test_arithmetic.elf")
+    add_test(NAME natural_firmware_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/natural_firmware_test.py"
+            "$<TARGET_FILE:tinycpusim>" "${ARM_NONE_EABI_GCC}"
+            "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 add_executable(baremetal_firmware_test tests/baremetal_firmware_test.cpp)
 target_link_libraries(baremetal_firmware_test PRIVATE tinyarmsim_core gtest_main)
