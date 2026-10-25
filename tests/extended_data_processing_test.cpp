@@ -465,3 +465,55 @@ TEST_F(ExtendedDataProcessingTest, UnsupportedCmnNeighborEncodingsFaultAtPublicS
         EXPECT_THROW(interpreter.step(), UndefinedInstructionException);
     }
 }
+
+TEST_F(ExtendedDataProcessingTest, AndWideModifiedImmediatePreservesFlagsAndAdvancesPc) {
+    struct Case {
+        uint16_t first;
+        uint16_t second;
+        uint8_t source;
+        uint8_t destination;
+        uint32_t source_value;
+        uint32_t immediate;
+        uint32_t result;
+    };
+    const std::array<Case, 10> cases{{
+        {0xF000, 0x000F, 0, 0, 0xA5A5A5A5u, 0x0000000Fu, 0x00000005u},
+        {0xF001, 0x000F, 1, 0, 0x12345678u, 0x0000000Fu, 0x00000008u},
+        {0xF004, 0x040F, 4, 4, 0xDEADBEEFu, 0x0000000Fu, 0x0000000Fu},
+        {0xF004, 0x0100, 4, 1, 0xFFFFFFFFu, 0x00000000u, 0x00000000u},
+        {0xF002, 0x0280, 2, 2, 0x123456FFu, 0x00000080u, 0x00000080u},
+        {0xF003, 0x1380, 3, 3, 0xFFFFFFFFu, 0x00800080u, 0x00800080u},
+        {0xF005, 0x2580, 5, 5, 0xFFFFFFFFu, 0x80008000u, 0x80008000u},
+        {0xF006, 0x3680, 6, 6, 0xFFFFFFFFu, 0x80808080u, 0x80808080u},
+        {0xF007, 0x4700, 7, 7, 0xFFFFFFFFu, 0x80000000u, 0x80000000u},
+        {0xF008, 0x4880, 8, 8, 0xFFFFFFFFu, 0x40000000u, 0x40000000u},
+    }};
+    const std::array<uint32_t, 4> nzcv_values{{0x00000000u, 0x50000000u, 0xA0000000u, 0xF0000000u}};
+
+    for (const Case& test_case : cases) {
+        for (const uint32_t nzcv : nzcv_values) {
+            for (uint8_t reg = 0; reg < 15; ++reg) {
+                state.set_reg(reg, 0xA5000000u | reg);
+            }
+            state.set_reg(test_case.source, test_case.source_value);
+            state.set_flags((nzcv & 0x80000000u) != 0, (nzcv & 0x40000000u) != 0,
+                            (nzcv & 0x20000000u) != 0, (nzcv & 0x10000000u) != 0);
+            state.set_pc(0x100u);
+            bus.write16(0x100u, test_case.first);
+            bus.write16(0x102u, test_case.second);
+
+            interpreter.step();
+
+            EXPECT_EQ(state.get_reg(test_case.destination), test_case.result);
+            for (uint8_t reg = 0; reg < 15; ++reg) {
+                if (reg != test_case.destination) {
+                    const uint32_t expected = reg == test_case.source
+                        ? test_case.source_value : (0xA5000000u | reg);
+                    EXPECT_EQ(state.get_reg(reg), expected);
+                }
+            }
+            EXPECT_EQ(state.get_cpsr() & 0xF0000000u, nzcv);
+            EXPECT_EQ(state.get_pc(), 0x104u);
+        }
+    }
+}

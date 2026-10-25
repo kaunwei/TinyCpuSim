@@ -548,7 +548,8 @@ private:
                 default: instr.op = Opcode::UNKNOWN; break;
             }
             if (instr.op != Opcode::UNKNOWN &&
-                !((op4 == 0b0000 || op4 == 0b0100) && (!set_flags || rd != 0xF)) &&
+                !(op4 == 0b0100 && (!set_flags || rd != 0xF)) &&
+                !(op4 == 0b0000 && rd == 0xF && !set_flags) &&
                 !(op4 == 0b1000 && rd == 0xF && !set_flags)) {
                 return instr;
             }
