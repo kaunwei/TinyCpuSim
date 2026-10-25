@@ -289,7 +289,7 @@ TEST_F(ExtendedDataProcessingTest, DecodeAndExecuteCmnWideModifiedImmediate) {
             {0xFFFFFF80u, 0x60000000u}, // -128 + 128 = 0, Z and C
             {0xFFFFFF81u, 0x20000000u}, // -127 + 128 = 1, carry
             {0x7FFFFF80u, 0x90000000u}, // 0x7fffff80 + 128 = 0x80000000, N and V
-            {0xFFFFFFFFu, 0x20000000u}}}; // unsigned carry, wrapped result is zero
+            {0xFFFFFFFFu, 0x20000000u}}}; // 0xffffffff + 128 = 0x7f, unsigned carry
         for (const auto& [operand, expected_nzcv] : cases) {
             state.set_reg(source, operand);
             state.set_flags(false, false, false, false);
@@ -335,4 +335,19 @@ TEST(DecoderTest, ModifiedImmediateExpansionPatternsAndUnsupportedNeighbors) {
 
     EXPECT_THROW(Decoder::decode32(0xF190, 0x0F80), UndefinedInstructionException);
     EXPECT_THROW(Decoder::decode32(0xF130, 0x0F80), UndefinedInstructionException);
+}
+
+TEST_F(ExtendedDataProcessingTest, UnsupportedCmnNeighborEncodingsFaultAtPublicSeams) {
+    const std::array<std::pair<uint16_t, uint16_t>, 2> neighbors{{
+        {0xF310, 0x0F80}, // bit 9 set: undefined modified-immediate class
+        {0xF100, 0x0F80}}}; // ADD.W PC, R0, #128 with S=0 is unsupported
+
+    for (const auto& [w1, w2] : neighbors) {
+        EXPECT_THROW(Decoder::decode32(w1, w2), UndefinedInstructionException);
+
+        bus.write16(0, w1);
+        bus.write16(2, w2);
+        state.set_pc(0);
+        EXPECT_THROW(interpreter.step(), UndefinedInstructionException);
+    }
 }

@@ -496,8 +496,7 @@ private:
         }
 
         // 2. 32-bit Data Processing (Modified Immediate).
-        if ((w1 & 0xF800) == 0xF000 && (w2 & 0x8000) == 0 &&
-            ((w1 & 0x0200) == 0 || ((w1 & 0x01E0) == 0x0100 && (w2 & 0x0F00) == 0x0F00))) {
+        if ((w1 & 0xF800) == 0xF000 && (w1 & 0x0200) == 0 && (w2 & 0x8000) == 0) {
             uint8_t op4 = static_cast<uint8_t>((w1 >> 5) & 0xF);
             bool set_flags = ((w1 >> 4) & 0x1) != 0;
             uint8_t rn = static_cast<uint8_t>(w1 & 0xF);
@@ -535,7 +534,7 @@ private:
                 case 0b0010: instr.op = (rn == 0xF) ? Opcode::MOV : Opcode::ORR; break;
                 case 0b0011: instr.op = (rn == 0xF) ? Opcode::MVN : Opcode::ORR; break;
                 case 0b0100: instr.op = (rd == 0xF && set_flags) ? Opcode::TEQ : Opcode::EOR; break;
-                case 0b1000: instr.op = (rd == 0xF) ? Opcode::CMN : Opcode::ADD; break;
+                case 0b1000: instr.op = (rd == 0xF && set_flags) ? Opcode::CMN : Opcode::ADD; break;
                 case 0b1010: instr.op = Opcode::ADC; break;
                 case 0b1011: instr.op = Opcode::SBC; break;
                 case 0b1101: instr.op = (rd == 0xF) ? Opcode::CMP : Opcode::SUB; break;
@@ -543,7 +542,8 @@ private:
                 default: instr.op = Opcode::UNKNOWN; break;
             }
             if (instr.op != Opcode::UNKNOWN &&
-                !((op4 == 0b0000 || op4 == 0b0100) && (!set_flags || rd != 0xF))) {
+                !((op4 == 0b0000 || op4 == 0b0100) && (!set_flags || rd != 0xF)) &&
+                !(op4 == 0b1000 && rd == 0xF && !set_flags)) {
                 return instr;
             }
         }
