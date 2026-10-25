@@ -8,6 +8,7 @@
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/loader.hpp"
 #include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/mmio/soc_platform.hpp"
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"
 #include "tinyarmsim/uarch/memory_hierarchy.hpp"
@@ -20,6 +21,7 @@ void print_usage(const char* prog_name) {
               << "Usage: " << prog_name << " [options] <elf-file>\n\n"
               << "General Options:\n"
               << "  --elf <file>             Specify input ELF binary file\n"
+              << "  --firmware               Boot a Cortex-M firmware ELF on the default SoC\n"
               << "  -l, --log, --verbose     Enable step-by-step instruction trace logging\n"
               << "  -c, --coverage <file>    Export instruction opcode coverage report to CSV\n"
               << "  -m, --max-steps <N>      Set maximum instruction execution steps (default: 1000000000)\n"
@@ -76,6 +78,7 @@ int main(int argc, char* argv[]) {
     std::string topdown_path;
     std::string topdown_format = "text";
     bool enable_log = false;
+    bool enable_firmware = false;
     bool enable_uarch = false;
     bool enable_all_perf = false;
     bool enable_topdown = false;
@@ -90,6 +93,8 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (arg == "-l" || arg == "--log" || arg == "--verbose") {
             enable_log = true;
+        } else if (arg == "--firmware") {
+            enable_firmware = true;
         } else if (arg == "--uarch" || arg == "--uarch-mode") {
             enable_uarch = true;
         } else if (arg == "--topdown") {
@@ -242,6 +247,11 @@ int main(int argc, char* argv[]) {
     tinyarmsim::MemoryBus bus(64 * 1024 * 1024); // 64MB RAM
     tinyarmsim::ArchitecturalState state;
     tinyarmsim::IsaInterpreter interpreter(state, bus);
+    tinyarmsim::mmio::SoCPeripherals soc{};
+    constexpr uint32_t firmware_vtor = 0x00010000u;
+    if (enable_firmware) {
+        soc = tinyarmsim::mmio::SoCPeripherals::attach_all(bus, interpreter);
+    }
     interpreter.set_logging(enable_log);
 
     tinyarmsim::uarch::SliceManager slice_manager(slice_cfg);
@@ -263,7 +273,13 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        tinyarmsim::Loader::load_elf(file, bus, state);
+        tinyarmsim::Loader::load_elf(file, bus, state, enable_firmware
+            ? tinyarmsim::Loader::ElfLoadMode::Firmware
+            : tinyarmsim::Loader::ElfLoadMode::Default);
+        if (enable_firmware) {
+            soc.nvic->set_vtor(firmware_vtor);
+            tinyarmsim::Loader::boot_cortex_m(bus, state, firmware_vtor);
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error loading ELF: " << e.what() << "\n";
         print_banner(false, 1, e.what(), interpreter.get_stats());
@@ -300,6 +316,10 @@ int main(int argc, char* argv[]) {
         slice_manager.flush_final_slice(interp_stats);
     }
     print_banner(passed, exit_code, fault_msg, stats);
+    if (enable_firmware && !soc.uart->get_tx_output().empty()) {
+        std::cout << soc.uart->get_tx_output();
+        if (soc.uart->get_tx_output().back() != '\n') std::cout << '\n';
+    }
 
     if (enable_uarch) {
         slice_manager.reset();

@@ -279,6 +279,12 @@ if (ENABLE_BAREMETAL_FIRMWARE)
         VERBATIM
         COMMENT "Compiling Cortex-M3 bare-metal C boot acceptance ELF")
     add_custom_target(baremetal_firmware_elf DEPENDS "${BAREMETAL_ACCEPTANCE_ELF}")
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_dependencies(tinycpusim baremetal_firmware_elf)
+    add_test(NAME cli_firmware_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_firmware_test.py"
+            "$<TARGET_FILE:tinycpusim>" "${BAREMETAL_ACCEPTANCE_ELF}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/test_arithmetic.elf")
 endif()
 add_executable(baremetal_firmware_test tests/baremetal_firmware_test.cpp)
 target_link_libraries(baremetal_firmware_test PRIVATE tinyarmsim_core gtest_main)
