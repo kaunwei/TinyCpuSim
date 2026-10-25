@@ -326,6 +326,58 @@ TEST(DecoderTest, DecodeThumb32Movt) {
     EXPECT_EQ(instr.instr_size, 4u);
 }
 
+TEST_F(ExtendedDataProcessingTest, MovWideModifiedImmediatePreservesFlagsAndAdvancesPc) {
+    struct Case {
+        uint16_t first;
+        uint16_t second;
+        uint8_t destination;
+        uint32_t value;
+    };
+    const std::array<Case, 9> cases{{
+        {0xF04F, 0x4380, 3, 0x40000000u}, // assembler: MOV.W r3, #0x40000000
+        {0xF04F, 0x4280, 2, 0x40000000u}, // assembler: MOV.W r2, #0x40000000
+        {0xF04F, 0x0080, 0, 0x00000080u}, // ordinary 8-bit immediate
+        {0xF04F, 0x1180, 1, 0x00800080u}, // byte replication
+        {0xF04F, 0x2480, 4, 0x80008000u}, // byte replication
+        {0xF04F, 0x3580, 5, 0x80808080u}, // byte replication
+        {0xF04F, 0x4600, 6, 0x80000000u}, // rotated modified immediate
+        {0xF04F, 0x4780, 7, 0x40000000u}, // rotated modified immediate
+        {0xF44F, 0x0800, 8, 0x00800000u}, // rotated modified immediate
+    }};
+    const std::array<uint32_t, 4> nzcv_values{{0x00000000u, 0x50000000u, 0xA0000000u, 0xF0000000u}};
+
+    for (const Case& test_case : cases) {
+        const DecodedInstruction decoded = Decoder::decode32(test_case.first, test_case.second, 0x100u);
+        EXPECT_EQ(decoded.op, Opcode::MOV);
+        EXPECT_EQ(decoded.rd, test_case.destination);
+        EXPECT_EQ(decoded.imm, test_case.value);
+        EXPECT_TRUE(decoded.is_imm);
+        EXPECT_FALSE(decoded.set_flags);
+        EXPECT_EQ(decoded.instr_size, 4u);
+
+        for (const uint32_t nzcv : nzcv_values) {
+            state.set_flags((nzcv & 0x80000000u) != 0, (nzcv & 0x40000000u) != 0,
+                            (nzcv & 0x20000000u) != 0, (nzcv & 0x10000000u) != 0);
+            for (uint8_t reg = 0; reg < 15; ++reg) {
+                state.set_reg(reg, 0xA5000000u | reg);
+            }
+            state.set_pc(0x100u);
+            bus.write16(0x100u, test_case.first);
+            bus.write16(0x102u, test_case.second);
+            interpreter.step();
+
+            EXPECT_EQ(state.get_reg(test_case.destination), test_case.value);
+            for (uint8_t reg = 0; reg < 15; ++reg) {
+                if (reg != test_case.destination) {
+                    EXPECT_EQ(state.get_reg(reg), 0xA5000000u | reg);
+                }
+            }
+            EXPECT_EQ(state.get_cpsr() & 0xF0000000u, nzcv);
+            EXPECT_EQ(state.get_pc(), 0x104u);
+        }
+    }
+}
+
 TEST_F(ExtendedDataProcessingTest, DecodeAndExecuteCmnWideModifiedImmediate) {
     const std::array<std::pair<uint16_t, uint16_t>, 2> encodings{{
         {0xF113, 0x0F80}, {0xF110, 0x0F80}}};
