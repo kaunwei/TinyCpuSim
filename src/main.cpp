@@ -388,5 +388,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    return passed ? 0 : static_cast<int>(exit_code != 0 ? exit_code : 1);
+    if (passed) {
+        return 0;
+    }
+    return exit_code > 0 && exit_code <= 255 ? static_cast<int>(exit_code) : 1;
 }
