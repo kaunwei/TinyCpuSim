@@ -1,11 +1,11 @@
 # TinyCpuSim
 
 [![Build & Test](https://img.shields.io/badge/tests-233%2F233%20passed-brightgreen.svg)]()
-[![Standard](https://img.shields.io/badge/C%2B%2B-17-blue.svg)]()
+[![Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
 [![ISA](https://img.shields.io/badge/ISA-ARMv7--M%20%2F%20Thumb--2-orange.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**TinyCpuSim** is a high-performance, cycle-accurate Out-of-Order (OoO) superscalar CPU simulator and functional ISA emulator for ARMv7-M (Thumb-2) written in modern C++17.
+**TinyCpuSim** is a high-performance, cycle-accurate Out-of-Order (OoO) superscalar CPU simulator and functional ISA emulator for ARMv7-M (Thumb-2) written in modern C++20.
 
 TinyCpuSim provides an end-to-end microarchitectural exploration platform featuring an advanced dynamic Out-of-Order (RS/PRF/ROB) superscalar execution engine, non-blocking multi-level cache hierarchy with MESI multi-core coherence, Intel/ARM Top-Down microarchitecture analysis (TMAM), 40+ cycle-accurate hardware performance counters, dynamic Region of Interest (ROI) profiling via `m5ops`, and automated golden accuracy calibration against **gem5**.
 
@@ -63,7 +63,7 @@ TinyCpuSim provides an end-to-end microarchitectural exploration platform featur
 TinyCpuSim has minimal external dependencies and runs on macOS and Linux.
 
 - **Operating System**: macOS (Apple Silicon / Intel) or Linux (Ubuntu 20.04+, Debian, Fedora, Arch).
-- **C++ Compiler**: Clang (`clang++ >= 11` / Apple Clang 13+) or GCC (`g++ >= 9`) with C++17 support.
+- **C++ Compiler**: Clang (`clang++ >= 11` / Apple Clang 13+) or GCC (`g++ >= 9`) with C++20 support.
 - **Build System**: CMake `>= 3.15` and Make or Ninja.
 - **Cross Compiler**: `arm-none-eabi-gcc` (for building Thumb-2 assembly test fixtures).
 - **Python**: Python 3.8+ (with `keystone-engine`, `pyelftools`, `capstone`).

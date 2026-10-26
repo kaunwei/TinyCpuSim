@@ -1,6 +1,6 @@
 # TinyArmSim
 
-TinyArmSim is a modular, high-extensibility ARM CPU simulator written in C++17, starting with an ISA functional interpreter and designed to scale to cycle-accurate Out-of-Order (OoO) and JIT execution engines.
+TinyArmSim is a modular, high-extensibility ARM CPU simulator written in C++20, starting with an ISA functional interpreter and designed to scale to cycle-accurate Out-of-Order (OoO) and JIT execution engines.
 
 ## Language
 
