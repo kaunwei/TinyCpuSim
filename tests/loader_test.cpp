@@ -113,6 +113,73 @@ TEST(LoaderTest, CorruptElfThrowsLoaderException) {
     EXPECT_THROW(Loader::load_elf(stream, bus, state), LoaderException);
 }
 
+static std::vector<uint8_t> malformed_elf_with_program_header(uint16_t entry_size,
+                                                              uint32_t table_offset,
+                                                              uint16_t entry_count) {
+    std::vector<uint8_t> elf(52, 0);
+    elf[0] = 0x7f; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';
+    elf[4] = 1; elf[5] = 1; elf[6] = 1;
+    const uint16_t machine = 40;
+    std::memcpy(&elf[18], &machine, sizeof(machine));
+    std::memcpy(&elf[28], &table_offset, sizeof(table_offset));
+    std::memcpy(&elf[42], &entry_size, sizeof(entry_size));
+    std::memcpy(&elf[44], &entry_count, sizeof(entry_count));
+    if (table_offset < 4096 && table_offset >= elf.size()) {
+        elf.resize(table_offset + 32, 0);
+    }
+    return elf;
+}
+
+static void set_elf_program_word(std::vector<uint8_t>& elf, size_t at, uint32_t value) {
+    std::memcpy(&elf[at], &value, sizeof(value));
+}
+
+static void expect_invalid_elf(std::vector<uint8_t> elf) {
+    MemoryBus bus{1024 * 1024};
+    ArchitecturalState state;
+    std::stringstream stream(std::string(elf.begin(), elf.end()));
+    EXPECT_THROW(Loader::load_elf(stream, bus, state), LoaderException);
+}
+
+TEST(LoaderTest, RejectsMalformedProgramHeaderBounds) {
+    // A 52-byte ELF whose program header starts at EOF must not read fields.
+    std::vector<uint8_t> zero_stride(52, 0);
+    zero_stride[0] = 0x7f; zero_stride[1] = 'E'; zero_stride[2] = 'L'; zero_stride[3] = 'F';
+    zero_stride[4] = 1; zero_stride[5] = 1; zero_stride[6] = 1;
+    const uint16_t machine = 40, one_entry = 1, zero_size = 0;
+    const uint32_t eof = 52;
+    std::memcpy(&zero_stride[18], &machine, sizeof(machine));
+    std::memcpy(&zero_stride[28], &eof, sizeof(eof));
+    std::memcpy(&zero_stride[42], &zero_size, sizeof(zero_size));
+    std::memcpy(&zero_stride[44], &one_entry, sizeof(one_entry));
+    expect_invalid_elf(std::move(zero_stride));
+
+    expect_invalid_elf(malformed_elf_with_program_header(20, 52, 1));
+    expect_invalid_elf(malformed_elf_with_program_header(32, 0xfffffff0u, 2));
+    expect_invalid_elf(malformed_elf_with_program_header(32, 52, 2));
+}
+
+TEST(LoaderTest, RejectsMalformedLoadSegmentFileAndMemoryRanges) {
+    auto invalid_file_range = malformed_elf_with_program_header(32, 52, 1);
+    set_elf_program_word(invalid_file_range, 52, 1);
+    set_elf_program_word(invalid_file_range, 56, 0xfffffff0u);
+    set_elf_program_word(invalid_file_range, 64, 0x100);
+    set_elf_program_word(invalid_file_range, 68, 0x100);
+    set_elf_program_word(invalid_file_range, 72, 0x30);
+    set_elf_program_word(invalid_file_range, 76, 0x30);
+    expect_invalid_elf(std::move(invalid_file_range));
+
+    auto invalid_memory_range = malformed_elf_with_program_header(32, 52, 1);
+    set_elf_program_word(invalid_memory_range, 52, 1);
+    set_elf_program_word(invalid_memory_range, 56, 84);
+    set_elf_program_word(invalid_memory_range, 60, 0xfffffff0u);
+    set_elf_program_word(invalid_memory_range, 64, 0xfffffff0u);
+    set_elf_program_word(invalid_memory_range, 68, 1);
+    set_elf_program_word(invalid_memory_range, 72, 32);
+    invalid_memory_range.resize(85, 0xaa);
+    expect_invalid_elf(std::move(invalid_memory_range));
+}
+
 TEST(LoaderTest, FirmwareElfPreservesFlashLmaAndDefersRamInitialization) {
     std::vector<uint8_t> elf(52 + 32 + 8, 0);
     elf[0] = 0x7f; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';

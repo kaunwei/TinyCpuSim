@@ -69,12 +69,20 @@ public:
         std::memcpy(&e_phentsize, &data[42], 2);
         std::memcpy(&e_phnum, &data[44], 2);
 
+        constexpr size_t minimum_program_header_size = 32;
+        if (e_phnum != 0 && e_phentsize < minimum_program_header_size) {
+            throw LoaderException("Program header entry is too small");
+        }
+        if (e_phoff > data.size() ||
+            (e_phnum != 0 && static_cast<size_t>(e_phnum) >
+                (data.size() - e_phoff) / e_phentsize)) {
+            throw LoaderException("Program header table exceeds file size");
+        }
+
         // Load segments
         for (uint16_t i = 0; i < e_phnum; ++i) {
-            size_t ph_offset = e_phoff + (i * e_phentsize);
-            if (ph_offset + e_phentsize > data.size()) {
-                throw LoaderException("Program header table exceeds file size");
-            }
+            const size_t ph_offset = static_cast<size_t>(e_phoff) +
+                static_cast<size_t>(i) * e_phentsize;
 
             uint32_t p_type;
             uint32_t p_offset;
@@ -91,11 +99,19 @@ public:
             std::memcpy(&p_memsz, &data[ph_offset + 20], 4);
 
             if (p_type == 1) { // PT_LOAD
-                if (p_offset + p_filesz > data.size()) {
+                if (p_offset > data.size() ||
+                    static_cast<size_t>(p_filesz) > data.size() - p_offset) {
                     throw LoaderException("PT_LOAD segment data exceeds file size");
                 }
 
                 const uint32_t load_address = mode == ElfLoadMode::Firmware ? p_paddr : p_vaddr;
+                if (p_memsz < p_filesz ||
+                    static_cast<uint64_t>(load_address) + p_filesz >
+                        static_cast<uint64_t>(UINT32_MAX) + 1u ||
+                    static_cast<uint64_t>(p_vaddr) + p_memsz >
+                        static_cast<uint64_t>(UINT32_MAX) + 1u) {
+                    throw LoaderException("PT_LOAD segment memory range is invalid");
+                }
                 for (uint32_t b = 0; b < p_filesz; ++b) {
                     bus.write8(load_address + b, data[p_offset + b]);
                 }
