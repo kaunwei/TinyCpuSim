@@ -412,10 +412,24 @@ public:
             case Opcode::LSL: {
                 uint32_t val = state_.get_reg(instr.rn);
                 uint32_t shift = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) & 0xFFu);
-                uint32_t res = (shift >= 32) ? 0 : (val << shift);
+                uint32_t res = val;
+                bool carry = state_.get_flag_c();
+                if (shift != 0) {
+                    if (shift < 32) {
+                        carry = ((val >> (32 - shift)) & 1u) != 0;
+                        res = val << shift;
+                    } else if (shift == 32) {
+                        carry = (val & 1u) != 0;
+                        res = 0;
+                    } else {
+                        carry = false;
+                        res = 0;
+                    }
+                }
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    if (shift != 0) state_.set_flag_c(carry);
                 }
                 break;
             }
@@ -423,33 +437,64 @@ public:
             case Opcode::LSR: {
                 uint32_t val = state_.get_reg(instr.rn);
                 uint32_t shift = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) & 0xFFu);
-                uint32_t res = (shift >= 32) ? 0 : (val >> shift);
+                uint32_t res = val;
+                bool carry = state_.get_flag_c();
+                if (shift != 0) {
+                    if (shift < 32) {
+                        carry = ((val >> (shift - 1)) & 1u) != 0;
+                        res = val >> shift;
+                    } else if (shift == 32) {
+                        carry = (val >> 31) != 0;
+                        res = 0;
+                    } else {
+                        carry = false;
+                        res = 0;
+                    }
+                }
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    if (shift != 0) state_.set_flag_c(carry);
                 }
                 break;
             }
 
             case Opcode::ASR: {
-                int32_t val = static_cast<int32_t>(state_.get_reg(instr.rn));
+                uint32_t val = state_.get_reg(instr.rn);
                 uint32_t shift = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) & 0xFFu);
-                if (shift >= 32) shift = 31;
-                uint32_t res = static_cast<uint32_t>(val >> shift);
+                uint32_t res = val;
+                bool carry = state_.get_flag_c();
+                if (shift != 0) {
+                    if (shift < 32) {
+                        carry = ((val >> (shift - 1)) & 1u) != 0;
+                        res = (val >> shift) | ((val & 0x80000000u) ? (0xFFFFFFFFu << (32 - shift)) : 0u);
+                    } else {
+                        carry = (val >> 31) != 0;
+                        res = (val >> 31) ? 0xFFFFFFFFu : 0u;
+                    }
+                }
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    if (shift != 0) state_.set_flag_c(carry);
                 }
                 break;
             }
 
             case Opcode::ROR: {
                 uint32_t val = state_.get_reg(instr.rn);
-                uint32_t shift = (instr.is_imm ? instr.imm : state_.get_reg(instr.rm)) & 31u;
-                uint32_t res = (shift == 0) ? val : ((val >> shift) | (val << (32 - shift)));
+                uint32_t amount = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) & 0xFFu);
+                uint32_t shift = amount & 31u;
+                uint32_t res = val;
+                bool carry = state_.get_flag_c();
+                if (amount != 0) {
+                    res = (shift == 0) ? val : ((val >> shift) | (val << (32 - shift)));
+                    carry = (res >> 31) != 0;
+                }
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    if (amount != 0) state_.set_flag_c(carry);
                 }
                 break;
             }

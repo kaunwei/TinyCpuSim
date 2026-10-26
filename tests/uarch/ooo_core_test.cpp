@@ -39,6 +39,30 @@ TEST(OoOCoreTest, ExecutesLinearInstructionSequenceAndRetires) {
     EXPECT_GT(stats.ipc(), 0.0);
 }
 
+TEST(OoOCoreTest, NarrowShiftImmediateThirtyTwoFlowsThroughPublicPipeline) {
+    MemoryBus bus(64 * 1024);
+    bus.write16(0x1000, 0x2101); // MOVS R1, #1
+    bus.write16(0x1002, 0x07C9); // LSLS R1, R1, #31
+    bus.write16(0x1004, 0x3101); // ADDS R1, #1 -> 0x80000001
+    bus.write16(0x1006, 0x0808); // LSRS R0, R1, #32
+    bus.write16(0x1008, 0x100A); // ASRS R2, R1, #32
+    bus.write16(0x100A, 0xDF00); // SVC #0
+
+    CoreConfig cfg;
+    cfg.fetch_width = 1;
+    cfg.issue_width = 1;
+    cfg.commit_width = 1;
+    cfg.branch_predictor.type = PredictorType::NONE;
+    OoOCore core(0, cfg, bus, nullptr, nullptr, 0x1000);
+    for (int cycle = 0; cycle < 30 && !core.is_halted(); ++cycle) core.tick();
+
+    EXPECT_TRUE(core.is_halted());
+    EXPECT_EQ(core.read_arch_reg(0), 0u);
+    EXPECT_EQ(core.read_arch_reg(2), 0xFFFFFFFFu);
+    EXPECT_EQ(core.get_cycles(), 15u);
+    EXPECT_EQ(core.get_committed_instructions(), 6u);
+}
+
 TEST(OoOCoreTest, RawDataHazardWakeupThroughPhysicalRegisters) {
     MemoryBus bus(64 * 1024);
 

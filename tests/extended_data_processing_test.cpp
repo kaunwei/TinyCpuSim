@@ -273,6 +273,88 @@ TEST_F(ExtendedDataProcessingTest, ShiftsLslLsrAsrRor) {
     EXPECT_EQ(state.get_reg(0), 0x88000000u);
 }
 
+TEST_F(ExtendedDataProcessingTest, NarrowShiftImmediateZeroMeansThirtyTwoExceptLslAlias) {
+    const auto lsr = Decoder::decode16(0x0808);
+    const auto asr = Decoder::decode16(0x1008);
+    const auto lsl_alias = Decoder::decode16(0x0008);
+    EXPECT_EQ(lsr.imm, 32u);
+    EXPECT_EQ(asr.imm, 32u);
+    EXPECT_EQ(lsl_alias.op, Opcode::MOV);
+}
+
+TEST_F(ExtendedDataProcessingTest, StandaloneShiftsProduceArchitecturalCarryAtBoundaries) {
+    struct Case { Opcode op; uint32_t amount; uint32_t result; bool carry; };
+    constexpr std::array cases{
+        Case{Opcode::LSL, 0, 0x80000001u, false}, Case{Opcode::LSL, 1, 0x00000002u, true},
+        Case{Opcode::LSL, 31, 0x80000000u, false}, Case{Opcode::LSL, 32, 0u, true},
+        Case{Opcode::LSL, 33, 0u, false}, Case{Opcode::LSL, 255, 0u, false},
+        Case{Opcode::LSL, 256, 0x80000001u, false},
+        Case{Opcode::LSR, 0, 0x80000001u, false}, Case{Opcode::LSR, 1, 0x40000000u, true},
+        Case{Opcode::LSR, 31, 1u, false}, Case{Opcode::LSR, 32, 0u, true},
+        Case{Opcode::LSR, 33, 0u, false}, Case{Opcode::LSR, 255, 0u, false},
+        Case{Opcode::LSR, 256, 0x80000001u, false},
+        Case{Opcode::ASR, 0, 0x80000001u, false}, Case{Opcode::ASR, 1, 0xC0000000u, true},
+        Case{Opcode::ASR, 31, 0xFFFFFFFFu, false}, Case{Opcode::ASR, 32, 0xFFFFFFFFu, true},
+        Case{Opcode::ASR, 33, 0xFFFFFFFFu, true}, Case{Opcode::ASR, 255, 0xFFFFFFFFu, true},
+        Case{Opcode::ASR, 256, 0x80000001u, false},
+        Case{Opcode::ROR, 0, 0x80000001u, false}, Case{Opcode::ROR, 1, 0xC0000000u, true},
+        Case{Opcode::ROR, 31, 3u, false}, Case{Opcode::ROR, 32, 0x80000001u, true},
+        Case{Opcode::ROR, 33, 0xC0000000u, true}, Case{Opcode::ROR, 255, 3u, false},
+        Case{Opcode::ROR, 256, 0x80000001u, false},
+    };
+    for (const auto& test_case : cases) {
+        state.reset();
+        state.set_reg(1, 0x80000001u);
+        state.set_reg(2, test_case.amount);
+        state.set_flags(false, false, false, true);
+        DecodedInstruction instr{};
+        instr.op = test_case.op;
+        instr.rd = 0;
+        instr.rn = 1;
+        instr.rm = 2;
+        instr.is_imm = false;
+        instr.set_flags = true;
+        interpreter.execute(instr);
+        EXPECT_EQ(state.get_reg(0), test_case.result);
+        EXPECT_EQ(state.get_flag_c(), test_case.carry);
+        EXPECT_EQ(state.get_flag_v(), true);
+    }
+}
+
+TEST_F(ExtendedDataProcessingTest, ZeroShiftPreservesBothIncomingCarryValues) {
+    for (bool carry : {false, true}) {
+        state.reset();
+        state.set_reg(1, 0x80000001u);
+        state.set_reg(2, 0);
+        state.set_flag_c(carry);
+        DecodedInstruction instr{};
+        instr.op = Opcode::LSR; instr.rd = 0; instr.rn = 1; instr.rm = 2; instr.set_flags = true;
+        interpreter.execute(instr);
+        EXPECT_EQ(state.get_reg(0), 0x80000001u);
+        EXPECT_EQ(state.get_flag_c(), carry);
+    }
+}
+
+TEST_F(ExtendedDataProcessingTest, ShiftFlagWritesRespectNonSAndItPolicy) {
+    state.set_reg(1, 0x80000001u);
+    state.set_reg(2, 1);
+    state.set_flags(false, false, false, true);
+    DecodedInstruction instr{};
+    instr.op = Opcode::LSR; instr.rd = 0; instr.rn = 1; instr.rm = 2; instr.is_imm = false;
+    instr.set_flags = false;
+    interpreter.execute(instr);
+    EXPECT_EQ(state.get_reg(0), 0x40000000u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_FALSE(state.get_flag_c()); EXPECT_TRUE(state.get_flag_v());
+
+    state.reset(); state.set_reg(1, 0x80000001u); state.set_reg(2, 1);
+    state.set_flags(false, true, false, true); state.set_it_state(0x08);
+    instr.is_imm = true; instr.imm = 1; instr.set_flags = true;
+    interpreter.execute(instr);
+    EXPECT_EQ(state.get_reg(0), 0x40000000u);
+    EXPECT_FALSE(state.get_flag_n()); EXPECT_FALSE(state.get_flag_c()); EXPECT_TRUE(state.get_flag_v());
+    EXPECT_EQ(state.get_it_state(), 0u);
+}
+
 // === Wide Immediate: MOVW / MOVT Tests ===
 
 TEST_F(ExtendedDataProcessingTest, MovwAndMovtBuilds32BitAddress) {

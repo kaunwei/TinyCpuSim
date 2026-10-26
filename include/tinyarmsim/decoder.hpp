@@ -53,7 +53,7 @@ private:
                 } else {
                     instr.rn = rm;
                     instr.is_imm = true;
-                    instr.imm = imm5;
+                    instr.imm = ((op5 == 0b01 || op5 == 0b10) && imm5 == 0) ? 32u : imm5;
                     if (op5 == 0b00) {
                         instr.op = Opcode::LSL;
                     } else if (op5 == 0b01) {
