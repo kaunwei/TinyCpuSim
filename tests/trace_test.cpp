@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <iostream>
+#include <sstream>
 #include "tinyarmsim/trace.hpp"
 #include "tinyarmsim/state.hpp"
 #include "tinyarmsim/memory_bus.hpp"
@@ -40,4 +42,24 @@ TEST(TraceTest, FormatMemoryAccessInCommit) {
     std::string line = record.format();
     EXPECT_NE(line.find("mem[0x20000] <= 0xf (4B)"), std::string::npos);
     EXPECT_NE(line.find("NZCV=[0100]"), std::string::npos);
+}
+
+TEST(TraceTest, SkippedSlotKeepsOriginalPcRawWidthAndConditionNote) {
+    ArchitecturalState state;
+    MemoryBus bus;
+    IsaInterpreter interpreter(state, bus);
+    state.set_pc(0x1000);
+    state.set_it_state(0x08);
+    state.set_flag_z(false);
+    bus.write16(0x1000, 0xDE42);
+    interpreter.set_logging(true);
+    std::ostringstream output;
+    auto* previous = std::cout.rdbuf(output.rdbuf());
+
+    interpreter.step();
+
+    std::cout.rdbuf(previous);
+    EXPECT_NE(output.str().find("0x00001000 (0xde42)"), std::string::npos);
+    EXPECT_NE(output.str().find("[condition false]"), std::string::npos);
+    EXPECT_NE(output.str().find("NZCV=[0000]"), std::string::npos);
 }

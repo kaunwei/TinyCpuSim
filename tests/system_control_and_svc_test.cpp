@@ -1,4 +1,7 @@
 #include <gtest/gtest.h>
+#include <iostream>
+#include <sstream>
+#include <tuple>
 #include "tinyarmsim/state.hpp"
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/instruction.hpp"
@@ -118,6 +121,51 @@ TEST_F(SystemControlAndSvcTest, FalseItSlotsSkipUndefinedNarrowAndWideInstructio
     state.set_flags(false, false, false, false);
     bus.write16(0xFFFFE, 0xF310);
     EXPECT_THROW(interpreter.step(), CpuFaultException); // Fetching the second halfword still faults.
+}
+
+TEST_F(SystemControlAndSvcTest, FalseItSlotsRetireExactNarrowAndWideWordsOnce) {
+    for (const auto& [first, second, width, initial_it, next_it, raw] :
+         {std::tuple<uint16_t, uint16_t, uint8_t, uint8_t, uint8_t, uint32_t>{
+              0xDE00, 0, 2, 0x08, 0, 0xDE00},
+          {0xF310, 0x0F80, 4, 0x0C, 0x18, 0xF3100F80}}) {
+        interpreter.set_logging(true);
+        std::ostringstream output;
+        auto* previous = std::cout.rdbuf(output.rdbuf());
+        state.set_pc(0x0FFC);
+        state.set_it_state(0);
+        state.set_reg(0, 0x3000);
+        bus.write32(0x3000, 0x55);
+        bus.write16(0x0FFC, 0x6801); // LDR R1, [R0, #0] seeds both trace vectors.
+        interpreter.step();
+        output.str("");
+        output.clear();
+
+        state.set_pc(0x1000);
+        state.set_it_state(initial_it);
+        state.set_flags(true, false, true, true);
+        state.set_reg(0, 0x12345678);
+        bus.write16(0x1000, first);
+        if (width == 4) bus.write16(0x1002, second);
+        interpreter.reset_stats();
+
+        interpreter.step();
+
+        std::cout.rdbuf(previous);
+        EXPECT_EQ(state.get_pc(), 0x1000u + width);
+        EXPECT_EQ(state.get_it_state(), next_it);
+        EXPECT_EQ(state.get_cpsr() & 0xF0000000u, 0xB0000000u);
+        EXPECT_EQ(state.get_reg(0), 0x12345678u);
+        EXPECT_EQ(interpreter.get_stats().instruction_count, 1u);
+        EXPECT_TRUE(interpreter.get_stats().opcode_counts.empty());
+        EXPECT_NE(output.str().find("0x" + [&] {
+            std::ostringstream bits;
+            bits << std::hex << std::nouppercase << raw;
+            return bits.str();
+        }()), std::string::npos);
+        EXPECT_NE(output.str().find("[condition false]"), std::string::npos);
+        EXPECT_EQ(output.str().find("r1 "), std::string::npos);
+        EXPECT_EQ(output.str().find("mem["), std::string::npos);
+    }
 }
 
 TEST_F(SystemControlAndSvcTest, CachedNarrowMoveUsesCurrentItFlagPolicy) {

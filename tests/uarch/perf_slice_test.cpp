@@ -292,6 +292,40 @@ TEST(PerfSliceTest, IsaInterpreterPeriodicInstructionSliceTrigger) {
     EXPECT_EQ(slices[2].slice_instructions(), 5);
 }
 
+TEST(PerfSliceTest, SkippedNarrowAndWideSlotsCaptureOneSliceEach) {
+    tinyarmsim::ArchitecturalState state;
+    tinyarmsim::MemoryBus bus(0x100000);
+    tinyarmsim::IsaInterpreter interp(state, bus);
+    SliceConfig config;
+    config.enabled = true;
+    config.interval_instructions = 1;
+    SliceManager manager(config);
+    interp.set_slice_manager(&manager);
+    state.set_pc(0x1000);
+    state.set_it_state(0x08);
+    state.set_flag_z(false);
+    bus.write16(0x1000, 0xDE00);
+    interp.step();
+    EXPECT_EQ(manager.num_slices(), 1u);
+    EXPECT_EQ(manager.get_slices()[0].slice_instructions(), 1u);
+
+    state.set_pc(0x1002);
+    state.set_it_state(0x0C);
+    bus.write16(0x1002, 0xF310);
+    bus.write16(0x1004, 0x0F80);
+    interp.step();
+    EXPECT_EQ(manager.num_slices(), 2u);
+    EXPECT_EQ(manager.get_slices()[1].slice_instructions(), 1u);
+    EXPECT_EQ(manager.get_slices()[1].end_instruction, 2u);
+
+    state.set_pc(0xFFFFE);
+    state.set_it_state(0x08);
+    bus.write16(0xFFFFE, 0xF310);
+    EXPECT_THROW(interp.step(), tinyarmsim::CpuFaultException);
+    EXPECT_EQ(interp.get_stats().instruction_count, 2u);
+    EXPECT_EQ(manager.num_slices(), 2u);
+}
+
 TEST(PerfSliceTest, SliceConfigResetAndFormatOptions) {
     SliceConfig cfg;
     cfg.enabled = true;

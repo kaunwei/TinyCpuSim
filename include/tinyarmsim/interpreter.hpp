@@ -789,23 +789,8 @@ public:
             uint16_t second_halfword = bus_.read16(pc + 2);
             const uint8_t it_state = state_.get_it_state();
             if (it_state != 0 && !evaluate_condition(static_cast<ConditionCode>(it_state >> 4))) {
-                ++stats_.instruction_count;
-                if (logging_enabled_) {
-                    trace_.clear();
-                    trace_.core_id = 0;
-                    trace_.pc = pc;
-                    trace_.raw_hex = (static_cast<uint32_t>(first_halfword) << 16) | second_halfword;
-                    trace_.instr_size = 4;
-                    trace_.disasm = "[condition false]";
-                }
-                const uint8_t low = static_cast<uint8_t>(it_state & 0xFu);
-                state_.set_it_state((low & 0x7u) == 0
-                    ? 0 : static_cast<uint8_t>((it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
-                state_.advance_pc(4);
-                log_trace("[condition false]");
-                bus_.tick(1);
-                if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) return;
-                check_and_trigger_slice();
+                retire_skipped_it_slot(pc,
+                    (static_cast<uint32_t>(first_halfword) << 16) | second_halfword, 4, it_state);
                 return;
             }
             const DecodedInstruction& instr = opcode_cache_.get_32(first_halfword, second_halfword);
@@ -817,23 +802,7 @@ public:
                 first_halfword != 0xBF30u;
             if (it_state != 0 && !evaluate_condition(static_cast<ConditionCode>(it_state >> 4)) &&
                 !it_instruction) {
-                ++stats_.instruction_count;
-                if (logging_enabled_) {
-                    trace_.clear();
-                    trace_.core_id = 0;
-                    trace_.pc = pc;
-                    trace_.raw_hex = first_halfword;
-                    trace_.instr_size = 2;
-                    trace_.disasm = "[condition false]";
-                }
-                const uint8_t low = static_cast<uint8_t>(it_state & 0xFu);
-                state_.set_it_state((low & 0x7u) == 0
-                    ? 0 : static_cast<uint8_t>((it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
-                state_.advance_pc(2);
-                log_trace("[condition false]");
-                bus_.tick(1);
-                if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) return;
-                check_and_trigger_slice();
+                retire_skipped_it_slot(pc, first_halfword, 2, it_state);
                 return;
             }
             const DecodedInstruction& instr = opcode_cache_.get_16(first_halfword);
@@ -890,6 +859,27 @@ public:
     }
 
 private:
+    void retire_skipped_it_slot(uint32_t pc, uint32_t raw_hex, uint8_t width,
+                                uint8_t incoming_it_state) {
+        ++stats_.instruction_count;
+        if (logging_enabled_) {
+            trace_.clear();
+            trace_.core_id = 0;
+            trace_.pc = pc;
+            trace_.raw_hex = raw_hex;
+            trace_.instr_size = width;
+            trace_.disasm = "[condition false]";
+        }
+        const uint8_t low = static_cast<uint8_t>(incoming_it_state & 0xFu);
+        state_.set_it_state((low & 0x7u) == 0
+            ? 0 : static_cast<uint8_t>((incoming_it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
+        state_.advance_pc(width);
+        log_trace("[condition false]");
+        bus_.tick(1);
+        if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) return;
+        check_and_trigger_slice();
+    }
+
     void check_and_trigger_slice() {
         if (!slice_manager_ || !slice_manager_->get_config().is_active()) return;
 

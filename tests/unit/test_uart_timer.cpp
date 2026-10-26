@@ -257,3 +257,41 @@ TEST(TimerTest, InterpreterStepAutomaticallyTicksTimerAndTriggersISR) {
 
     EXPECT_EQ(state.get_reg(4), 99u);
 }
+
+TEST(TimerTest, SkippedItSlotTicksOnceAndDeliversPendingIrqAtAdvancedPc) {
+    MemoryBus bus(64 * 1024 * 1024);
+    ArchitecturalState state;
+    IsaInterpreter interp(state, bus);
+    auto timer_dev = std::make_unique<mmio::TimerDevice>();
+    auto nvic_dev = std::make_unique<mmio::NVICDevice>();
+    mmio::TimerDevice* timer = timer_dev.get();
+    mmio::NVICDevice* nvic = nvic_dev.get();
+    bus.register_device(std::move(timer_dev));
+    bus.register_device(std::move(nvic_dev));
+    interp.attach_nvic(nvic);
+    nvic->set_vtor(0x1000);
+    bus.write32(0x1044, 0x2001);
+    nvic->write(0x100, 1u << 1, mmio::AccessSize::Word);
+    bus.write16(0x1000, 0xDE00);
+    bus.write16(0x2000, 0xBF00);
+    state.set_pc(0x1000);
+    state.set_reg(13, 0x8000);
+    state.set_it_state(0x08);
+    state.set_flag_z(false);
+    timer->write(0x00, 1, mmio::AccessSize::Word);
+    timer->write(0x08, 0x05, mmio::AccessSize::Word);
+
+    interp.step();
+
+    EXPECT_EQ(timer->read(0x04, mmio::AccessSize::Word), 0u);
+    EXPECT_EQ(timer->read(0x10, mmio::AccessSize::Word), 1u);
+    EXPECT_EQ(state.get_pc(), 0x1002u);
+    EXPECT_EQ(state.get_it_state(), 0u);
+    interp.step();
+    EXPECT_EQ(state.get_pc(), 0x2000u);
+    const uint32_t exception_sp = state.get_reg(13);
+    EXPECT_EQ(state.get_reg(14), mmio::NVICDevice::EXC_RETURN_THREAD_MSP);
+    EXPECT_EQ(state.get_it_state(), 0u);
+    EXPECT_EQ(bus.read32(exception_sp + 24), 0x1002u);
+    EXPECT_EQ(bus.read32(exception_sp + 28), state.get_cpsr());
+}
