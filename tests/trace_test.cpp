@@ -8,6 +8,25 @@
 
 using namespace tinyarmsim;
 
+namespace {
+
+class ScopedStreambufRedirect {
+public:
+    ScopedStreambufRedirect(std::ostream& stream, std::streambuf* replacement)
+        : stream_(stream), original_(stream.rdbuf(replacement)) {}
+
+    ScopedStreambufRedirect(const ScopedStreambufRedirect&) = delete;
+    ScopedStreambufRedirect& operator=(const ScopedStreambufRedirect&) = delete;
+
+    ~ScopedStreambufRedirect() { stream_.rdbuf(original_); }
+
+private:
+    std::ostream& stream_;
+    std::streambuf* original_;
+};
+
+}  // namespace
+
 TEST(TraceTest, FormatSingleLineSpikeCommit) {
     TraceRecord record{};
     record.core_id = 0;
@@ -54,11 +73,10 @@ TEST(TraceTest, SkippedSlotKeepsOriginalPcRawWidthAndConditionNote) {
     bus.write16(0x1000, 0xDE42);
     interpreter.set_logging(true);
     std::ostringstream output;
-    auto* previous = std::cout.rdbuf(output.rdbuf());
-
-    interpreter.step();
-
-    std::cout.rdbuf(previous);
+    {
+        ScopedStreambufRedirect redirect(std::cout, output.rdbuf());
+        interpreter.step();
+    }
     EXPECT_NE(output.str().find("0x00001000 (0xde42)"), std::string::npos);
     EXPECT_NE(output.str().find("[condition false]"), std::string::npos);
     EXPECT_NE(output.str().find("NZCV=[0000]"), std::string::npos);
