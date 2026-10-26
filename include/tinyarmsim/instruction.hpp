@@ -173,6 +173,12 @@ enum class ShiftType : uint8_t {
     RRX = 4
 };
 
+enum class ImmediateCarryEffect : uint8_t {
+    Preserve,
+    Clear,
+    Set
+};
+
 struct DecodedInstruction {
     Opcode op{Opcode::UNKNOWN};
     ConditionCode cond{ConditionCode::AL};
@@ -190,6 +196,7 @@ struct DecodedInstruction {
     bool shift_by_reg{false};
 
     bool set_flags{false};
+    ImmediateCarryEffect immediate_carry_effect{ImmediateCarryEffect::Preserve};
     uint8_t instr_size{2}; // 2 bytes for 16-bit Thumb, 4 bytes for 32-bit Thumb/ARM
 
     // Memory access parameters

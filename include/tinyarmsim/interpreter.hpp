@@ -146,6 +146,14 @@ public:
         const bool effective_set_flags = instr.set_flags &&
             !(incoming_it_state != 0 && instr.instr_size == 2 && !explicit_narrow_flags);
 
+        auto apply_immediate_carry_effect = [&]() {
+            if (instr.immediate_carry_effect == ImmediateCarryEffect::Clear) {
+                state_.set_flag_c(false);
+            } else if (instr.immediate_carry_effect == ImmediateCarryEffect::Set) {
+                state_.set_flag_c(true);
+            }
+        };
+
         bool pc_written = false;
 
         auto write_reg = [&](size_t r, uint32_t val) {
@@ -200,6 +208,7 @@ public:
                 write_reg(instr.rd, val);
                 if (effective_set_flags) {
                     state_.set_nz_flags(val);
+                    apply_immediate_carry_effect();
                 }
                 break;
             }
@@ -209,6 +218,7 @@ public:
                 write_reg(instr.rd, val);
                 if (effective_set_flags) {
                     state_.set_nz_flags(val);
+                    apply_immediate_carry_effect();
                 }
                 break;
             }
@@ -353,6 +363,7 @@ public:
                 }
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    apply_immediate_carry_effect();
                 }
                 break;
             }
@@ -364,6 +375,7 @@ public:
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    apply_immediate_carry_effect();
                 }
                 break;
             }
@@ -378,6 +390,7 @@ public:
                 }
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    apply_immediate_carry_effect();
                 }
                 break;
             }
@@ -389,6 +402,7 @@ public:
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
                     state_.set_nz_flags(res);
+                    apply_immediate_carry_effect();
                 }
                 break;
             }

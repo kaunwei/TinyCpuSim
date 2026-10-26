@@ -533,6 +533,11 @@ private:
             instr.is_imm = true;
             instr.imm = imm_val;
             instr.set_flags = set_flags;
+            if ((type >> 2) != 0) {
+                instr.immediate_carry_effect = (imm_val & 0x80000000u) != 0
+                    ? ImmediateCarryEffect::Set
+                    : ImmediateCarryEffect::Clear;
+            }
 
             switch (op4) {
                 case 0b0000: instr.op = (rd == 0xF && set_flags) ? Opcode::TST : Opcode::AND; break;

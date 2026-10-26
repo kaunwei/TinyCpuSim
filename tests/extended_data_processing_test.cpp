@@ -599,3 +599,106 @@ TEST_F(ExtendedDataProcessingTest, AndWideModifiedImmediatePreservesFlagsAndAdva
         }
     }
 }
+
+TEST_F(ExtendedDataProcessingTest, AndsWideModifiedImmediateUsesEncodedCarryEffect) {
+    struct Case {
+        uint16_t first;
+        uint16_t second;
+        uint32_t immediate;
+        bool carry_when_rotated;
+        bool preserve_carry;
+    };
+    const std::array<Case, 4> cases{{
+        {0xF010, 0x4000, 0x80000000u, true, false},
+        {0xF010, 0x4080, 0x40000000u, false, false},
+        {0xF010, 0x3080, 0x80808080u, false, true},
+        {0xF010, 0x0080, 0x00000080u, false, true},
+    }};
+
+    for (const Case& test_case : cases) {
+        const DecodedInstruction decoded = Decoder::decode32(test_case.first, test_case.second);
+        ASSERT_EQ(decoded.op, Opcode::AND);
+        ASSERT_TRUE(decoded.set_flags);
+        ASSERT_EQ(decoded.imm, test_case.immediate);
+
+        for (bool incoming_carry : {false, true}) {
+            state.reset();
+            state.set_reg(0, 0xFFFFFFFFu);
+            state.set_flags(false, false, incoming_carry, true);
+            state.set_pc(0x100u);
+            bus.write16(0x100u, test_case.first);
+            bus.write16(0x102u, test_case.second);
+            interpreter.step();
+
+            EXPECT_EQ(state.get_reg(0), test_case.immediate);
+            EXPECT_EQ(state.get_flag_c(), test_case.preserve_carry
+                ? incoming_carry : test_case.carry_when_rotated);
+            EXPECT_TRUE(state.get_flag_v());
+            EXPECT_EQ(state.get_pc(), 0x104u);
+        }
+    }
+}
+
+TEST_F(ExtendedDataProcessingTest, SyntheticLogicalSInstructionPreservesCarryByDefault) {
+    DecodedInstruction instr{};
+    instr.op = Opcode::AND;
+    instr.rd = 0;
+    instr.rn = 1;
+    instr.is_imm = true;
+    instr.imm = 0x80000000u;
+    instr.set_flags = true;
+    state.set_reg(1, 0xFFFFFFFFu);
+    for (bool incoming_carry : {false, true}) {
+        state.set_flags(false, false, incoming_carry, true);
+
+        interpreter.execute(instr);
+
+        EXPECT_EQ(state.get_reg(0), 0x80000000u);
+        EXPECT_TRUE(state.get_flag_n());
+        EXPECT_EQ(state.get_flag_c(), incoming_carry);
+        EXPECT_TRUE(state.get_flag_v());
+    }
+}
+
+TEST_F(ExtendedDataProcessingTest, WideLogicalSModifiedImmediatesUseEncodedCarryEffect) {
+    struct Case {
+        uint16_t first;
+        uint16_t second;
+        Opcode op;
+        uint32_t expected_result;
+        bool writes_destination;
+    };
+    const std::array<Case, 7> cases{{
+        {0xF010, 0x4000, Opcode::AND, 0x80000000u, true},
+        {0xF050, 0x4000, Opcode::ORR, 0xFFFFFFFFu, true},
+        {0xF030, 0x4000, Opcode::BIC, 0x7FFFFFFFu, true},
+        {0xF05F, 0x4000, Opcode::MOV, 0x80000000u, true},
+        {0xF07F, 0x4000, Opcode::MVN, 0x7FFFFFFFu, true},
+        {0xF010, 0x4F00, Opcode::TST, 0, false},
+        {0xF090, 0x4F00, Opcode::TEQ, 0, false},
+    }};
+
+    for (const Case& test_case : cases) {
+        const DecodedInstruction decoded = Decoder::decode32(test_case.first, test_case.second);
+        ASSERT_EQ(decoded.op, test_case.op);
+        ASSERT_TRUE(decoded.set_flags);
+        ASSERT_EQ(decoded.imm, 0x80000000u);
+
+        state.reset();
+        state.set_reg(0, 0xFFFFFFFFu);
+        state.set_flags(false, false, false, true);
+        state.set_pc(0x100u);
+        bus.write16(0x100u, test_case.first);
+        bus.write16(0x102u, test_case.second);
+        interpreter.step();
+
+        if (test_case.writes_destination) {
+            EXPECT_EQ(state.get_reg(0), test_case.expected_result);
+        } else {
+            EXPECT_EQ(state.get_reg(0), 0xFFFFFFFFu);
+        }
+        EXPECT_TRUE(state.get_flag_c());
+        EXPECT_TRUE(state.get_flag_v());
+        EXPECT_EQ(state.get_pc(), 0x104u);
+    }
+}
