@@ -106,14 +106,23 @@ public:
         }
 
         uint16_t raw16 = static_cast<uint16_t>(instr.raw_hex);
-        if (instr.instr_size == 2 && (raw16 & 0xFF00u) == 0xBF00u &&
-            (raw16 & 0xFu) != 0 && ((raw16 >> 4) & 0xFu) < 0xEu) {
+        const uint8_t incoming_it_state = state_.get_it_state();
+        const uint8_t it_condition_bits = static_cast<uint8_t>((raw16 >> 4) & 0xFu);
+        const uint8_t it_mask = static_cast<uint8_t>(raw16 & 0xFu);
+        if (instr.instr_size == 2 && (raw16 & 0xFF00u) == 0xBF00u && it_mask != 0 &&
+            raw16 != 0xBF20u && raw16 != 0xBF30u) {
+            const bool legal_al_mask = it_condition_bits == 0xEu &&
+                (it_mask == 1 || it_mask == 2 || it_mask == 4 || it_mask == 8);
+            if (incoming_it_state != 0 || it_condition_bits == 0xFu ||
+                (it_condition_bits == 0xEu && !legal_al_mask)) {
+                throw CpuFaultException(FaultType::UndefinedInstruction, "Invalid IT instruction");
+            }
             state_.set_it_state(static_cast<uint8_t>(raw16 & 0xFFu));
             state_.advance_pc(instr.instr_size);
             return;
         }
 
-        uint8_t it_state = state_.get_it_state();
+        uint8_t it_state = incoming_it_state;
         if (it_state != 0) {
             ConditionCode it_condition = static_cast<ConditionCode>(it_state >> 4);
             bool condition_passed = evaluate_condition(it_condition);
@@ -131,6 +140,11 @@ public:
             log_trace("[condition false]");
             return;
         }
+
+        const bool explicit_narrow_flags = instr.op == Opcode::CMP || instr.op == Opcode::CMN ||
+                                           instr.op == Opcode::TST;
+        const bool effective_set_flags = instr.set_flags &&
+            !(incoming_it_state != 0 && instr.instr_size == 2 && !explicit_narrow_flags);
 
         bool pc_written = false;
 
@@ -184,7 +198,7 @@ public:
             case Opcode::MOV: {
                 uint32_t val = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
                 write_reg(instr.rd, val);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(val);
                 }
                 break;
@@ -193,7 +207,7 @@ public:
             case Opcode::MVN: {
                 uint32_t val = ~(instr.is_imm ? instr.imm : state_.get_reg(instr.rm));
                 write_reg(instr.rd, val);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(val);
                 }
                 break;
@@ -219,7 +233,7 @@ public:
 
                 write_reg(instr.rd, res32);
 
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     bool n = (res32 & 0x80000000u) != 0;
                     bool z = (res32 == 0);
                     bool c = (result > 0xFFFFFFFFu);
@@ -238,7 +252,7 @@ public:
 
                 write_reg(instr.rd, res32);
 
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     bool n = (res32 & 0x80000000u) != 0;
                     bool z = (res32 == 0);
                     bool c = (result > 0xFFFFFFFFu);
@@ -259,7 +273,7 @@ public:
                     write_reg(instr.rd, res32);
                 }
 
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     bool n = (res32 & 0x80000000u) != 0;
                     bool z = (res32 == 0);
                     bool c = (op1 >= op2);
@@ -278,7 +292,7 @@ public:
 
                 write_reg(instr.rd, res32);
 
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     bool n = (res32 & 0x80000000u) != 0;
                     bool z = (res32 == 0);
                     bool c = (static_cast<uint64_t>(op1) >= static_cast<uint64_t>(op2) + borrow);
@@ -296,7 +310,7 @@ public:
 
                 write_reg(instr.rd, res32);
 
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     bool n = (res32 & 0x80000000u) != 0;
                     bool z = (res32 == 0);
                     bool c = (op2 >= op1);
@@ -311,7 +325,7 @@ public:
                 uint32_t op2 = state_.get_reg(instr.rm);
                 uint32_t res = op1 * op2;
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -323,7 +337,7 @@ public:
                 uint32_t op3 = state_.get_reg(instr.rs);
                 uint32_t res = (op1 * op2) + op3;
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -337,7 +351,7 @@ public:
                 if (instr.op != Opcode::TST) {
                     write_reg(instr.rd, res);
                 }
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -348,7 +362,7 @@ public:
                 uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
                 uint32_t res = op1 | op2;
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -362,7 +376,7 @@ public:
                 if (instr.op != Opcode::TEQ) {
                     write_reg(instr.rd, res);
                 }
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -373,7 +387,7 @@ public:
                 uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
                 uint32_t res = op1 & (~op2);
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -385,7 +399,7 @@ public:
                 uint64_t result = static_cast<uint64_t>(op1) + static_cast<uint64_t>(op2);
                 uint32_t res32 = static_cast<uint32_t>(result);
 
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     bool n = (res32 & 0x80000000u) != 0;
                     bool z = (res32 == 0);
                     bool c = (result > 0xFFFFFFFFu);
@@ -400,7 +414,7 @@ public:
                 uint32_t shift = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) & 0xFFu);
                 uint32_t res = (shift >= 32) ? 0 : (val << shift);
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -411,7 +425,7 @@ public:
                 uint32_t shift = instr.is_imm ? instr.imm : (state_.get_reg(instr.rm) & 0xFFu);
                 uint32_t res = (shift >= 32) ? 0 : (val >> shift);
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -423,7 +437,7 @@ public:
                 if (shift >= 32) shift = 31;
                 uint32_t res = static_cast<uint32_t>(val >> shift);
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -434,7 +448,7 @@ public:
                 uint32_t shift = (instr.is_imm ? instr.imm : state_.get_reg(instr.rm)) & 31u;
                 uint32_t res = (shift == 0) ? val : ((val >> shift) | (val << (32 - shift)));
                 write_reg(instr.rd, res);
-                if (instr.set_flags) {
+                if (effective_set_flags) {
                     state_.set_nz_flags(res);
                 }
                 break;
@@ -730,9 +744,51 @@ public:
         uint16_t first_halfword = bus_.read16(pc);
         if (Decoder::is_32bit_thumb(first_halfword)) {
             uint16_t second_halfword = bus_.read16(pc + 2);
+            const uint8_t it_state = state_.get_it_state();
+            if (it_state != 0 && !evaluate_condition(static_cast<ConditionCode>(it_state >> 4))) {
+                ++stats_.instruction_count;
+                if (logging_enabled_) {
+                    trace_.clear();
+                    trace_.core_id = 0;
+                    trace_.pc = pc;
+                    trace_.raw_hex = (static_cast<uint32_t>(first_halfword) << 16) | second_halfword;
+                    trace_.instr_size = 4;
+                    trace_.disasm = "[condition false]";
+                }
+                const uint8_t low = static_cast<uint8_t>(it_state & 0xFu);
+                state_.set_it_state((low & 0x7u) == 0
+                    ? 0 : static_cast<uint8_t>((it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
+                state_.advance_pc(4);
+                log_trace("[condition false]");
+                bus_.tick(1);
+                if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) return;
+                check_and_trigger_slice();
+                return;
+            }
             const DecodedInstruction& instr = opcode_cache_.get_32(first_halfword, second_halfword);
             execute(instr);
         } else {
+            const uint8_t it_state = state_.get_it_state();
+            if (it_state != 0 && !evaluate_condition(static_cast<ConditionCode>(it_state >> 4))) {
+                ++stats_.instruction_count;
+                if (logging_enabled_) {
+                    trace_.clear();
+                    trace_.core_id = 0;
+                    trace_.pc = pc;
+                    trace_.raw_hex = first_halfword;
+                    trace_.instr_size = 2;
+                    trace_.disasm = "[condition false]";
+                }
+                const uint8_t low = static_cast<uint8_t>(it_state & 0xFu);
+                state_.set_it_state((low & 0x7u) == 0
+                    ? 0 : static_cast<uint8_t>((it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
+                state_.advance_pc(2);
+                log_trace("[condition false]");
+                bus_.tick(1);
+                if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) return;
+                check_and_trigger_slice();
+                return;
+            }
             const DecodedInstruction& instr = opcode_cache_.get_16(first_halfword);
             execute(instr);
         }

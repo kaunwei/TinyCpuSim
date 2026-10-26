@@ -74,6 +74,108 @@ TEST_F(SystemControlAndSvcTest, RunLoopDetectsMaxStepTimeout) {
     EXPECT_THROW(interpreter.run(50), CpuFaultException);
 }
 
+TEST_F(SystemControlAndSvcTest, ItThenElseNarrowMovesPreserveInitialFlags) {
+    for (const bool zero : {true, false}) {
+        state.set_pc(0x1000);
+        state.set_reg(0, 0);
+        state.set_flags(false, zero, false, false);
+        bus.write16(0x1000, 0xBF0C); // ITE EQ
+        bus.write16(0x1002, 0x2007); // MOVS R0, #7; flags suppressed in IT
+        bus.write16(0x1004, 0x2009); // MOVS R0, #9; Else slot
+        interpreter.step();
+        interpreter.step();
+        interpreter.step();
+        EXPECT_EQ(state.get_reg(0), zero ? 7u : 9u);
+        EXPECT_EQ(state.get_flag_z(), zero);
+    }
+}
+
+TEST_F(SystemControlAndSvcTest, FalseItSlotsSkipUndefinedNarrowAndWideInstructions) {
+    for (const auto& [first, second, width] :
+         {std::tuple<uint16_t, uint16_t, uint32_t>{0xDE00, 0, 2},
+          std::tuple<uint16_t, uint16_t, uint32_t>{0xF310, 0x0F80, 4}}) {
+        state.set_pc(0x1000);
+        state.set_it_state(0x08); // EQ slot with Z=0
+        state.set_flags(false, false, true, true);
+        state.set_reg(0, 0x12345678);
+        bus.write16(0x1000, first);
+        if (width == 4) bus.write16(0x1002, second);
+        interpreter.step();
+        EXPECT_EQ(state.get_pc(), 0x1000u + width);
+        EXPECT_EQ(state.get_it_state(), 0u);
+        EXPECT_EQ(state.get_reg(0), 0x12345678u);
+        EXPECT_EQ(state.get_cpsr() & 0xF0000000u, 0x30000000u);
+    }
+    for (const auto& [first, second] :
+         {std::pair<uint16_t, uint16_t>{0xDE00, 0}, {0xF310, 0x0F80}}) {
+        state.set_pc(0x1000);
+        bus.write16(0x1000, first);
+        if (first == 0xF310) bus.write16(0x1002, second);
+        EXPECT_THROW(interpreter.step(), CpuFaultException);
+    }
+    state.set_pc(0xFFFFEu);
+    state.set_it_state(0x08);
+    state.set_flags(false, false, false, false);
+    bus.write16(0xFFFFE, 0xF310);
+    EXPECT_THROW(interpreter.step(), CpuFaultException); // Fetching the second halfword still faults.
+}
+
+TEST_F(SystemControlAndSvcTest, CachedNarrowMoveUsesCurrentItFlagPolicy) {
+    bus.write16(0x1000, 0xBF08); // IT EQ, one Then slot
+    bus.write16(0x1002, 0x2007); // MOVS #7, decoded again after IT
+    bus.write16(0x1004, 0x2007);
+    state.set_pc(0x1000);
+    state.set_flags(false, true, false, false);
+    interpreter.step();
+    interpreter.step();
+    EXPECT_TRUE(state.get_flag_z());
+    EXPECT_EQ(state.get_reg(0), 7u);
+    interpreter.step();
+    EXPECT_FALSE(state.get_flag_z());
+}
+
+TEST_F(SystemControlAndSvcTest, ItValidationAcceptsSingleBitAlMasksAndRejectsInvalidForms) {
+    for (const uint16_t it : std::array<uint16_t, 4>{0xBFE8, 0xBFE4, 0xBFE2, 0xBFE1}) {
+        state.set_pc(0x1000);
+        state.set_it_state(0);
+        bus.write16(0x1000, it);
+        interpreter.step();
+        EXPECT_EQ(state.get_it_state(), static_cast<uint8_t>(it));
+    }
+    for (const uint16_t it : std::array<uint16_t, 2>{0xBFEC, 0xBFF8}) { // AL multi-slot mask; NV
+        state.set_pc(0x1000);
+        state.set_it_state(0);
+        bus.write16(0x1000, it);
+        EXPECT_THROW(interpreter.step(), CpuFaultException);
+    }
+    state.set_pc(0x1000);
+    state.set_it_state(0x08);
+    state.set_flag_z(true);
+    bus.write16(0x1000, 0xBF08);
+    EXPECT_THROW(interpreter.step(), CpuFaultException); // Nested IT
+}
+
+TEST_F(SystemControlAndSvcTest, ExplicitCompareFlagsRemainWritableInsideIt) {
+    bus.write16(0x1000, 0xBF08); // IT EQ
+    bus.write16(0x1002, 0x2800); // CMP R0, #0
+    state.set_pc(0x1000);
+    state.set_reg(0, 1);
+    state.set_flags(false, true, false, false);
+    interpreter.step();
+    interpreter.step();
+    EXPECT_FALSE(state.get_flag_z());
+
+    bus.write16(0x1010, 0xBF08); // IT EQ
+    bus.write16(0x1012, 0xF05F); // MOVS.W R0, #7
+    bus.write16(0x1014, 0x0007);
+    state.set_pc(0x1010);
+    state.set_flags(false, true, false, false);
+    interpreter.step();
+    interpreter.step();
+    EXPECT_EQ(state.get_reg(0), 7u);
+    EXPECT_FALSE(state.get_flag_z());
+}
+
 // === Decoder Tests for MRS / MSR ===
 
 TEST(DecoderSystemTest, DecodeThumb32MrsMsr) {

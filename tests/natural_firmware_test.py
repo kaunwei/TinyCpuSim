@@ -18,21 +18,6 @@ PROBE_CASES = [
     ("probe_compare", 0xFFFFFF80, 0x00000001),
     ("probe_compare", 0xFFFFFF81, 0x00000000),
 ]
-KNOWN_ACTUALS = {
-    ("-O0", "probe_select", 0x00000000): 0x00000009,
-    ("-O0", "probe_select", 0x00000001): 0x00000007,
-    ("-O0", "probe_negate", 0x00000080): 0xFFFFFF80,
-    ("-O0", "probe_negate", 0xFFFFFF80): 0x00000080,
-    ("-O0", "probe_compare", 0xFFFFFF80): 0x00000000,
-    ("-O0", "probe_compare", 0xFFFFFF81): 0x00000000,
-    ("-O2", "probe_select", 0x00000000): 0x00000007,
-    ("-O2", "probe_select", 0x00000001): 0x00000007,
-    ("-O2", "probe_negate", 0x00000080): 0xFFFFFF80,
-    ("-O2", "probe_negate", 0xFFFFFF80): 0x00000080,
-    ("-O2", "probe_compare", 0xFFFFFF80): 0x00000001,
-    ("-O2", "probe_compare", 0xFFFFFF81): 0x00000001,
-}
-
 RUNNER_SOURCE = r'''#include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -191,15 +176,14 @@ class NaturalFirmwareTest(unittest.TestCase):
                         "returncode": process.returncode,
                         "output": output,
                     })
+                    self.__class__.probe_rows = rows
                     self.assertTrue(output, f"empty runner output: {optimization} {function} {input_value:#x}")
                     self.assertRegex(output, r"returned=1|fault_pc=0x?[0-9a-fA-F]+",
                                      f"function neither returned nor faulted: {output}")
         self.assertEqual(len(rows), 12)
         self.assertTrue(all(row["address"] for row in rows))
         for row in rows:
-            key = (row["optimization"], row["function"], int(row["input"], 16))
-            self.assertEqual(int(row["actual"], 16), KNOWN_ACTUALS[key],
-                             f"unexpected compiler/interpreter result for {key}: {row}")
+            self.assertTrue(row["passed"], f"natural firmware result mismatch: {row}")
         self.__class__.probe_rows = rows
 
     def test_untouched_demo_through_public_cli(self):
@@ -261,14 +245,8 @@ class NaturalFirmwareTest(unittest.TestCase):
             "flags": ["-mcpu=cortex-m3", "-mthumb", "-O0/-O2", "-ffreestanding", "-fno-builtin"],
             "probe_source": str(cls.root / "firmware/apps/readiness_probe.c"),
             "independent_literals": True,
-            "known_result_regression": "all 12 observed values must match the recorded literals",
             "semantic_mismatches": [
-                {"optimization": "-O0", "function": "probe_compare", "input": "0xffffff80",
-                 "expected": "0x00000001", "actual": "0x00000000"},
-                {"optimization": "-O2", "function": "probe_select", "input": "0x00000000",
-                 "expected": "0x00000009", "actual": "0x00000007"},
-                {"optimization": "-O2", "function": "probe_compare", "input": "0xffffff81",
-                 "expected": "0x00000000", "actual": "0x00000001"},
+                row for row in rows if not row["passed"]
             ],
             "rows": rows,
             "demo": demo,
