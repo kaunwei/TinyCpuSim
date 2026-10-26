@@ -165,6 +165,28 @@ enum class ConditionCode : uint8_t {
     NV = 0b1111  // Never / Unpredictable
 };
 
+[[nodiscard]] constexpr bool condition_passed(ConditionCode cond, bool n, bool z, bool c, bool v) noexcept {
+    switch (cond) {
+        case ConditionCode::EQ: return z;
+        case ConditionCode::NE: return !z;
+        case ConditionCode::CS: return c;
+        case ConditionCode::CC: return !c;
+        case ConditionCode::MI: return n;
+        case ConditionCode::PL: return !n;
+        case ConditionCode::VS: return v;
+        case ConditionCode::VC: return !v;
+        case ConditionCode::HI: return c && !z;
+        case ConditionCode::LS: return !c || z;
+        case ConditionCode::GE: return n == v;
+        case ConditionCode::LT: return n != v;
+        case ConditionCode::GT: return !z && (n == v);
+        case ConditionCode::LE: return z || (n != v);
+        case ConditionCode::AL: return true;
+        case ConditionCode::NV: return false;
+    }
+    return false;
+}
+
 enum class ShiftType : uint8_t {
     LSL = 0,
     LSR = 1,

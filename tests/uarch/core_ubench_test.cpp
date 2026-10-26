@@ -987,3 +987,33 @@ TEST(CoreUBenchTest, CoreUBench_MacroOpFusion_FunctionalParityVsInterpreter) {
 
 
 
+
+
+TEST(CoreUBenchTest, CoreUBench_ConditionalBranchUsesPipelineProducedFlags) {
+    MemoryBus bus(65536);
+    bus.write16(0x3000, 0x2005); // MOVS r0, #5
+    bus.write16(0x3002, 0x280A); // CMP r0, #10 (Z=0)
+    bus.write16(0x3004, 0xD100); // BNE 0x3008
+    bus.write16(0x3006, 0x217B); // MOVS r1, #123 (skipped)
+    bus.write16(0x3008, 0x212A); // MOVS r1, #42
+    bus.write16(0x300A, 0xDF00); // SVC #0
+
+    CacheConfig l1i_cfg;
+    l1i_cfg.type = CacheType::PASSTHROUGH;
+    CacheConfig l1d_cfg;
+    l1d_cfg.type = CacheType::PASSTHROUGH;
+    CoreConfig cfg;
+    cfg.l1i = l1i_cfg;
+    cfg.l1d = l1d_cfg;
+
+    OoOCore core(0, cfg, bus, nullptr, nullptr, 0x3000);
+    uint32_t cycles = 0;
+    while (!core.is_halted() && cycles < 100) {
+        core.tick();
+        ++cycles;
+    }
+
+    EXPECT_TRUE(core.is_halted());
+    EXPECT_EQ(core.read_arch_reg(1), 42);
+    EXPECT_EQ(core.get_committed_instructions(), 5);
+}

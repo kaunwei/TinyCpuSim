@@ -166,3 +166,44 @@ TEST(DecoderBranchTest, DecodeThumb32Bl) {
     EXPECT_EQ(instr.imm, 0x100Eu);
     EXPECT_EQ(instr.instr_size, 4u);
 }
+
+
+TEST(BranchConditionCharacterization, PublicBranchMatchesLiteralConditionMasks) {
+    ArchitecturalState state;
+    MemoryBus bus(1024);
+    IsaInterpreter interpreter(state, bus);
+    constexpr ConditionCode conditions[] = {
+        ConditionCode::EQ, ConditionCode::NE, ConditionCode::CS, ConditionCode::CC,
+        ConditionCode::MI, ConditionCode::PL, ConditionCode::VS, ConditionCode::VC,
+        ConditionCode::HI, ConditionCode::LS, ConditionCode::GE, ConditionCode::LT,
+        ConditionCode::GT, ConditionCode::LE, ConditionCode::AL, ConditionCode::NV};
+    constexpr uint16_t truth_masks[] = {
+        0xF0F0, 0x0F0F, 0xCCCC, 0x3333, 0xFF00, 0x00FF, 0xAAAA, 0x5555,
+        0x0C0C, 0xF3F3, 0xAA55, 0x55AA, 0x0A05, 0xF5FA, 0xFFFF, 0x0000};
+    DecodedInstruction branch{};
+    branch.op = Opcode::B;
+    branch.is_imm = true;
+    branch.imm = 0x8000;
+    branch.instr_size = 2;
+
+    for (size_t cond_index = 0; cond_index < 16; ++cond_index) {
+        branch.cond = conditions[cond_index];
+        for (unsigned flags = 0; flags < 16; ++flags) {
+            const bool n = (flags & 0x8) != 0;
+            const bool z = (flags & 0x4) != 0;
+            const bool c = (flags & 0x2) != 0;
+            const bool v = (flags & 0x1) != 0;
+            state.set_flag_n(n);
+            state.set_flag_z(z);
+            state.set_flag_c(c);
+            state.set_flag_v(v);
+            state.set_pc(0x1000);
+            interpreter.execute(branch);
+            const bool expected_taken = ((truth_masks[cond_index] >> flags) & 1u) != 0;
+            EXPECT_EQ(state.get_pc(), expected_taken ? 0x8000u : 0x1002u)
+                << "condition=" << cond_index << " NZCV=" << flags;
+        }
+    }
+
+    EXPECT_FALSE(interpreter.evaluate_condition(static_cast<ConditionCode>(0xFF)));
+}
