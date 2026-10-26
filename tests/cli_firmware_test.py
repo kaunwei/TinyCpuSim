@@ -3,6 +3,7 @@
 
 import subprocess
 import struct
+import resource
 import sys
 import tempfile
 import unittest
@@ -12,11 +13,11 @@ from pathlib import Path
 class FirmwareCliTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.simulator, cls.firmware_elf, cls.generic_elf = sys.argv[1:4]
+        cls.simulator, cls.second_simulator, cls.firmware_elf, cls.generic_elf = sys.argv[1:5]
 
-    def run_simulator(self, *args):
+    def run_simulator(self, *args, simulator=None):
         return subprocess.run(
-            [self.simulator, *args],
+            [simulator or self.simulator, *args],
             check=False,
             capture_output=True,
             text=True,
@@ -52,6 +53,54 @@ class FirmwareCliTest(unittest.TestCase):
             len(payload), len(payload), 5, 0x100,
         )
         path.write_bytes(header + segment + bytes(0x100 - len(header) - len(segment)) + payload)
+
+    def test_cli_characterization_matches_both_public_binaries(self):
+        scenarios = (
+            ((), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--help",), 0, "", "Usage:"),
+            (("--unknown",), 1, "Unknown option: --unknown", "Usage:"),
+            (("--max-steps",), 1, "Error: --max-steps requires a number argument.", ""),
+            (("--max-steps", "-1"), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--max-steps", "123garbage"), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--topdown-format",), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--slice-format",), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--slice-insts=12",), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--slice-format=wat",), 1, "Error: No ELF input file specified.", "Usage:"),
+            (("--slice-instructions=12",), 1, "Unknown option: --slice-instructions=12", "Usage:"),
+            (("--topdown", "output.json"), 1, "Could not open input file: output.json", ""),
+            (("--elf", "--help"), 1, "Could not open input file: --help", ""),
+        )
+        for simulator in (self.simulator, self.second_simulator):
+            for args, status, stderr, stdout in scenarios:
+                with self.subTest(simulator=Path(simulator).name, args=args):
+                    result = self.run_simulator(*args, simulator=simulator)
+                    self.assertEqual(result.returncode, status)
+                    self.assertIn(stderr, result.stderr)
+                    self.assertIn(stdout, result.stdout)
+
+    def test_supported_slice_forms_affect_real_elf_output_for_both_binaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for simulator in (self.simulator, self.second_simulator):
+                for option in (("--slice-insts", "1"), ("--slice-insts=1",), ("--slice-ticks", "1"), ("--slice-ticks=1",)):
+                    output = Path(directory) / f"{Path(simulator).name}_{len(list(Path(directory).iterdir()))}.json"
+                    result = self.run_simulator("--slice-file", str(output), "--slice-format", "json", *option, self.generic_elf, simulator=simulator)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertTrue(output.exists())
+                    self.assertIn("{", output.read_text())
+
+    def test_invalid_numeric_value_keeps_uncaught_conversion_failure(self):
+        def disable_core_dump():
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+        for simulator in (self.simulator, self.second_simulator):
+            with self.subTest(simulator=Path(simulator).name):
+                result = subprocess.run(
+                    [simulator, "--max-steps", "abc"], check=False,
+                    capture_output=True, text=True, timeout=30,
+                    preexec_fn=disable_core_dump,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid_argument", result.stderr)
 
     def test_guest_svc_status_propagates_in_both_cli_modes(self):
         expected_host_status = {0: 0, 1: 1, 255: 255, 256: 1, 0x80000000: 1}

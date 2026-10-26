@@ -4,6 +4,7 @@
 #include <vector>
 #include <iomanip>
 #include "tinyarmsim/common.hpp"
+#include "tinyarmsim/cli_options.hpp"
 #include "tinyarmsim/state.hpp"
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/loader.hpp"
@@ -71,152 +72,30 @@ void print_banner(bool passed, uint32_t exit_code, const std::string& fault_msg,
 } // namespace
 
 int main(int argc, char* argv[]) {
-    std::string elf_path;
-    std::string coverage_path;
-    std::string uarch_config_path;
-    std::string uarch_stats_path;
-    std::string topdown_path;
-    std::string topdown_format = "text";
-    bool enable_log = false;
-    bool enable_firmware = false;
-    bool enable_uarch = false;
-    bool enable_all_perf = false;
-    bool enable_topdown = false;
-    uint64_t max_steps = 1000000000;
-
-    tinyarmsim::uarch::SliceConfig slice_cfg;
-
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "-h" || arg == "--help") {
-            print_usage(argv[0]);
-            return 0;
-        } else if (arg == "-l" || arg == "--log" || arg == "--verbose") {
-            enable_log = true;
-        } else if (arg == "--firmware") {
-            enable_firmware = true;
-        } else if (arg == "--uarch" || arg == "--uarch-mode") {
-            enable_uarch = true;
-        } else if (arg == "--topdown") {
-            enable_uarch = true;
-            enable_topdown = true;
-        } else if (arg.rfind("--topdown=", 0) == 0) {
-            enable_uarch = true;
-            enable_topdown = true;
-            topdown_path = arg.substr(10);
-        } else if (arg == "--topdown-file" || arg == "--topdown-report") {
-            enable_uarch = true;
-            enable_topdown = true;
-            if (i + 1 < argc) {
-                topdown_path = argv[++i];
-            } else {
-                std::cerr << "Error: --topdown-file requires a file path argument.\n";
-                return 1;
-            }
-        } else if (arg == "--topdown-format") {
-            if (i + 1 < argc) {
-                topdown_format = argv[++i];
-            }
-        } else if (arg.rfind("--topdown-format=", 0) == 0) {
-            topdown_format = arg.substr(17);
-        } else if (arg == "--slice-insts" || arg == "--slice-instructions") {
-            slice_cfg.enabled = true;
-            if (i + 1 < argc) {
-                slice_cfg.interval_instructions = std::stoull(argv[++i]);
-            } else {
-                std::cerr << "Error: --slice-insts requires a number argument.\n";
-                return 1;
-            }
-        } else if (arg.rfind("--slice-insts=", 0) == 0) {
-            slice_cfg.enabled = true;
-            slice_cfg.interval_instructions = std::stoull(arg.substr(14));
-        } else if (arg == "--slice-ticks" || arg == "--slice-cycles") {
-            slice_cfg.enabled = true;
-            if (i + 1 < argc) {
-                slice_cfg.interval_ticks = std::stoull(argv[++i]);
-            } else {
-                std::cerr << "Error: --slice-ticks requires a number argument.\n";
-                return 1;
-            }
-        } else if (arg.rfind("--slice-ticks=", 0) == 0) {
-            slice_cfg.enabled = true;
-            slice_cfg.interval_ticks = std::stoull(arg.substr(14));
-        } else if (arg == "--slice-file" || arg == "--slice-output") {
-            slice_cfg.enabled = true;
-            if (i + 1 < argc) {
-                slice_cfg.output_file = argv[++i];
-            } else {
-                std::cerr << "Error: --slice-file requires a file path argument.\n";
-                return 1;
-            }
-        } else if (arg.rfind("--slice-file=", 0) == 0) {
-            slice_cfg.enabled = true;
-            slice_cfg.output_file = arg.substr(13);
-        } else if (arg == "--slice-reset") {
-            slice_cfg.enabled = true;
-            slice_cfg.reset_after_slice = true;
-        } else if (arg == "--slice-format") {
-            slice_cfg.enabled = true;
-            if (i + 1 < argc) {
-                std::string fmt_str = argv[++i];
-                if (fmt_str == "gem5") slice_cfg.format = tinyarmsim::uarch::SliceFormat::Gem5;
-                else if (fmt_str == "json") slice_cfg.format = tinyarmsim::uarch::SliceFormat::JSON;
-                else slice_cfg.format = tinyarmsim::uarch::SliceFormat::Text;
-            }
-        } else if (arg.rfind("--slice-format=", 0) == 0) {
-            slice_cfg.enabled = true;
-            std::string fmt_str = arg.substr(15);
-            if (fmt_str == "gem5") slice_cfg.format = tinyarmsim::uarch::SliceFormat::Gem5;
-            else if (fmt_str == "json") slice_cfg.format = tinyarmsim::uarch::SliceFormat::JSON;
-            else slice_cfg.format = tinyarmsim::uarch::SliceFormat::Text;
-        } else if (arg == "--all-perf" || arg == "--verbose-perf") {
-            enable_all_perf = true;
-        } else if (arg == "-u" || arg == "--uarch-config") {
-            enable_uarch = true;
-            if (i + 1 < argc) {
-                uarch_config_path = argv[++i];
-            } else {
-                std::cerr << "Error: --uarch-config requires a file path argument.\n";
-                return 1;
-            }
-        } else if (arg == "--uarch-stats" || arg == "--perf-log" || arg == "-p") {
-            enable_uarch = true;
-            if (i + 1 < argc) {
-                uarch_stats_path = argv[++i];
-            } else {
-                std::cerr << "Error: " << arg << " requires a file path argument.\n";
-                return 1;
-            }
-        } else if (arg == "-c" || arg == "--coverage") {
-            if (i + 1 < argc) {
-                coverage_path = argv[++i];
-            } else {
-                std::cerr << "Error: --coverage requires a file path argument.\n";
-                return 1;
-            }
-        } else if (arg == "-m" || arg == "--max-steps") {
-            if (i + 1 < argc) {
-                max_steps = std::stoull(argv[++i]);
-            } else {
-                std::cerr << "Error: --max-steps requires a number argument.\n";
-                return 1;
-            }
-        } else if (arg == "--elf") {
-            if (i + 1 < argc) {
-                elf_path = argv[++i];
-            } else {
-                std::cerr << "Error: --elf requires a file path argument.\n";
-                return 1;
-            }
-        } else if (!arg.empty() && arg[0] != '-') {
-            elf_path = arg;
-        } else {
-            std::cerr << "Unknown option: " << arg << "\n";
-            print_usage(argv[0]);
-            return 1;
-        }
+    std::vector<std::string> arguments;
+    for (int i = 1; i < argc; ++i) arguments.emplace_back(argv[i]);
+    auto parsed = tinyarmsim::parse_cli_options(arguments);
+    if (parsed.help_requested) {
+        print_usage(argv[0]);
+        return parsed.exit_code;
     }
-
+    if (!parsed.diagnostic.empty()) {
+        std::cerr << parsed.diagnostic;
+        if (parsed.show_usage) print_usage(argv[0]);
+        return 1;
+    }
+    auto options = std::move(parsed.options);
+    auto& elf_path = options.elf_path;
+    auto& coverage_path = options.coverage_path;
+    auto& uarch_config_path = options.uarch_config_path;
+    auto& uarch_stats_path = options.uarch_stats_path;
+    auto& topdown_path = options.topdown_path;
+    auto& topdown_format = options.topdown_format;
+    bool enable_log = options.enable_log, enable_firmware = options.enable_firmware;
+    bool enable_uarch = options.enable_uarch, enable_all_perf = options.enable_all_perf;
+    bool enable_topdown = options.enable_topdown;
+    uint64_t max_steps = options.max_steps;
+    auto& slice_cfg = options.slice_cfg;
     if (elf_path.empty()) {
         std::cerr << "Error: No ELF input file specified.\n";
         print_usage(argv[0]);

@@ -283,7 +283,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     add_dependencies(tinycpusim baremetal_firmware_elf)
     add_test(NAME cli_firmware_test
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_firmware_test.py"
-            "$<TARGET_FILE:tinycpusim>" "${BAREMETAL_ACCEPTANCE_ELF}"
+            "$<TARGET_FILE:tinycpusim>" "$<TARGET_FILE:tinyarmsim>" "${BAREMETAL_ACCEPTANCE_ELF}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/test_arithmetic.elf")
     add_test(NAME natural_firmware_test
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/natural_firmware_test.py"
