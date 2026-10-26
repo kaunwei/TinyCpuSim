@@ -14,6 +14,11 @@ import tempfile
 import glob
 import configparser
 
+if __package__:
+    from .byte_sizes import parse_byte_size as _parse_byte_size
+else:
+    from byte_sizes import parse_byte_size as _parse_byte_size
+
 # -----------------------------------------------------------------------------
 # Microarchitectural Parameters Catalog
 # -----------------------------------------------------------------------------
@@ -151,16 +156,7 @@ PARAM_ALIASES = {
 }
 
 def parse_byte_size(val_str):
-    val_str = str(val_str).strip().upper()
-    if val_str.endswith("KB") or val_str.endswith("K"):
-        num = int(re.sub(r'[^0-9]', '', val_str))
-        return num * 1024
-    elif val_str.endswith("MB") or val_str.endswith("M"):
-        num = int(re.sub(r'[^0-9]', '', val_str))
-        return num * 1024 * 1024
-    elif val_str.endswith("B"):
-        return int(re.sub(r'[^0-9]', '', val_str))
-    return int(val_str)
+    return _parse_byte_size(val_str)
 
 def list_parameters():
     print("=" * 80)

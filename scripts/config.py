@@ -14,6 +14,11 @@ import re
 import glob
 import subprocess
 
+if __package__:
+    from .byte_sizes import parse_byte_size as _parse_byte_size
+else:
+    from byte_sizes import parse_byte_size as _parse_byte_size
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIGS_DIR = os.path.join(PROJECT_ROOT, "configs")
 DEFAULT_DIR = os.path.join(CONFIGS_DIR, "default")
@@ -32,19 +37,7 @@ def ensure_dirs():
 
 def parse_byte_size(val_str):
     """Convert human-readable units like '32KB', '512KB', '1MB' to integer bytes."""
-    val_str = str(val_str).strip().upper()
-    if val_str.endswith("KB") or val_str.endswith("K"):
-        num = int(re.sub(r'[^0-9]', '', val_str))
-        return num * 1024
-    elif val_str.endswith("MB") or val_str.endswith("M"):
-        num = int(re.sub(r'[^0-9]', '', val_str))
-        return num * 1024 * 1024
-    elif val_str.endswith("B"):
-        return int(re.sub(r'[^0-9]', '', val_str))
-    try:
-        return int(val_str)
-    except:
-        return val_str
+    return _parse_byte_size(val_str, invalid_suffixless="normalized")
 
 def format_byte_size(bytes_val):
     try:

@@ -43,6 +43,14 @@ FetchContent_MakeAvailable(googletest)
 # Enable CTest
 enable_testing()
 
+# Standard-library Python behavior tests; the simulator toolchain remains optional.
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if (Python3_Interpreter_FOUND)
+    add_test(NAME byte_size_test
+        COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s tests -p test_byte_sizes.py
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
+
 # Smoke Test
 add_executable(smoke_test tests/smoke_test.cpp)
 target_link_libraries(smoke_test PRIVATE tinyarmsim_core gtest_main)
