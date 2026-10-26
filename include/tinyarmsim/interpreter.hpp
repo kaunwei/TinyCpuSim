@@ -769,7 +769,11 @@ public:
             execute(instr);
         } else {
             const uint8_t it_state = state_.get_it_state();
-            if (it_state != 0 && !evaluate_condition(static_cast<ConditionCode>(it_state >> 4))) {
+            const bool it_instruction = (first_halfword & 0xFF00u) == 0xBF00u &&
+                (first_halfword & 0xFu) != 0 && first_halfword != 0xBF20u &&
+                first_halfword != 0xBF30u;
+            if (it_state != 0 && !evaluate_condition(static_cast<ConditionCode>(it_state >> 4)) &&
+                !it_instruction) {
                 ++stats_.instruction_count;
                 if (logging_enabled_) {
                     trace_.clear();

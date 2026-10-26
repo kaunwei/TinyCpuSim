@@ -155,6 +155,19 @@ TEST_F(SystemControlAndSvcTest, ItValidationAcceptsSingleBitAlMasksAndRejectsInv
     EXPECT_THROW(interpreter.step(), CpuFaultException); // Nested IT
 }
 
+TEST_F(SystemControlAndSvcTest, NestedItFaultsRegardlessOfCurrentPredicate) {
+    for (const bool zero : {false, true}) {
+        state.set_pc(0x1000);
+        state.set_it_state(0x08); // Active EQ slot.
+        state.set_flag_z(zero);
+        bus.write16(0x1000, 0xBF08); // A nested IT instruction is invalid in either outcome.
+
+        EXPECT_THROW(interpreter.step(), CpuFaultException);
+        EXPECT_EQ(state.get_pc(), 0x1000u);
+        EXPECT_EQ(state.get_it_state(), 0x08u);
+    }
+}
+
 TEST_F(SystemControlAndSvcTest, ExplicitCompareFlagsRemainWritableInsideIt) {
     bus.write16(0x1000, 0xBF08); // IT EQ
     bus.write16(0x1002, 0x2800); // CMP R0, #0
