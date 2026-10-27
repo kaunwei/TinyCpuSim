@@ -207,6 +207,15 @@ int main(int argc, char* argv[]) {
     try {
         if (enable_firmware && options.control_fd >= 0) {
             tinyarmsim::FirmwareControl control(options.control_fd);
+            control.set_register_provider([&interpreter, &state]() {
+                std::string s = "{\"event\":\"regs\",\"pc\":" + std::to_string(state.get_pc()) + ",\"registers\":[";
+                for (size_t i = 0; i < 16; ++i) {
+                    if (i > 0) s += ",";
+                    s += std::to_string(state.get_reg(i));
+                }
+                s += "],\"steps\":" + std::to_string(interpreter.get_stats().instruction_count) + "}";
+                return s;
+            });
             exit_code = interpreter.run_until([&control]() {
                 return control.stop_requested();
             }, options.max_steps_explicit ? max_steps : 0);
