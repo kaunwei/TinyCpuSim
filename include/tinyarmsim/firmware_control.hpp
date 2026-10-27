@@ -38,6 +38,8 @@ public:
                                                        closed_without_stop_(other.closed_without_stop_),
                                                        transport_failed_(other.transport_failed_),
                                                        paused_(other.paused_),
+                                                       step_pending_(other.step_pending_),
+                                                       stepped_notify_pending_(other.stepped_notify_pending_),
                                                        eof_reached_(other.eof_reached_),
                                                        register_provider_(std::move(other.register_provider_)),
                                                        buffer_(std::move(other.buffer_)) {
@@ -54,6 +56,8 @@ public:
             closed_without_stop_ = other.closed_without_stop_;
             transport_failed_ = other.transport_failed_;
             paused_ = other.paused_;
+            step_pending_ = other.step_pending_;
+            stepped_notify_pending_ = other.stepped_notify_pending_;
             eof_reached_ = other.eof_reached_;
             register_provider_ = std::move(other.register_provider_);
             buffer_ = std::move(other.buffer_);
@@ -71,9 +75,20 @@ public:
             return true;
         }
 
+        if (stepped_notify_pending_) {
+            stepped_notify_pending_ = false;
+            send_response("{\"event\":\"stepped\"}\n");
+        }
+
         read_available();
         process_lines();
         check_eof_status();
+
+        if (step_pending_) {
+            step_pending_ = false;
+            stepped_notify_pending_ = true;
+            return false;
+        }
 
         while (paused_ && !stop_requested_) {
             if (fd_ < 0 || closed_without_stop_ || transport_failed_) {
@@ -99,6 +114,12 @@ public:
             read_available();
             process_lines();
             check_eof_status();
+
+            if (step_pending_) {
+                step_pending_ = false;
+                stepped_notify_pending_ = true;
+                return false;
+            }
         }
 
         if (closed_without_stop_ || transport_failed_) {
@@ -148,6 +169,13 @@ private:
             } else if (line == "continue") {
                 paused_ = false;
                 send_response("{\"event\":\"continued\"}\n");
+            } else if (line == "step") {
+                if (paused_) {
+                    step_pending_ = true;
+                    break;
+                } else {
+                    send_response("{\"error\":\"unknown command\"}\n");
+                }
             } else if (line == "regs") {
                 if (register_provider_) {
                     std::string payload = register_provider_();
@@ -256,6 +284,8 @@ private:
     bool closed_without_stop_ = false;
     bool transport_failed_ = false;
     bool paused_ = false;
+    bool step_pending_ = false;
+    bool stepped_notify_pending_ = false;
     bool eof_reached_ = false;
     std::function<std::string()> register_provider_;
     std::string buffer_;
