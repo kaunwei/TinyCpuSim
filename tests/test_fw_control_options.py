@@ -84,6 +84,19 @@ int main() {{
         kv_empty = self._run_cli(["--control-fd", "", "app.elf"])
         self.assertEqual(kv_empty.get("diag"), "HAS_DIAG")
 
+        # Out-of-range descriptors above numeric_limits<int>::max()
+        kv_int_max_plus_1 = self._run_cli(["--control-fd", "2147483648", "app.elf"])
+        self.assertEqual(kv_int_max_plus_1.get("diag"), "HAS_DIAG")
+
+        kv_wrap = self._run_cli(["--control-fd", "4294967296", "app.elf"])
+        self.assertEqual(kv_wrap.get("diag"), "HAS_DIAG")
+
+    def test_valid_fd_int_max(self):
+        # Boundary: INT_MAX (2147483647) accepted at parser layer
+        kv = self._run_cli(["--control-fd", "2147483647", "app.elf"])
+        self.assertEqual(kv.get("diag"), "NONE")
+        self.assertEqual(kv.get("control_fd"), "2147483647")
+
     def test_preserve_quiet_flag(self):
         kv = self._run_cli(["--quiet", "--firmware", "--control-fd", "3", "firmware.elf"])
         self.assertEqual(kv.get("diag"), "NONE")

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 #include "tinyarmsim/uarch/slice_manager.hpp"
@@ -152,7 +153,7 @@ inline CliParseResult parse_cli_options(const std::vector<std::string>& args) {
                 try {
                     size_t pos = 0;
                     long long val = std::stoll(val_str, &pos);
-                    if (pos != val_str.size() || val < 0) {
+                    if (pos != val_str.size() || val < 0 || val > std::numeric_limits<int>::max()) {
                         result.diagnostic = "Error: --control-fd requires a nonnegative integer argument.\n";
                         return result;
                     }
