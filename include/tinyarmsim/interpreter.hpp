@@ -824,6 +824,16 @@ public:
         return run_loop(max_steps, max_steps == 0, stop_requested);
     }
 
+    void dump_coverage_csv(std::ostream& out) const {
+        out << "Opcode,Name,Count\n";
+        for (int i = 1; i <= static_cast<int>(Opcode::NOP); ++i) {
+            Opcode op = static_cast<Opcode>(i);
+            auto it = stats_.opcode_counts.find(op);
+            uint64_t count = (it != stats_.opcode_counts.end()) ? it->second : 0;
+            out << i << "," << opcode_to_string(op) << "," << count << "\n";
+        }
+    }
+
 private:
     uint32_t run_loop(uint64_t max_steps, bool unlimited, const std::function<bool()>& stop_requested) {
         auto start_time = std::chrono::high_resolution_clock::now();
@@ -864,17 +874,6 @@ private:
         throw CpuFaultException(FaultType::MemoryOutOfBounds, "Simulation execution exceeded max step limit (" + std::to_string(max_steps) + ")");
     }
 
-    void dump_coverage_csv(std::ostream& out) const {
-        out << "Opcode,Name,Count\n";
-        for (int i = 1; i <= static_cast<int>(Opcode::NOP); ++i) {
-            Opcode op = static_cast<Opcode>(i);
-            auto it = stats_.opcode_counts.find(op);
-            uint64_t count = (it != stats_.opcode_counts.end()) ? it->second : 0;
-            out << i << "," << opcode_to_string(op) << "," << count << "\n";
-        }
-    }
-
-private:
     void retire_skipped_it_slot(uint32_t pc, uint32_t raw_hex, uint8_t width,
                                 uint8_t incoming_it_state) {
         ++stats_.instruction_count;

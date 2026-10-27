@@ -99,6 +99,31 @@ int main() {
         self.assertEqual(res.returncode, 0)
         self.assertIn("OK_SVC", res.stdout)
 
+    def test_dump_coverage_csv_public_access(self):
+        source = r"""
+#include <iostream>
+#include <sstream>
+#include "tinyarmsim/interpreter.hpp"
+
+int main() {
+    tinyarmsim::MemoryBus bus;
+    tinyarmsim::ArchitecturalState state;
+    tinyarmsim::IsaInterpreter interp(state, bus);
+
+    std::ostringstream oss;
+    interp.dump_coverage_csv(oss);
+    std::string csv = oss.str();
+    if (csv.find("Opcode,Name,Count") != std::string::npos) {
+        std::cout << "OK_COVERAGE_CSV" << std::endl;
+        return 0;
+    }
+    return 1;
+}
+"""
+        res = run_cpp(source, timeout=10)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("OK_COVERAGE_CSV", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
