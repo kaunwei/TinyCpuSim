@@ -141,7 +141,27 @@ public:
 private:
     void check_eof_status() {
         if (eof_reached_ && !stop_requested_) {
-            closed_without_stop_ = true;
+            // Scan remaining buffer_ for complete newline-delimited stop command
+            bool has_stop = false;
+            size_t start = 0;
+            while (start < buffer_.size()) {
+                auto pos = buffer_.find('\n', start);
+                if (pos == std::string::npos) {
+                    break;
+                }
+                std::string_view line(&buffer_[start], pos - start);
+                if (!line.empty() && line.back() == '\r') {
+                    line.remove_suffix(1);
+                }
+                if (line == "stop") {
+                    has_stop = true;
+                    break;
+                }
+                start = pos + 1;
+            }
+            if (!has_stop) {
+                closed_without_stop_ = true;
+            }
         }
     }
 
