@@ -218,7 +218,8 @@ private:
             } else if (line.rfind("mem", 0) == 0) {
                 uint32_t address = 0;
                 size_t length = 0;
-                if (!parse_memory_arguments(std::string_view(line).substr(3), address, length)) {
+                if ((line.size() > 3 && line[3] != ' ' && line[3] != '\t') ||
+                    !parse_memory_arguments(std::string_view(line).substr(3), address, length)) {
                     send_response("{\"error\":\"invalid memory arguments\"}\n");
                 } else if (!memory_provider_) {
                     send_response("{\"error\":\"missing memory provider\"}\n");

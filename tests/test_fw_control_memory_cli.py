@@ -15,11 +15,19 @@ class TestFwControlMemoryCli(unittest.TestCase):
                 "bytes": [0x00, 0x00, 0x03, 0x00, 0x81, 0x00, 0x01, 0x00],
             })
 
+            session.send("regs\n")
+            regs_before = session.receive()
+            self.assertEqual(regs_before["event"], "regs")
+
             session.send("mem 0x40000000 4\n")
             self.assertEqual(session.receive(), {
                 "error": "memory access out of bounds or mmio rejected"
             })
             self.assertIsNone(session.proc.poll())
+
+            session.send("regs\n")
+            regs_after = session.receive()
+            self.assertEqual(regs_after, regs_before)
 
             session.send("stop\n")
             self.assertEqual(session.receive(), {"event": "stopped", "reason": "requested"})

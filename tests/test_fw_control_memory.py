@@ -64,3 +64,46 @@ int main() {
         self.assertEqual(lines[2:], [{"error": "invalid memory arguments"}] * 5 + [
             {"event": "stopped", "reason": "requested"}
         ])
+
+    def test_malformed_memory_prefixes_do_not_invoke_provider(self):
+        source = r'''#include "tinyarmsim/firmware_control.hpp"
+#include <cassert>
+#include <iostream>
+#include <string>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <vector>
+int main() {
+    int sv[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    tinyarmsim::FirmwareControl control(sv[0]);
+    int provider_calls = 0;
+    control.set_memory_provider([&](uint32_t address, size_t length)
+        -> std::optional<std::vector<uint8_t>> {
+        ++provider_calls;
+        assert(address == 0x20 && length == 1);
+        return std::vector<uint8_t>{0x5a};
+    });
+    const std::string commands =
+        "pause\nmem0 1\nmem0x20 4\nmemory 0 1\nmem\nmem\t0x20 1\nstop\n";
+    assert(write(sv[1], commands.data(), commands.size()) == static_cast<ssize_t>(commands.size()));
+    while (!control.stop_requested()) {}
+    assert(provider_calls == 1);
+    char response[1024] = {};
+    ssize_t count = read(sv[1], response, sizeof(response));
+    assert(count > 0);
+    std::cout.write(response, count);
+    close(sv[1]);
+    return 0;
+}'''
+        proc = run_cpp(source)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = [json.loads(line) for line in proc.stdout.splitlines() if line]
+        self.assertEqual(lines, [
+            {"event": "paused"},
+            {"error": "invalid memory arguments"},
+            {"error": "invalid memory arguments"},
+            {"error": "invalid memory arguments"},
+            {"error": "invalid memory arguments"},
+            {"event": "memory", "address": 0x20, "bytes": [0x5a]},
+            {"event": "stopped", "reason": "requested"},
+        ])
