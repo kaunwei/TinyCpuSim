@@ -1,0 +1,93 @@
+{
+  "swift": {
+    "extensions": [".swift"],
+    "identifier_types": ["simple_identifier", "type_identifier", "identifier"],
+    "declaration_types": ["class_declaration", "struct_declaration", "enum_declaration", "protocol_declaration", "actor_declaration", "function_declaration", "initializer_declaration", "typealias_declaration", "property_declaration", "constant_declaration", "variable_declaration"],
+    "import_types": ["import_declaration"],
+    "call_types": ["call_expression"]
+  },
+  "python": {
+    "extensions": [".py", ".pyi"],
+    "identifier_types": ["identifier"],
+    "declaration_types": ["class_definition", "function_definition", "variable_declarator", "assignment"],
+    "import_types": ["import_statement", "import_from_statement"],
+    "call_types": ["call"]
+  },
+  "javascript": {
+    "extensions": [".js", ".jsx", ".mjs", ".cjs"],
+    "identifier_types": ["identifier", "property_identifier", "private_property_identifier", "shorthand_property_identifier", "shorthand_property_identifier_pattern"],
+    "declaration_types": ["class_declaration", "function_declaration", "method_definition", "variable_declarator", "lexical_declaration", "variable_declaration"],
+    "import_types": ["import_statement"],
+    "call_types": ["call_expression", "new_expression"]
+  },
+  "typescript": {
+    "extensions": [".ts", ".mts", ".cts"],
+    "identifier_types": ["identifier", "type_identifier", "property_identifier", "private_property_identifier", "shorthand_property_identifier", "shorthand_property_identifier_pattern"],
+    "declaration_types": ["class_declaration", "function_declaration", "method_definition", "interface_declaration", "type_alias_declaration", "enum_declaration", "variable_declarator", "lexical_declaration", "variable_declaration"],
+    "import_types": ["import_statement"],
+    "call_types": ["call_expression", "new_expression"]
+  },
+  "tsx": {
+    "extensions": [".tsx"],
+    "identifier_types": ["identifier", "type_identifier", "property_identifier", "private_property_identifier", "shorthand_property_identifier", "shorthand_property_identifier_pattern"],
+    "declaration_types": ["class_declaration", "function_declaration", "method_definition", "interface_declaration", "type_alias_declaration", "enum_declaration", "variable_declarator", "lexical_declaration", "variable_declaration"],
+    "import_types": ["import_statement"],
+    "call_types": ["call_expression", "new_expression"]
+  },
+  "go": {
+    "extensions": [".go"],
+    "identifier_types": ["identifier", "type_identifier", "field_identifier", "package_identifier"],
+    "declaration_types": ["type_spec", "function_declaration", "method_declaration", "var_spec", "const_spec"],
+    "import_types": ["import_spec"],
+    "call_types": ["call_expression"]
+  },
+  "rust": {
+    "extensions": [".rs"],
+    "identifier_types": ["identifier", "type_identifier", "field_identifier"],
+    "declaration_types": ["struct_item", "enum_item", "trait_item", "function_item", "type_item", "const_item", "static_item", "mod_item", "let_declaration"],
+    "import_types": ["use_declaration"],
+    "call_types": ["call_expression", "macro_invocation"]
+  },
+  "c": {
+    "extensions": [".c", ".h"],
+    "identifier_types": ["identifier", "type_identifier", "field_identifier"],
+    "declaration_types": ["function_definition", "struct_specifier", "enum_specifier", "type_definition"],
+    "import_types": ["preproc_include"],
+    "call_types": ["call_expression"]
+  },
+  "cpp": {
+    "extensions": [".cc", ".cp", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
+    "identifier_types": ["identifier", "type_identifier", "field_identifier", "namespace_identifier"],
+    "declaration_types": ["class_specifier", "struct_specifier", "enum_specifier", "function_definition", "type_definition"],
+    "import_types": ["preproc_include"],
+    "call_types": ["call_expression"]
+  },
+  "java": {
+    "extensions": [".java"],
+    "identifier_types": ["identifier", "type_identifier"],
+    "declaration_types": ["class_declaration", "interface_declaration", "enum_declaration", "method_declaration", "constructor_declaration", "field_declaration"],
+    "import_types": ["import_declaration"],
+    "call_types": ["method_invocation", "object_creation_expression"]
+  },
+  "bash": {
+    "extensions": [".sh", ".bash"],
+    "identifier_types": ["word", "command_name", "variable_name"],
+    "declaration_types": ["function_definition"],
+    "import_types": [],
+    "call_types": ["command"]
+  },
+  "make": {
+    "extensions": [".mk", ".mak", ".make"],
+    "identifier_types": ["word", "variable_reference"],
+    "declaration_types": [],
+    "import_types": [],
+    "call_types": ["recipe_line"]
+  },
+  "cmake": {
+    "extensions": [".cmake"],
+    "identifier_types": ["identifier", "unquoted_argument", "quoted_argument"],
+    "declaration_types": ["function_def", "macro_def"],
+    "import_types": [],
+    "call_types": ["normal_command"]
+  }
+}

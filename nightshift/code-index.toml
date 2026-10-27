@@ -1,0 +1,8 @@
+[project]
+# Index configured code while excluding generated/dependency trees by default.
+include = ["**/*"]
+exclude = []
+
+[scope]
+tool = ["nightshift/tools/**"]
+project = ["**/*"]

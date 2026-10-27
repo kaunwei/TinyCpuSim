@@ -1,0 +1,63 @@
+{
+  "runtime": [
+    "worker.sh",
+    "worker_runtime.py",
+    "scratch_review.py",
+    "extract_skeleton.sh",
+    "probe_line.sh",
+    "reorder_queue.sh",
+    "status.sh",
+    "watch_worker.sh",
+    "adapters/codex.py",
+    "adapters/agy.py",
+    "adapters/generic.py",
+    "tools/index.py",
+    "tools/languages.json",
+    "tools/requirements.txt",
+    "tools/check_env.py",
+    "tools/setup.sh",
+    "tools/setup.ps1",
+    "install-manifest.json"
+  ],
+  "skill_files": [
+    {
+      "source": ".agents/skills/nightshift/planner/SKILL.md",
+      "target": ".agents/skills/nightshift/planner/SKILL.md"
+    },
+    {
+      "source": ".agents/skills/nightshift/explore/SKILL.md",
+      "target": ".agents/skills/nightshift/explore/SKILL.md"
+    },
+    {
+      "source": ".skills/universal-build-verify.md",
+      "target": ".skills/universal-build-verify.md"
+    }
+  ],
+  "shared_skill_categories": [
+    "engineering",
+    "productivity",
+    "misc",
+    "in-progress"
+  ],
+  "retired_files": [
+    "local_tdd.py",
+    "tools/README.md",
+    "skills/universal-build-verify.md",
+    "skills/nightshift/planner/SKILL.md",
+    "skills/nightshift/explore/SKILL.md",
+    "docs/PORTING_GUIDE.md",
+    "docs/DETERMINISTIC_EXPLORE_STRATEGY.md",
+    "docs/DETERMINISTIC_EXPLORE_RESULTS.md",
+    "docs/NIGHTSHIFT_SPEC.md",
+    "docs/NIGHTSHIFT_SOURCE_COVERAGE.md",
+    "docs/LOCAL_TDD.md",
+    "docs/experiments/deterministic-explore/LUNA-LOW-REPORT.md",
+    "docs/experiments/deterministic-explore/LUNA-LOW-SCORECARD.md",
+    "docs/experiments/deterministic-explore/PORTED-03-micro.md",
+    "docs/experiments/deterministic-explore/PORTED-SCORECARD.md",
+    "docs/experiments/deterministic-explore/PORTED-SUMMARY.md",
+    "docs/experiments/deterministic-explore/README.md",
+    "docs/experiments/deterministic-explore/SMALL-CONTEXT-SCORECARD.md",
+    "docs/experiments/deterministic-explore/STATIC-LEDGER-SCORECARD.md"
+  ]
+}

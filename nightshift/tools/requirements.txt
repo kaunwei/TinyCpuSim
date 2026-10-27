@@ -1,0 +1,2 @@
+tree-sitter-language-pack==0.9.1
+tomli>=2.0; python_version < "3.11"
