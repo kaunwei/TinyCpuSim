@@ -7,8 +7,7 @@ from pathlib import Path
 
 
 class FirmwareTemplateTest(unittest.TestCase):
-    def test_standalone_copy_build_and_execute(self):
-        project_root = Path(__file__).resolve().parents[1]
+    def _build_and_run_for_opt(self, project_root: Path, opt_flag: str):
         template_dir = project_root / "firmware" / "template"
         simulator = project_root / "build" / "tinycpusim"
 
@@ -19,9 +18,9 @@ class FirmwareTemplateTest(unittest.TestCase):
             temp_template = Path(temp_dir) / "template"
             shutil.copytree(template_dir, temp_template)
 
-            # Build in isolated directory
+            # Build in isolated directory with specific OPT
             build_res = subprocess.run(
-                ["make"],
+                ["make", f"OPT={opt_flag}"],
                 cwd=temp_template,
                 capture_output=True,
                 text=True,
@@ -30,11 +29,11 @@ class FirmwareTemplateTest(unittest.TestCase):
             self.assertEqual(
                 build_res.returncode,
                 0,
-                f"Make build failed:\nSTDOUT:\n{build_res.stdout}\nSTDERR:\n{build_res.stderr}",
+                f"Make build failed for {opt_flag}:\nSTDOUT:\n{build_res.stdout}\nSTDERR:\n{build_res.stderr}",
             )
 
             elf_path = temp_template / "template.elf"
-            self.assertTrue(elf_path.is_file(), "template.elf was not produced")
+            self.assertTrue(elf_path.is_file(), f"template.elf was not produced for {opt_flag}")
 
             # Check that main symbol exists via arm-none-eabi-nm (or nm fallback)
             nm_bin = shutil.which("arm-none-eabi-nm") or shutil.which("nm")
@@ -46,13 +45,13 @@ class FirmwareTemplateTest(unittest.TestCase):
                 text=True,
                 timeout=5,
             )
-            self.assertEqual(nm_res.returncode, 0, f"nm failed:\n{nm_res.stderr}")
+            self.assertEqual(nm_res.returncode, 0, f"nm failed for {opt_flag}:\n{nm_res.stderr}")
 
             main_symbols = [
                 line for line in nm_res.stdout.splitlines()
                 if "main" in line.split() or line.rstrip().endswith(" main") or " T main" in line
             ]
-            self.assertTrue(len(main_symbols) > 0, f"main symbol not found in nm output:\n{nm_res.stdout}")
+            self.assertTrue(len(main_symbols) > 0, f"main symbol not found in nm output for {opt_flag}:\n{nm_res.stdout}")
 
             # Parse the main symbol address
             main_line = main_symbols[0]
@@ -81,20 +80,27 @@ class FirmwareTemplateTest(unittest.TestCase):
             self.assertIn("Starting simulation...", combined_output)
 
             # Check that trace reaches main address
-            # The trace lines look like: core 0: 0x000100cc ...
             self.assertIn(
                 main_addr_hex,
                 combined_output,
-                f"Trace did not reach main at address {main_addr_hex}.\nOutput:\n{combined_output}",
+                f"Trace did not reach main at address {main_addr_hex} for {opt_flag}.\nOutput:\n{combined_output}",
             )
 
             # Check that execution exceeded step limit rather than hitting an unhandled fault/SVC error
             self.assertIn(
                 "Simulation execution exceeded max step limit (60)",
                 combined_output,
-                f"Simulation did not hit expected max step limit.\nOutput:\n{combined_output}",
+                f"Simulation did not hit expected max step limit for {opt_flag}.\nOutput:\n{combined_output}",
             )
             self.assertEqual(sim_res.returncode, 1)
+
+    def test_standalone_copy_build_and_execute_o0(self):
+        project_root = Path(__file__).resolve().parents[1]
+        self._build_and_run_for_opt(project_root, "-O0")
+
+    def test_standalone_copy_build_and_execute_o2(self):
+        project_root = Path(__file__).resolve().parents[1]
+        self._build_and_run_for_opt(project_root, "-O2")
 
 
 if __name__ == "__main__":
