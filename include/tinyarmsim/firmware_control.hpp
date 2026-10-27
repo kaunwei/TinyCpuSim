@@ -84,7 +84,7 @@ public:
         process_lines();
         check_eof_status();
 
-        if (step_pending_) {
+        if (step_pending_ && !transport_failed_ && !closed_without_stop_) {
             step_pending_ = false;
             stepped_notify_pending_ = true;
             return false;
@@ -115,7 +115,7 @@ public:
             process_lines();
             check_eof_status();
 
-            if (step_pending_) {
+            if (step_pending_ && !transport_failed_ && !closed_without_stop_) {
                 step_pending_ = false;
                 stepped_notify_pending_ = true;
                 return false;
