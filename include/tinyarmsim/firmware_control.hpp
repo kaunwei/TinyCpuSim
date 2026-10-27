@@ -4,11 +4,16 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <functional>
+#include <optional>
 #include <poll.h>
+#include <charconv>
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <vector>
 
 namespace tinyarmsim {
 
@@ -42,6 +47,7 @@ public:
                                                        stepped_notify_pending_(other.stepped_notify_pending_),
                                                        eof_reached_(other.eof_reached_),
                                                        register_provider_(std::move(other.register_provider_)),
+                                                       memory_provider_(std::move(other.memory_provider_)),
                                                        buffer_(std::move(other.buffer_)) {
         other.fd_ = -1;
     }
@@ -60,6 +66,7 @@ public:
             stepped_notify_pending_ = other.stepped_notify_pending_;
             eof_reached_ = other.eof_reached_;
             register_provider_ = std::move(other.register_provider_);
+            memory_provider_ = std::move(other.memory_provider_);
             buffer_ = std::move(other.buffer_);
             other.fd_ = -1;
         }
@@ -68,6 +75,10 @@ public:
 
     void set_register_provider(std::function<std::string()> provider) {
         register_provider_ = std::move(provider);
+    }
+
+    void set_memory_provider(std::function<std::optional<std::vector<uint8_t>>(uint32_t, size_t)> provider) {
+        memory_provider_ = std::move(provider);
     }
 
     bool stop_requested() {
@@ -204,10 +215,65 @@ private:
                 } else {
                     send_response("{\"error\":\"missing register provider\"}\n");
                 }
+            } else if (line.rfind("mem", 0) == 0) {
+                uint32_t address = 0;
+                size_t length = 0;
+                if (!parse_memory_arguments(std::string_view(line).substr(3), address, length)) {
+                    send_response("{\"error\":\"invalid memory arguments\"}\n");
+                } else if (!memory_provider_) {
+                    send_response("{\"error\":\"missing memory provider\"}\n");
+                } else {
+                    auto bytes = memory_provider_(address, length);
+                    if (!bytes) {
+                        send_response("{\"error\":\"memory access out of bounds or mmio rejected\"}\n");
+                    } else {
+                        std::string payload = "{\"event\":\"memory\",\"address\":" + std::to_string(address) + ",\"bytes\":[";
+                        for (size_t i = 0; i < bytes->size(); ++i) {
+                            if (i != 0) payload += ',';
+                            payload += std::to_string((*bytes)[i]);
+                        }
+                        payload += "]}\n";
+                        send_response(payload);
+                    }
+                }
             } else {
                 send_response("{\"error\":\"unknown command\"}\n");
             }
         }
+    }
+
+    static bool parse_memory_arguments(std::string_view args, uint32_t& address, size_t& length) {
+        size_t pos = args.find_first_not_of(" \t");
+        if (pos == std::string_view::npos) return false;
+        args.remove_prefix(pos);
+        size_t address_end = args.find_first_of(" \t");
+        if (address_end == std::string_view::npos) return false;
+        auto address_text = args.substr(0, address_end);
+        int base = 10;
+        if (address_text.size() > 2 && address_text[0] == '0' &&
+            (address_text[1] == 'x' || address_text[1] == 'X')) {
+            base = 16;
+            address_text.remove_prefix(2);
+            if (address_text.empty()) return false;
+        }
+        uint64_t parsed_address = 0;
+        auto address_result = std::from_chars(address_text.data(), address_text.data() + address_text.size(), parsed_address, base);
+        if (address_result.ec != std::errc{} || address_result.ptr != address_text.data() + address_text.size() ||
+            parsed_address > UINT32_MAX) return false;
+        args.remove_prefix(address_end);
+        pos = args.find_first_not_of(" \t");
+        if (pos == std::string_view::npos) return false;
+        args.remove_prefix(pos);
+        size_t length_end = args.find_first_of(" \t");
+        auto length_text = args.substr(0, length_end);
+        uint64_t parsed_length = 0;
+        auto length_result = std::from_chars(length_text.data(), length_text.data() + length_text.size(), parsed_length, 10);
+        if (length_result.ec != std::errc{} || length_result.ptr != length_text.data() + length_text.size() ||
+            parsed_length < 1 || parsed_length > 64) return false;
+        if (length_end != std::string_view::npos && args.find_first_not_of(" \t", length_end) != std::string_view::npos) return false;
+        address = static_cast<uint32_t>(parsed_address);
+        length = static_cast<size_t>(parsed_length);
+        return true;
     }
 
     void read_available() {
@@ -308,6 +374,7 @@ private:
     bool stepped_notify_pending_ = false;
     bool eof_reached_ = false;
     std::function<std::string()> register_provider_;
+    std::function<std::optional<std::vector<uint8_t>>(uint32_t, size_t)> memory_provider_;
     std::string buffer_;
 };
 

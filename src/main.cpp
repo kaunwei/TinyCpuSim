@@ -207,6 +207,9 @@ int main(int argc, char* argv[]) {
     try {
         if (enable_firmware && options.control_fd >= 0) {
             tinyarmsim::FirmwareControl control(options.control_fd);
+            control.set_memory_provider([&bus](uint32_t address, size_t length) {
+                return bus.read_ram_bytes(address, length);
+            });
             control.set_register_provider([&interpreter, &state]() {
                 std::string s = "{\"event\":\"regs\",\"pc\":" + std::to_string(state.get_pc()) + ",\"registers\":[";
                 for (size_t i = 0; i < 16; ++i) {
