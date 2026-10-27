@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cerrno>
 #include <fcntl.h>
 #include <functional>
@@ -35,6 +36,7 @@ public:
     FirmwareControl(FirmwareControl&& other) noexcept : fd_(other.fd_),
                                                        stop_requested_(other.stop_requested_),
                                                        closed_without_stop_(other.closed_without_stop_),
+                                                       transport_failed_(other.transport_failed_),
                                                        paused_(other.paused_),
                                                        eof_reached_(other.eof_reached_),
                                                        register_provider_(std::move(other.register_provider_)),
@@ -50,6 +52,7 @@ public:
             fd_ = other.fd_;
             stop_requested_ = other.stop_requested_;
             closed_without_stop_ = other.closed_without_stop_;
+            transport_failed_ = other.transport_failed_;
             paused_ = other.paused_;
             eof_reached_ = other.eof_reached_;
             register_provider_ = std::move(other.register_provider_);
@@ -73,7 +76,7 @@ public:
         check_eof_status();
 
         while (paused_ && !stop_requested_) {
-            if (fd_ < 0 || closed_without_stop_) {
+            if (fd_ < 0 || closed_without_stop_ || transport_failed_) {
                 stop_requested_ = true;
                 break;
             }
@@ -98,7 +101,7 @@ public:
             check_eof_status();
         }
 
-        if (closed_without_stop_) {
+        if (closed_without_stop_ || transport_failed_) {
             stop_requested_ = true;
             return true;
         }
@@ -108,6 +111,10 @@ public:
 
     bool closed_without_stop() const {
         return closed_without_stop_;
+    }
+
+    bool transport_failed() const {
+        return transport_failed_;
     }
 
 private:
@@ -188,19 +195,57 @@ private:
     }
 
     void send_response(std::string_view msg) {
-        if (fd_ < 0) return;
+        if (fd_ < 0 || transport_failed_) return;
         const char* ptr = msg.data();
         size_t remaining = msg.size();
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+
         while (remaining > 0) {
             ssize_t n = ::send(fd_, ptr, remaining, MSG_NOSIGNAL);
             if (n > 0) {
                 ptr += n;
                 remaining -= static_cast<size_t>(n);
-            } else if (n < 0) {
+                continue;
+            }
+            if (n < 0) {
                 if (errno == EINTR) {
                     continue;
                 }
-                // If write fails (e.g. EPIPE or ECONNRESET), peer closed or reset connection
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    auto now = std::chrono::steady_clock::now();
+                    if (now >= deadline) {
+                        transport_failed_ = true;
+                        break;
+                    }
+                    auto ms_left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+                    int timeout_ms = static_cast<int>(ms_left > 0 ? ms_left : 1);
+
+                    struct pollfd pfd;
+                    pfd.fd = fd_;
+                    pfd.events = POLLOUT;
+                    pfd.revents = 0;
+
+                    int pret = ::poll(&pfd, 1, timeout_ms);
+                    if (pret > 0) {
+                        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                            // Check if POLLOUT is also set, but if error/hup with no output capacity,
+                            // next send will fail with EPIPE or handle it.
+                        }
+                        continue;
+                    } else if (pret == 0) {
+                        // Timed out waiting for buffer space
+                        transport_failed_ = true;
+                        break;
+                    } else {
+                        if (errno == EINTR) {
+                            continue;
+                        }
+                        transport_failed_ = true;
+                        break;
+                    }
+                }
+                // Any other send failure (e.g. EPIPE, ECONNRESET, etc.)
+                // Peer closed or reset connection. Not terminal delivery transport_failed timeout.
                 break;
             }
         }
@@ -209,6 +254,7 @@ private:
     int fd_ = -1;
     bool stop_requested_ = false;
     bool closed_without_stop_ = false;
+    bool transport_failed_ = false;
     bool paused_ = false;
     bool eof_reached_ = false;
     std::function<std::string()> register_provider_;
