@@ -19,6 +19,7 @@ class TestFwControlStepCli(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            timeout=120,
         )
         if not sim.exists():
             raise FileNotFoundError(f"Missing built simulator binary: {sim}")

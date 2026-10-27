@@ -11,6 +11,7 @@ class TestFwControlSession(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            timeout=120,
         )
 
     def test_preloaded_stop_ack_and_exit_zero(self):
