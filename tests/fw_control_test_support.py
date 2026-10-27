@@ -29,9 +29,13 @@ class FirmwareSession:
 
 
 @contextmanager
-def controlled_firmware(initial_commands: str = "stop\n", max_steps: int | None = None):
+def controlled_firmware(
+    initial_commands: str = "stop\n",
+    max_steps: int | None = None,
+    elf_path: str | pathlib.Path | None = None,
+):
     sim = str(_REPO_ROOT / "build" / "tinycpusim")
-    elf = str(_REPO_ROOT / "build" / "isa_boot_acceptance.elf")
+    elf = str(elf_path) if elf_path is not None else str(_REPO_ROOT / "build" / "isa_boot_acceptance.elf")
     parent_sock, child_sock = socket.socketpair()
     parent_sock.settimeout(2.0)
     proc = None
