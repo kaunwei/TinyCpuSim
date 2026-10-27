@@ -41,14 +41,19 @@ class FirmwareHostTimeoutTest(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
-    def test_run_bounded_real_simulator_missing_elf_preserves_exit_code_1(self) -> None:
+    def test_run_bounded_real_simulator_max_steps_timeout(self) -> None:
         repo_root = Path(__file__).resolve().parent.parent
-        sim_path = repo_root / "build" / "tinyarmsim"
+        sim_path = repo_root / "build" / "tinycpusim"
+        elf_path = repo_root / "build" / "isa_boot_acceptance.elf"
         self.assertTrue(sim_path.exists(), f"Simulator binary not found at {sim_path}")
+        self.assertTrue(elf_path.exists(), f"ELF binary not found at {elf_path}")
 
-        cmd = [str(sim_path), "--max-steps", "1"]
+        cmd = [str(sim_path), "--firmware", "--max-steps", "1", str(elf_path)]
         res = run_bounded(cmd, timeout=2.0)
         self.assertEqual(res.returncode, 1)
+        combined_output = res.stdout + res.stderr
+        self.assertIn("Simulation execution exceeded max step limit (1)", combined_output)
+        self.assertNotIn("No ELF input", combined_output)
 
 
 if __name__ == "__main__":
