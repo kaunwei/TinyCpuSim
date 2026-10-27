@@ -2,6 +2,8 @@
 
 #include <cerrno>
 #include <fcntl.h>
+#include <functional>
+#include <poll.h>
 #include <string>
 #include <string_view>
 #include <unistd.h>
@@ -32,6 +34,8 @@ public:
     FirmwareControl(FirmwareControl&& other) noexcept : fd_(other.fd_),
                                                        stop_requested_(other.stop_requested_),
                                                        closed_without_stop_(other.closed_without_stop_),
+                                                       paused_(other.paused_),
+                                                       register_provider_(std::move(other.register_provider_)),
                                                        buffer_(std::move(other.buffer_)) {
         other.fd_ = -1;
     }
@@ -44,10 +48,16 @@ public:
             fd_ = other.fd_;
             stop_requested_ = other.stop_requested_;
             closed_without_stop_ = other.closed_without_stop_;
+            paused_ = other.paused_;
+            register_provider_ = std::move(other.register_provider_);
             buffer_ = std::move(other.buffer_);
             other.fd_ = -1;
         }
         return *this;
+    }
+
+    void set_register_provider(std::function<std::string()> provider) {
+        register_provider_ = std::move(provider);
     }
 
     bool stop_requested() {
@@ -56,7 +66,47 @@ public:
         }
 
         read_available();
+        process_lines();
 
+        while (paused_ && !stop_requested_) {
+            if (fd_ < 0 || closed_without_stop_) {
+                stop_requested_ = true;
+                break;
+            }
+
+            struct pollfd pfd;
+            pfd.fd = fd_;
+            pfd.events = POLLIN;
+            pfd.revents = 0;
+
+            int ret = ::poll(&pfd, 1, -1);
+            if (ret < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                closed_without_stop_ = true;
+                stop_requested_ = true;
+                break;
+            }
+
+            read_available();
+            process_lines();
+        }
+
+        if (closed_without_stop_) {
+            stop_requested_ = true;
+            return true;
+        }
+
+        return stop_requested_;
+    }
+
+    bool closed_without_stop() const {
+        return closed_without_stop_;
+    }
+
+private:
+    void process_lines() {
         while (true) {
             auto pos = buffer_.find('\n');
             if (pos == std::string::npos) {
@@ -73,25 +123,27 @@ public:
             if (line == "stop") {
                 stop_requested_ = true;
                 send_response("{\"event\":\"stopped\",\"reason\":\"requested\"}\n");
-                return true;
+                break;
+            } else if (line == "pause") {
+                paused_ = true;
+                send_response("{\"event\":\"paused\"}\n");
+            } else if (line == "continue") {
+                paused_ = false;
+                send_response("{\"event\":\"continued\"}\n");
+            } else if (line == "regs") {
+                if (register_provider_) {
+                    std::string payload = register_provider_();
+                    payload.push_back('\n');
+                    send_response(payload);
+                } else {
+                    send_response("{\"error\":\"missing register provider\"}\n");
+                }
             } else {
                 send_response("{\"error\":\"unknown command\"}\n");
             }
         }
-
-        if (closed_without_stop_) {
-            stop_requested_ = true;
-            return true;
-        }
-
-        return false;
     }
 
-    bool closed_without_stop() const {
-        return closed_without_stop_;
-    }
-
-private:
     void read_available() {
         if (fd_ < 0 || closed_without_stop_) {
             return;
@@ -150,6 +202,8 @@ private:
     int fd_ = -1;
     bool stop_requested_ = false;
     bool closed_without_stop_ = false;
+    bool paused_ = false;
+    std::function<std::string()> register_provider_;
     std::string buffer_;
 };
 
