@@ -69,6 +69,34 @@ void print_banner(bool passed, uint32_t exit_code, const std::string& fault_msg,
               << std::endl;
 }
 
+class ScopedCoutRedirect {
+public:
+    explicit ScopedCoutRedirect(bool enabled) {
+        if (enabled) {
+            null_out_.open("/dev/null");
+            if (null_out_.is_open()) {
+                original_buf_ = std::cout.rdbuf(null_out_.rdbuf());
+            }
+        }
+    }
+    ~ScopedCoutRedirect() {
+        restore();
+    }
+    ScopedCoutRedirect(const ScopedCoutRedirect&) = delete;
+    ScopedCoutRedirect& operator=(const ScopedCoutRedirect&) = delete;
+
+    void restore() noexcept {
+        if (original_buf_ != nullptr) {
+            std::cout.rdbuf(original_buf_);
+            original_buf_ = nullptr;
+        }
+    }
+
+private:
+    std::ofstream null_out_{};
+    std::streambuf* original_buf_{nullptr};
+};
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -139,14 +167,7 @@ int main(int argc, char* argv[]) {
         interpreter.set_slice_manager(&slice_manager);
     }
 
-    std::streambuf* original_cout_buf = nullptr;
-    std::ofstream null_out;
-    if (quiet) {
-        null_out.open("/dev/null");
-        if (null_out.is_open()) {
-            original_cout_buf = std::cout.rdbuf(null_out.rdbuf());
-        }
-    }
+    ScopedCoutRedirect cout_redirect(quiet);
 
     std::cout << "TinyCpuSim v" << tinyarmsim::get_version_string() << "\n"
               << "Loading ELF: " << elf_path << "...\n";
@@ -205,9 +226,7 @@ int main(int argc, char* argv[]) {
         slice_manager.flush_final_slice(interp_stats);
     }
     print_banner(passed, exit_code, fault_msg, stats);
-    if (original_cout_buf != nullptr) {
-        std::cout.rdbuf(original_cout_buf);
-    }
+    cout_redirect.restore();
     if (enable_firmware && !soc.uart->get_tx_output().empty()) {
         std::cout << soc.uart->get_tx_output();
         if (soc.uart->get_tx_output().back() != '\n') std::cout << '\n';
