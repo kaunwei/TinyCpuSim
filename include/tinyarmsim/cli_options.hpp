@@ -182,6 +182,15 @@ inline CliParseResult parse_cli_options(const std::vector<std::string>& args) {
         }
     }
 
+    if (options.control_fd >= 0 && !options.enable_firmware) {
+        result.diagnostic = "Error: --control-fd requires --firmware mode.\n";
+        return result;
+    }
+    if (options.control_fd >= 0 && options.max_steps_explicit && options.max_steps == 0) {
+        result.diagnostic = "Error: --max-steps 0 cannot be used with --control-fd.\n";
+        return result;
+    }
+
     return result;
 }
 } // namespace tinyarmsim

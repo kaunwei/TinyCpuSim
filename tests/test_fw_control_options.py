@@ -15,6 +15,12 @@ int main() {{
     std::vector<std::string> args = {{{args_cpp}}};
     auto res = tinyarmsim::parse_cli_options(args);
     std::cout << "diag=" << (res.diagnostic.empty() ? "NONE" : "HAS_DIAG") << "\\n";
+    std::cout << "diagnostic_msg=";
+    for (char c : res.diagnostic) {{
+        if (c == '\\n') std::cout << "\\\\n";
+        else std::cout << c;
+    }}
+    std::cout << "\\n";
     std::cout << "control_fd=" << res.options.control_fd << "\\n";
     std::cout << "max_steps=" << res.options.max_steps << "\\n";
     std::cout << "max_steps_explicit=" << (res.options.max_steps_explicit ? "1" : "0") << "\\n";
@@ -30,6 +36,8 @@ int main() {{
         for line in res.stdout.strip().splitlines():
             if "=" in line:
                 k, v = line.split("=", 1)
+                if k == "diagnostic_msg":
+                    v = v.replace("\\n", "\n")
                 kv[k] = v
         return kv
 
@@ -93,7 +101,7 @@ int main() {{
 
     def test_valid_fd_int_max(self):
         # Boundary: INT_MAX (2147483647) accepted at parser layer
-        kv = self._run_cli(["--control-fd", "2147483647", "app.elf"])
+        kv = self._run_cli(["--firmware", "--control-fd", "2147483647", "app.elf"])
         self.assertEqual(kv.get("diag"), "NONE")
         self.assertEqual(kv.get("control_fd"), "2147483647")
 
@@ -104,6 +112,52 @@ int main() {{
         self.assertEqual(kv.get("enable_firmware"), "1")
         self.assertEqual(kv.get("control_fd"), "3")
         self.assertEqual(kv.get("elf_path"), "firmware.elf")
+
+    def test_semantic_parser_guards(self):
+        # 1. Missing mode: control_fd >= 0 without --firmware
+        kv_no_fw = self._run_cli(["--control-fd", "3", "app.elf"])
+        self.assertEqual(kv_no_fw.get("diag"), "HAS_DIAG")
+        self.assertEqual(kv_no_fw.get("diagnostic_msg"), "Error: --control-fd requires --firmware mode.\n")
+
+        # 2. Ordering independence for missing mode: elf first, control_fd later without --firmware
+        kv_order_no_fw = self._run_cli(["app.elf", "--control-fd", "5"])
+        self.assertEqual(kv_order_no_fw.get("diag"), "HAS_DIAG")
+        self.assertEqual(kv_order_no_fw.get("diagnostic_msg"), "Error: --control-fd requires --firmware mode.\n")
+
+        # 3. Explicit zero max-steps with control-fd: long form --max-steps 0
+        kv_zero_long = self._run_cli(["--firmware", "--control-fd", "3", "--max-steps", "0", "app.elf"])
+        self.assertEqual(kv_zero_long.get("diag"), "HAS_DIAG")
+        self.assertEqual(kv_zero_long.get("diagnostic_msg"), "Error: --max-steps 0 cannot be used with --control-fd.\n")
+
+        # 4. Explicit zero max-steps with control-fd: short form -m 0
+        kv_zero_short = self._run_cli(["--firmware", "-m", "0", "--control-fd", "3", "app.elf"])
+        self.assertEqual(kv_zero_short.get("diag"), "HAS_DIAG")
+        self.assertEqual(kv_zero_short.get("diagnostic_msg"), "Error: --max-steps 0 cannot be used with --control-fd.\n")
+
+        # 5. Ordering independence with control-fd after max-steps 0
+        kv_zero_order = self._run_cli(["--max-steps", "0", "--firmware", "--control-fd", "3", "app.elf"])
+        self.assertEqual(kv_zero_order.get("diag"), "HAS_DIAG")
+        self.assertEqual(kv_zero_order.get("diagnostic_msg"), "Error: --max-steps 0 cannot be used with --control-fd.\n")
+
+        # 6. Omitted control budget: control_fd >= 0 with --firmware and omitted max-steps stays valid
+        kv_omitted = self._run_cli(["--firmware", "--control-fd", "3", "app.elf"])
+        self.assertEqual(kv_omitted.get("diag"), "NONE")
+        self.assertEqual(kv_omitted.get("max_steps_explicit"), "0")
+        self.assertEqual(kv_omitted.get("control_fd"), "3")
+
+        # 7. Explicit positive value stays valid
+        kv_pos = self._run_cli(["--firmware", "--control-fd", "3", "--max-steps", "100", "app.elf"])
+        self.assertEqual(kv_pos.get("diag"), "NONE")
+        self.assertEqual(kv_pos.get("max_steps_explicit"), "1")
+        self.assertEqual(kv_pos.get("max_steps"), "100")
+        self.assertEqual(kv_pos.get("control_fd"), "3")
+
+        # 8. Zero max-steps without control retains prior semantics (valid, max_steps=0, max_steps_explicit=1)
+        kv_zero_no_ctrl = self._run_cli(["--max-steps", "0", "app.elf"])
+        self.assertEqual(kv_zero_no_ctrl.get("diag"), "NONE")
+        self.assertEqual(kv_zero_no_ctrl.get("max_steps_explicit"), "1")
+        self.assertEqual(kv_zero_no_ctrl.get("max_steps"), "0")
+        self.assertEqual(kv_zero_no_ctrl.get("control_fd"), "-1")
 
 
 if __name__ == "__main__":
