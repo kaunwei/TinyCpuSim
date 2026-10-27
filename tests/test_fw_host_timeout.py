@@ -44,6 +44,63 @@ class FirmwareHostTimeoutTest(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
+    def test_run_bounded_descendant_pipe_inheritance_timeout_and_cleanup(self) -> None:
+        child_code = (
+            "import os, subprocess, sys\n"
+            "gc = subprocess.Popen(['sleep', '30'], close_fds=False)\n"
+            "sys.stdout.write(f'READY:{os.getpid()}:{gc.pid}\\n')\n"
+            "sys.stdout.flush()\n"
+            "sys.exit(0)\n"
+        )
+        cmd = [sys.executable, "-c", child_code]
+
+        with self.assertRaises(FirmwareTimeoutError) as ctx:
+            run_bounded(cmd, timeout=0.3)
+
+        err = ctx.exception
+        self.assertIn("READY:", err.stdout)
+
+        ready_line = [
+            line for line in err.stdout.splitlines() if line.startswith("READY:")
+        ][0]
+        _, child_pid_str, gc_pid_str = ready_line.split(":")
+        child_pid = int(child_pid_str)
+        grandchild_pid = int(gc_pid_str)
+
+        self.assertEqual(err.pid, child_pid)
+
+        # Direct child was reaped by run_bounded and must be gone
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child_pid, 0)
+
+        # Bounded cleanup check that no living descendant remains in the process group.
+        # On Linux, an orphaned non-child grandchild reaped by init may transiently exist
+        # as a zombie (state 'Z') until init reaps it; distinguish 'Z' from live.
+        def is_pid_live(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            try:
+                with open(f"/proc/{pid}/status", "r") as f:
+                    for line in f:
+                        if line.startswith("State:"):
+                            return line.split()[1] != "Z"
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                return False
+            return True
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if not is_pid_live(grandchild_pid):
+                break
+            time.sleep(0.02)
+
+        self.assertFalse(
+            is_pid_live(grandchild_pid),
+            f"Descendant PID {grandchild_pid} still running after process group cleanup",
+        )
+
     def test_run_bounded_caller_interruption_cleans_child_and_group(self) -> None:
         # Wrapper script calling run_bounded on a child that creates background descendants and writes PID readiness
         with tempfile.TemporaryDirectory() as tmpdir:
