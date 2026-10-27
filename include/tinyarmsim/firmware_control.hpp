@@ -174,7 +174,7 @@ private:
                     step_pending_ = true;
                     break;
                 } else {
-                    send_response("{\"error\":\"unknown command\"}\n");
+                    send_response("{\"error\":\"step requires pause\"}\n");
                 }
             } else if (line == "regs") {
                 if (register_provider_) {
