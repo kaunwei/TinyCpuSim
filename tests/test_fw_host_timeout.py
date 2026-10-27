@@ -20,6 +20,53 @@ class FirmwareHostTimeoutTest(unittest.TestCase):
         self.assertEqual(res.stdout, "ok\n")
         self.assertEqual(res.stderr, "")
 
+    def test_run_bounded_cleans_descendants_after_direct_exit(self) -> None:
+        for return_code in (0, 7):
+            with self.subTest(return_code=return_code):
+                child_code = (
+                    "import subprocess, sys\n"
+                    "sleeper = subprocess.Popen([sys.executable, '-c', "
+                    "'import time; time.sleep(20)'], "
+                    "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                    "print(f'DESCENDANT:{sleeper.pid}', flush=True)\n"
+                    f"sys.exit({return_code})\n"
+                )
+                result = run_bounded([sys.executable, "-c", child_code], timeout=2.0)
+                self.assertEqual(result.returncode, return_code)
+                self.assertEqual(result.stderr, "")
+                self.assertTrue(result.stdout.startswith("DESCENDANT:"))
+                descendant_pid = int(result.stdout.split(":", 1)[1])
+                child_pid = descendant_pid  # The direct child owns the new session PGID.
+
+                def is_pid_live(pid: int) -> bool:
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        return False
+                    try:
+                        with open(f"/proc/{pid}/status", "r") as status:
+                            for line in status:
+                                if line.startswith("State:"):
+                                    return line.split()[1] != "Z"
+                    except (FileNotFoundError, ProcessLookupError, PermissionError):
+                        return False
+                    return True
+
+                try:
+                    deadline = time.monotonic() + 2.0
+                    while is_pid_live(descendant_pid) and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    self.assertFalse(
+                        is_pid_live(descendant_pid),
+                        f"Descendant PID {descendant_pid} still running after normal exit",
+                    )
+                finally:
+                    # Every run_bounded child starts a new session with its PID as PGID.
+                    try:
+                        os.killpg(child_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
     def test_run_bounded_preserves_exit_code(self) -> None:
         cmd = [sys.executable, "-c", "import sys; sys.exit(7)"]
         res = run_bounded(cmd, timeout=2.0)

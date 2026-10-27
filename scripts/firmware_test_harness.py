@@ -40,6 +40,11 @@ def run_bounded(command: List[str], timeout: float) -> subprocess.CompletedProce
     pid = proc.pid
     try:
         stdout_data, stderr_data = proc.communicate(timeout=timeout)
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
         return subprocess.CompletedProcess(
             args=command,
             returncode=proc.returncode,
