@@ -48,6 +48,8 @@ public:
                                                        eof_reached_(other.eof_reached_),
                                                        register_provider_(std::move(other.register_provider_)),
                                                        memory_provider_(std::move(other.memory_provider_)),
+                                                       pc_provider_(std::move(other.pc_provider_)),
+                                                       breakpoint_(other.breakpoint_),
                                                        buffer_(std::move(other.buffer_)) {
         other.fd_ = -1;
     }
@@ -67,6 +69,8 @@ public:
             eof_reached_ = other.eof_reached_;
             register_provider_ = std::move(other.register_provider_);
             memory_provider_ = std::move(other.memory_provider_);
+            pc_provider_ = std::move(other.pc_provider_);
+            breakpoint_ = other.breakpoint_;
             buffer_ = std::move(other.buffer_);
             other.fd_ = -1;
         }
@@ -79,6 +83,10 @@ public:
 
     void set_memory_provider(std::function<std::optional<std::vector<uint8_t>>(uint32_t, size_t)> provider) {
         memory_provider_ = std::move(provider);
+    }
+
+    void set_pc_provider(std::function<uint32_t()> provider) {
+        pc_provider_ = std::move(provider);
     }
 
     bool stop_requested() {
@@ -99,6 +107,14 @@ public:
             step_pending_ = false;
             stepped_notify_pending_ = true;
             return false;
+        }
+
+        if (!stop_requested_ && !closed_without_stop_ && !transport_failed_ && breakpoint_ && pc_provider_) {
+            const uint32_t pc = pc_provider_();
+            if (pc == *breakpoint_) {
+                paused_ = true;
+                send_response("{\"event\":\"breakpoint\",\"pc\":" + std::to_string(pc) + "}\n");
+            }
         }
 
         while (paused_ && !stop_requested_) {
@@ -207,6 +223,19 @@ private:
                 } else {
                     send_response("{\"error\":\"step requires pause\"}\n");
                 }
+            } else if (line == "break clear") {
+                breakpoint_.reset();
+                send_response("{\"event\":\"breakpoint_cleared\"}\n");
+            } else if (line == "break" || line.rfind("break ", 0) == 0 || line.rfind("break\t", 0) == 0) {
+                uint32_t address = 0;
+                if (!parse_breakpoint_address(std::string_view(line).substr(5), address)) {
+                    send_response("{\"error\":\"invalid breakpoint address\"}\n");
+                } else if (!pc_provider_) {
+                    send_response("{\"error\":\"missing pc provider\"}\n");
+                } else {
+                    breakpoint_ = address;
+                    send_response("{\"event\":\"breakpoint_set\",\"pc\":" + std::to_string(address) + "}\n");
+                }
             } else if (line == "regs") {
                 if (register_provider_) {
                     std::string payload = register_provider_();
@@ -274,6 +303,26 @@ private:
         if (length_end != std::string_view::npos && args.find_first_not_of(" \t", length_end) != std::string_view::npos) return false;
         address = static_cast<uint32_t>(parsed_address);
         length = static_cast<size_t>(parsed_length);
+        return true;
+    }
+
+    static bool parse_breakpoint_address(std::string_view args, uint32_t& address) {
+        size_t pos = args.find_first_not_of(" \t");
+        if (pos == std::string_view::npos) return false;
+        args.remove_prefix(pos);
+        size_t end = args.find_first_of(" \t");
+        auto text = args.substr(0, end);
+        int base = 10;
+        if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+            text.remove_prefix(2);
+            base = 16;
+            if (text.empty()) return false;
+        }
+        uint64_t parsed = 0;
+        auto result = std::from_chars(text.data(), text.data() + text.size(), parsed, base);
+        if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || parsed > UINT32_MAX) return false;
+        if (end != std::string_view::npos && args.find_first_not_of(" \t", end) != std::string_view::npos) return false;
+        address = static_cast<uint32_t>(parsed);
         return true;
     }
 
@@ -376,6 +425,8 @@ private:
     bool eof_reached_ = false;
     std::function<std::string()> register_provider_;
     std::function<std::optional<std::vector<uint8_t>>(uint32_t, size_t)> memory_provider_;
+    std::function<uint32_t()> pc_provider_;
+    std::optional<uint32_t> breakpoint_;
     std::string buffer_;
 };
 
