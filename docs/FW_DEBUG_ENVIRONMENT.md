@@ -116,3 +116,19 @@ As established in `todo/fw-development/README.md`:
 3. **Current vs. Planned Capabilities**:
    - **Existing**: `--max-steps` bounded execution reporting exit code 1 with explicit error message, instruction execution tracing via `--log`, and independent subprocess host timeouts in test harnesses (`tests/test_fw_step_limit.py`).
    - **Planned**: Target-service progress watchdog, interactive pause/step/state-inspection controls, live UART bidirectional transport, and graceful controlled-stop interface.
+
+## Minimal Copied Firmware Debugger Walkthrough (O0 and O2)
+
+The automated end-to-end walkthrough is `tests/test_fw_debug_walkthrough.py`. It copies the unchanged `firmware/template` to a temporary directory, builds it with `make OPT=-O0` and `make OPT=-O2`, and uses `nm` to obtain `main` and `g_counter`. `objdump -d` supplies instruction addresses and encoded widths. The normal simulator is built once by the test setup (`cmake --build build --target tinycpusim -j2`, bounded to 120 seconds). Each controlled run uses the copied ELF with a 1000-step ceiling and a 10-second host timeout.
+
+Reproduce from the repository root:
+
+```bash
+/usr/bin/python3 -m unittest discover -s tests -p test_fw_debug_walkthrough.py -v
+```
+
+For each optimization level, the test stops at `main` before its first instruction, checks PC and the positive startup instruction count, reads the initial four bytes at `g_counter`, executes exactly one instruction, and checks the resulting PC against the independently decoded `objdump` width and the step count against the startup count plus one. It then places a breakpoint at the next disassembled instruction after that PC and continues; the reported hit must follow at least one additional executed instruction. Finally it requests `stop` and requires the requested-stop acknowledgement, simulator exit code zero, and context-managed process/socket cleanup. A limit exhaustion or timeout fails the walkthrough.
+
+Observed on this toolchain for both copied builds: `nm` reports `main=000100cc` and `g_counter=00020000`. O0 begins `0x100cc: b480 push {r7}` followed by `0x100ce: af00 add r7, sp, #0`; O2 begins `0x100cc: 232a movs r3, #42` followed by `0x100ce: 4a03 ldr r2, [pc, #12]`. The controlled run reaches `main` after 16 startup instructions. The required unittest command completed with 2 tests passing (O0 and O2), exit code 0.
+
+This demonstrates **instruction stepping**: one simulator instruction advances the architectural PC by the encoded instruction width (2 or 4 bytes here). It does not provide **source stepping**, which would group machine instructions according to compiler debug-line mappings and stop on source lines. Optimization can change that mapping and instruction sequence; this walkthrough makes no source-line stepping claim.
