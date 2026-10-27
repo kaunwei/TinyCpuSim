@@ -163,5 +163,70 @@ int main() {
         self.assertEqual(proc.returncode, 0, f"Failed with stderr:\n{proc.stderr}")
 
 
+    def test_stop_followed_by_half_close(self):
+        source = r"""
+#include <tinyarmsim/firmware_control.hpp>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <cassert>
+#include <string>
+
+int main() {
+    int sv[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+
+    tinyarmsim::FirmwareControl control(sv[0]);
+
+    // Send "stop\n" and immediately half-close write side
+    assert(write(sv[1], "stop\n", 5) == 5);
+    assert(shutdown(sv[1], SHUT_WR) == 0);
+
+    // Now call stop_requested
+    assert(control.stop_requested());
+    assert(!control.closed_without_stop());
+
+    // Exact stopped ack should be received on sv[1]
+    char buf[128] = {0};
+    ssize_t n = read(sv[1], buf, sizeof(buf) - 1);
+    assert(n > 0);
+    std::string ack(buf, n);
+    assert(ack == "{\"event\":\"stopped\",\"reason\":\"requested\"}\n");
+
+    close(sv[1]);
+    return 0;
+}
+"""
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, f"Failed with stderr:\n{proc.stderr}")
+
+    def test_partial_incomplete_stop_plus_eof(self):
+        source = r"""
+#include <tinyarmsim/firmware_control.hpp>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <cassert>
+#include <string>
+
+int main() {
+    int sv[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+
+    tinyarmsim::FirmwareControl control(sv[0]);
+
+    // Send incomplete stop "sto" and close
+    assert(write(sv[1], "sto", 3) == 3);
+    close(sv[1]);
+
+    // Should result in stop_requested true and closed_without_stop true
+    assert(control.stop_requested());
+    assert(control.closed_without_stop());
+
+    return 0;
+}
+"""
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, f"Failed with stderr:\n{proc.stderr}")
+
+
 if __name__ == "__main__":
     unittest.main()

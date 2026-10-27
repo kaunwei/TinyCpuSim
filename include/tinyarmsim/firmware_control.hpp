@@ -35,6 +35,7 @@ public:
                                                        stop_requested_(other.stop_requested_),
                                                        closed_without_stop_(other.closed_without_stop_),
                                                        paused_(other.paused_),
+                                                       eof_reached_(other.eof_reached_),
                                                        register_provider_(std::move(other.register_provider_)),
                                                        buffer_(std::move(other.buffer_)) {
         other.fd_ = -1;
@@ -49,6 +50,7 @@ public:
             stop_requested_ = other.stop_requested_;
             closed_without_stop_ = other.closed_without_stop_;
             paused_ = other.paused_;
+            eof_reached_ = other.eof_reached_;
             register_provider_ = std::move(other.register_provider_);
             buffer_ = std::move(other.buffer_);
             other.fd_ = -1;
@@ -67,6 +69,7 @@ public:
 
         read_available();
         process_lines();
+        check_eof_status();
 
         while (paused_ && !stop_requested_) {
             if (fd_ < 0 || closed_without_stop_) {
@@ -91,6 +94,7 @@ public:
 
             read_available();
             process_lines();
+            check_eof_status();
         }
 
         if (closed_without_stop_) {
@@ -106,6 +110,12 @@ public:
     }
 
 private:
+    void check_eof_status() {
+        if (eof_reached_ && !stop_requested_) {
+            closed_without_stop_ = true;
+        }
+    }
+
     void process_lines() {
         while (true) {
             auto pos = buffer_.find('\n');
@@ -145,7 +155,7 @@ private:
     }
 
     void read_available() {
-        if (fd_ < 0 || closed_without_stop_) {
+        if (fd_ < 0 || closed_without_stop_ || eof_reached_) {
             return;
         }
 
@@ -160,9 +170,7 @@ private:
                 }
             } else if (n == 0) {
                 // EOF reached
-                if (!stop_requested_) {
-                    closed_without_stop_ = true;
-                }
+                eof_reached_ = true;
                 break;
             } else {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -172,9 +180,7 @@ private:
                     continue;
                 }
                 // Other read error treated as EOF/closed
-                if (!stop_requested_) {
-                    closed_without_stop_ = true;
-                }
+                eof_reached_ = true;
                 break;
             }
         }
@@ -203,6 +209,7 @@ private:
     bool stop_requested_ = false;
     bool closed_without_stop_ = false;
     bool paused_ = false;
+    bool eof_reached_ = false;
     std::function<std::string()> register_provider_;
     std::string buffer_;
 };
