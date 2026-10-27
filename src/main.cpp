@@ -226,6 +226,9 @@ int main(int argc, char* argv[]) {
         slice_manager.flush_final_slice(interp_stats);
     }
     print_banner(passed, exit_code, fault_msg, stats);
+    if (quiet && !passed && !fault_msg.empty()) {
+        std::cerr << fault_msg << "\n";
+    }
     cout_redirect.restore();
     if (enable_firmware && !soc.uart->get_tx_output().empty()) {
         std::cout << soc.uart->get_tx_output();
