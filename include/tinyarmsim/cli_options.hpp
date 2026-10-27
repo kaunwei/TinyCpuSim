@@ -11,6 +11,8 @@ struct CliOptions {
     std::string topdown_format = "text";
     bool enable_log = false, enable_firmware = false, enable_uarch = false;
     bool enable_all_perf = false, enable_topdown = false, quiet = false;
+    int control_fd = -1;
+    bool max_steps_explicit = false;
     uint64_t max_steps = 1000000000;
     uarch::SliceConfig slice_cfg;
 };
@@ -139,8 +141,28 @@ inline CliParseResult parse_cli_options(const std::vector<std::string>& args) {
         } else if (arg == "-m" || arg == "--max-steps") {
             if (i + 1 < args.size()) {
                 options.max_steps = std::stoull(args[++i]);
+                options.max_steps_explicit = true;
             } else {
                 result.diagnostic = "Error: --max-steps requires a number argument.\n";
+                return result;
+            }
+        } else if (arg == "--control-fd") {
+            if (i + 1 < args.size()) {
+                const std::string& val_str = args[++i];
+                try {
+                    size_t pos = 0;
+                    long long val = std::stoll(val_str, &pos);
+                    if (pos != val_str.size() || val < 0) {
+                        result.diagnostic = "Error: --control-fd requires a nonnegative integer argument.\n";
+                        return result;
+                    }
+                    options.control_fd = static_cast<int>(val);
+                } catch (...) {
+                    result.diagnostic = "Error: --control-fd requires a nonnegative integer argument.\n";
+                    return result;
+                }
+            } else {
+                result.diagnostic = "Error: --control-fd requires a nonnegative integer argument.\n";
                 return result;
             }
         } else if (arg == "--elf") {
