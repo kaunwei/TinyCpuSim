@@ -227,6 +227,34 @@ int main() {
         proc = run_cpp(source, timeout=5)
         self.assertEqual(proc.returncode, 0, f"Failed with stderr:\n{proc.stderr}")
 
+    def test_stop_followed_by_full_close_no_sigpipe(self):
+        source = r"""
+#include <tinyarmsim/firmware_control.hpp>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <cassert>
+
+int main() {
+    int sv[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+
+    tinyarmsim::FirmwareControl control(sv[0]);
+
+    // Peer writes "stop\n" and immediately closes entirely (not half-close)
+    assert(write(sv[1], "stop\n", 5) == 5);
+    close(sv[1]);
+
+    // Control owner processes the command; sending ack must not trigger SIGPIPE
+    assert(control.stop_requested());
+    assert(!control.closed_without_stop());
+
+    return 0;
+}
+"""
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, f"Failed with stderr:\n{proc.stderr}")
+
+
 
 if __name__ == "__main__":
     unittest.main()

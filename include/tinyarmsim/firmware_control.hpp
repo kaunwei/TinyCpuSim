@@ -6,6 +6,7 @@
 #include <poll.h>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
 #include <unistd.h>
 
 namespace tinyarmsim {
@@ -191,7 +192,7 @@ private:
         const char* ptr = msg.data();
         size_t remaining = msg.size();
         while (remaining > 0) {
-            ssize_t n = ::write(fd_, ptr, remaining);
+            ssize_t n = ::send(fd_, ptr, remaining, MSG_NOSIGNAL);
             if (n > 0) {
                 ptr += n;
                 remaining -= static_cast<size_t>(n);
@@ -199,7 +200,7 @@ private:
                 if (errno == EINTR) {
                     continue;
                 }
-                // If write fails (e.g. EPIPE), break
+                // If write fails (e.g. EPIPE or ECONNRESET), peer closed or reset connection
                 break;
             }
         }
