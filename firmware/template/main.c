@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "fw_config.h"
 
 volatile uint32_t g_counter = 0;
 

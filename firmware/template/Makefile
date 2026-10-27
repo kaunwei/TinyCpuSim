@@ -4,11 +4,12 @@ CFLAGS ?= -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib $(OPT) -g -Wall -Wext
 LDFLAGS ?= -T linker.ld
 
 SRCS = startup.s main.c
+HEADERS = fw_config.h
 TARGET = template.elf
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) linker.ld
+$(TARGET): $(SRCS) $(HEADERS) linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@
 
 clean:
