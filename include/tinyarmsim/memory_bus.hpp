@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -183,6 +184,27 @@ public:
     [[nodiscard]] const uint8_t* get_raw_ptr(uint32_t address, size_t length) const {
         check_bounds(address, length);
         return &memory_[address];
+    }
+
+    [[nodiscard]] std::optional<std::vector<uint8_t>> read_ram_bytes(uint32_t address, size_t length) const {
+        if (length == 0 || length > 64) {
+            return std::nullopt;
+        }
+        if (static_cast<size_t>(address) >= size_ || length > (size_ - static_cast<size_t>(address))) {
+            return std::nullopt;
+        }
+        uint64_t req_start = static_cast<uint64_t>(address);
+        uint64_t req_end = req_start + length;
+        for (const auto& slot : mmio_devices_) {
+            uint64_t slot_start = static_cast<uint64_t>(slot.base);
+            uint64_t slot_end = slot_start + static_cast<uint64_t>(slot.span);
+            if (req_start < slot_end && req_end > slot_start) {
+                return std::nullopt;
+            }
+        }
+        std::vector<uint8_t> result(length);
+        std::memcpy(result.data(), &memory_[address], length);
+        return result;
     }
 
 private:
