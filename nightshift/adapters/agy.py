@@ -167,6 +167,17 @@ if text:
         pass
 
 if payload is None:
+    matches = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", full_log, re.DOTALL)
+    for m in reversed(matches):
+        try:
+            parsed = json.loads(m.strip())
+            if isinstance(parsed, dict) and "outcome" in parsed:
+                payload = parsed
+                break
+        except ValueError:
+            pass
+
+if payload is None:
     for line in reversed(full_log.strip().splitlines()):
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
@@ -179,23 +190,21 @@ if payload is None:
                 pass
 
 if payload is None:
-    matches = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", full_log, re.DOTALL)
-    for m in reversed(matches):
+    decoder = json.JSONDecoder()
+    pos = 0
+    while True:
+        pos = full_log.find("{", pos)
+        if pos == -1:
+            break
         try:
-            parsed = json.loads(m.strip())
+            parsed, end_idx = decoder.raw_decode(full_log, pos)
             if isinstance(parsed, dict) and "outcome" in parsed:
-                payload = parsed
-                break
+                if not full_log[end_idx:].strip():
+                    payload = parsed
+                    break
+            pos += 1
         except ValueError:
-            pass
-
-if payload is None:
-    try:
-        parsed = json.loads(full_log.strip().splitlines()[-1])
-        if isinstance(parsed, dict):
-            payload = parsed
-    except (ValueError, IndexError):
-        pass
+            pos += 1
 
 if not isinstance(payload, dict):
     markers = (("SCOPE_BLOCKED", "scope_blocked"), ("BLOCKED", "blocked"),
