@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <functional>
 #include <iostream>
 #include <iomanip>
 #include <unordered_map>
@@ -816,6 +817,11 @@ public:
     }
 
     uint32_t run(uint64_t max_steps = 1000000) {
+        return run_loop(max_steps, false, {});
+    }
+
+private:
+    uint32_t run_loop(uint64_t max_steps, bool unlimited, const std::function<bool()>& stop_requested) {
         auto start_time = std::chrono::high_resolution_clock::now();
 
         auto update_timing = [&]() {
@@ -827,7 +833,13 @@ public:
             }
         };
 
-        for (uint64_t step_count = 0; step_count < max_steps; ++step_count) {
+        for (uint64_t step_count = 0; unlimited || step_count < max_steps; ++step_count) {
+            if (stop_requested && stop_requested()) {
+                update_timing();
+                flush_slice();
+                return 0;
+            }
+
             try {
                 step();
             } catch (const CpuFaultException& e) {
