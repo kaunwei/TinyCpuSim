@@ -4,6 +4,47 @@ from tests.fw_cpp_test_support import run_cpp
 
 
 class TestFwControlBreakpoint(unittest.TestCase):
+    def test_breakpoint_set_while_paused_hits_before_continue_executes(self):
+        source = r"""
+#include <tinyarmsim/firmware_control.hpp>
+#include <cassert>
+#include <poll.h>
+#include <string>
+#include <sys/socket.h>
+#include <thread>
+#include <unistd.h>
+
+static std::string read_line(int fd) {
+    pollfd pfd{fd, POLLIN, 0};
+    assert(poll(&pfd, 1, 1000) == 1);
+    std::string line;
+    char c = 0;
+    while (::read(fd, &c, 1) == 1 && c != '\n') line.push_back(c);
+    return line;
+}
+
+int main() {
+    int sv[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    tinyarmsim::FirmwareControl control(sv[0]);
+    const uint32_t pc = 0x10080;
+    control.set_pc_provider([&]() { return pc; });
+    assert(write(sv[1], "pause\n", 6) == 6);
+    std::thread runner([&]() { assert(control.stop_requested()); });
+    assert(read_line(sv[1]) == "{\"event\":\"paused\"}");
+    assert(write(sv[1], "break 0x10080\ncontinue\n", 23) == 23);
+    assert(read_line(sv[1]) == "{\"event\":\"breakpoint_set\",\"pc\":65664}");
+    assert(read_line(sv[1]) == "{\"event\":\"continued\"}");
+    assert(read_line(sv[1]) == "{\"event\":\"breakpoint\",\"pc\":65664}");
+    assert(write(sv[1], "stop\n", 5) == 5);
+    assert(read_line(sv[1]) == "{\"event\":\"stopped\",\"reason\":\"requested\"}");
+    runner.join();
+    close(sv[1]);
+}
+"""
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, f"stderr:\n{proc.stderr}")
+
     def test_breakpoint_parsing_and_preserves_last_valid_address(self):
         source = r"""
 #include <tinyarmsim/firmware_control.hpp>

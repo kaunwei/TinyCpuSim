@@ -44,6 +44,7 @@ public:
                                                        transport_failed_(other.transport_failed_),
                                                        paused_(other.paused_),
                                                        step_pending_(other.step_pending_),
+                                                       breakpoint_hit_reported_(other.breakpoint_hit_reported_),
                                                        stepped_notify_pending_(other.stepped_notify_pending_),
                                                        eof_reached_(other.eof_reached_),
                                                        register_provider_(std::move(other.register_provider_)),
@@ -65,6 +66,7 @@ public:
             transport_failed_ = other.transport_failed_;
             paused_ = other.paused_;
             step_pending_ = other.step_pending_;
+            breakpoint_hit_reported_ = other.breakpoint_hit_reported_;
             stepped_notify_pending_ = other.stepped_notify_pending_;
             eof_reached_ = other.eof_reached_;
             register_provider_ = std::move(other.register_provider_);
@@ -113,6 +115,7 @@ public:
             const uint32_t pc = pc_provider_();
             if (pc == *breakpoint_) {
                 paused_ = true;
+                breakpoint_hit_reported_ = true;
                 send_response("{\"event\":\"breakpoint\",\"pc\":" + std::to_string(pc) + "}\n");
             }
         }
@@ -214,8 +217,19 @@ private:
                 paused_ = true;
                 send_response("{\"event\":\"paused\"}\n");
             } else if (line == "continue") {
+                const bool was_paused = paused_;
                 paused_ = false;
                 send_response("{\"event\":\"continued\"}\n");
+                if (was_paused && breakpoint_hit_reported_) {
+                    breakpoint_hit_reported_ = false;
+                } else if (was_paused && breakpoint_ && pc_provider_) {
+                    const uint32_t pc = pc_provider_();
+                    if (pc == *breakpoint_) {
+                        paused_ = true;
+                        breakpoint_hit_reported_ = true;
+                        send_response("{\"event\":\"breakpoint\",\"pc\":" + std::to_string(pc) + "}\n");
+                    }
+                }
             } else if (line == "step") {
                 if (paused_) {
                     step_pending_ = true;
@@ -421,6 +435,7 @@ private:
     bool transport_failed_ = false;
     bool paused_ = false;
     bool step_pending_ = false;
+    bool breakpoint_hit_reported_ = false;
     bool stepped_notify_pending_ = false;
     bool eof_reached_ = false;
     std::function<std::string()> register_provider_;
