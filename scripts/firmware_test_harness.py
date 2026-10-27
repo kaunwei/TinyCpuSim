@@ -37,6 +37,7 @@ def run_bounded(command: List[str], timeout: float) -> subprocess.CompletedProce
         start_new_session=True,
     )
 
+    pid = proc.pid
     try:
         stdout_data, stderr_data = proc.communicate(timeout=timeout)
         return subprocess.CompletedProcess(
@@ -46,10 +47,8 @@ def run_bounded(command: List[str], timeout: float) -> subprocess.CompletedProce
             stderr=stderr_data,
         )
     except subprocess.TimeoutExpired:
-        pid = proc.pid
         try:
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
 
@@ -66,3 +65,14 @@ def run_bounded(command: List[str], timeout: float) -> subprocess.CompletedProce
             stderr=stderr_data or "",
             pid=pid,
         )
+    except BaseException:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.kill()
+            proc.wait(timeout=2.0)
+        except Exception:
+            pass
+        raise
