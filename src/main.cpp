@@ -9,6 +9,7 @@
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/loader.hpp"
 #include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/firmware_control.hpp"
 #include "tinyarmsim/mmio/soc_platform.hpp"
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"
@@ -204,7 +205,14 @@ int main(int argc, char* argv[]) {
     std::string fault_msg;
 
     try {
-        exit_code = interpreter.run(max_steps);
+        if (enable_firmware && options.control_fd >= 0) {
+            tinyarmsim::FirmwareControl control(options.control_fd);
+            exit_code = interpreter.run_until([&control]() {
+                return control.stop_requested();
+            }, options.max_steps_explicit ? max_steps : 0);
+        } else {
+            exit_code = interpreter.run(max_steps);
+        }
         passed = (exit_code == 0);
     } catch (const tinyarmsim::CpuFaultException& e) {
         fault_msg = e.what();
