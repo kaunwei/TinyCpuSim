@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
             "-o",
             str(cls.bin_path),
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if res.returncode != 0:
             raise RuntimeError(f"Wrapper compilation failed:\n{res.stderr}")
 
@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
                 break
         self.assertIsNotNone(bad_elf, "No existing malformed/invalid ELF found")
 
-        res = subprocess.run([str(self.bin_path), str(bad_elf)], capture_output=True, text=True)
+        res = subprocess.run([str(self.bin_path), str(bad_elf)], capture_output=True, text=True, timeout=5)
         self.assertIn("Error loading ELF:", res.stderr)
         self.assertEqual(res.returncode, 0, f"Failed with rc={res.returncode}. Stderr: {res.stderr}")
 

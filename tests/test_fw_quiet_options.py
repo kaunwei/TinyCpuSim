@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {{
             "-o",
             str(cls.bin_path),
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if res.returncode != 0:
             raise RuntimeError(f"Compilation failed:\n{res.stderr}")
 
@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {{
 
     def run_client(self, args):
         cmd = [str(self.bin_path)] + args
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
         lines = res.stdout.strip().splitlines()
         kv = {}
         for line in lines:
