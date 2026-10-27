@@ -210,10 +210,14 @@ int main(int argc, char* argv[]) {
             exit_code = interpreter.run_until([&control]() {
                 return control.stop_requested();
             }, options.max_steps_explicit ? max_steps : 0);
+            if (control.closed_without_stop() || control.transport_failed()) {
+                exit_code = 1;
+                fault_msg = "Firmware control closed without stop or transport failed";
+            }
         } else {
             exit_code = interpreter.run(max_steps);
         }
-        passed = (exit_code == 0);
+        passed = (exit_code == 0 && fault_msg.empty());
     } catch (const tinyarmsim::CpuFaultException& e) {
         fault_msg = e.what();
         passed = false;
