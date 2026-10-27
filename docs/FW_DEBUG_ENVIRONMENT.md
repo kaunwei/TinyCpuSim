@@ -1,5 +1,26 @@
 # Firmware Debug Environment Baseline
 
+## Verified Host and Build Baseline
+
+Evidence collected from the existing checkout and artifacts on 2026-10-28; no build or configuration was changed.
+
+- **Host OS:** `uname -a` reported `Linux shadow 6.8.0-139-generic #139-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug 1 03:52:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux`.
+- **Normal Arm tools:** `/usr/bin/arm-none-eabi-gcc --version` reported `arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009`; `/usr/bin/arm-none-eabi-objdump --version` reported `GNU objdump (2.42-1ubuntu1+23) 2.42`.
+- **Simulator revision/version:** repository `HEAD` is `f89e219`; the existing `./build/tinycpusim` identifies itself as `TinyCpuSim v0.1.0` in its usage output. `--version` is not a supported option.
+- **Existing CMake build:** `build/CMakeCache.txt` reports `CMAKE_BUILD_TYPE:STRING=Release` (only existing cache found). Debug flags are recorded as `-g`, but this build is not Debug; a Debug build baseline is therefore unresolved.
+- **Existing ELF debug evidence:** `/usr/bin/arm-none-eabi-objdump -h build/isa_boot_acceptance.elf` lists `.text`, `.data`, `.bss`, `.ARM.attributes`, and `.comment`, with no `.debug_*` sections. The symbol table contains linker/source names and functions such as `main` (`0x000100cc`) and `exercise_isa_families` (`0x00010114`), but no DWARF debug-section evidence. Source-level debug information is unresolved; these symbols do not establish source-line debugging.
+
+Reproduce the inspected build and ELF evidence without reconfiguring:
+
+```bash
+uname -a
+/usr/bin/arm-none-eabi-gcc --version
+/usr/bin/arm-none-eabi-objdump --version
+rg -n 'CMAKE_BUILD_TYPE|CMAKE_CXX_FLAGS_DEBUG|CMAKE_C_FLAGS_DEBUG' build/CMakeCache.txt
+/usr/bin/arm-none-eabi-objdump -h build/isa_boot_acceptance.elf
+/usr/bin/arm-none-eabi-objdump -t build/isa_boot_acceptance.elf
+```
+
 ## Toolchain
 
 Both requested GNU Arm Embedded tools are available in `/usr/bin`:
