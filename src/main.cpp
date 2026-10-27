@@ -94,6 +94,7 @@ int main(int argc, char* argv[]) {
     bool enable_log = options.enable_log, enable_firmware = options.enable_firmware;
     bool enable_uarch = options.enable_uarch, enable_all_perf = options.enable_all_perf;
     bool enable_topdown = options.enable_topdown;
+    bool quiet = options.quiet;
     uint64_t max_steps = options.max_steps;
     auto& slice_cfg = options.slice_cfg;
     if (elf_path.empty()) {
@@ -136,6 +137,15 @@ int main(int argc, char* argv[]) {
     tinyarmsim::uarch::SliceManager slice_manager(slice_cfg);
     if (!enable_uarch && slice_cfg.is_active()) {
         interpreter.set_slice_manager(&slice_manager);
+    }
+
+    std::streambuf* original_cout_buf = nullptr;
+    std::ofstream null_out;
+    if (quiet) {
+        null_out.open("/dev/null");
+        if (null_out.is_open()) {
+            original_cout_buf = std::cout.rdbuf(null_out.rdbuf());
+        }
     }
 
     std::cout << "TinyCpuSim v" << tinyarmsim::get_version_string() << "\n"
@@ -195,6 +205,9 @@ int main(int argc, char* argv[]) {
         slice_manager.flush_final_slice(interp_stats);
     }
     print_banner(passed, exit_code, fault_msg, stats);
+    if (original_cout_buf != nullptr) {
+        std::cout.rdbuf(original_cout_buf);
+    }
     if (enable_firmware && !soc.uart->get_tx_output().empty()) {
         std::cout << soc.uart->get_tx_output();
         if (soc.uart->get_tx_output().back() != '\n') std::cout << '\n';
