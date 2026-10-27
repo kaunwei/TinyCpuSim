@@ -10,7 +10,7 @@ struct CliOptions {
     std::string elf_path, coverage_path, uarch_config_path, uarch_stats_path, topdown_path;
     std::string topdown_format = "text";
     bool enable_log = false, enable_firmware = false, enable_uarch = false;
-    bool enable_all_perf = false, enable_topdown = false;
+    bool enable_all_perf = false, enable_topdown = false, quiet = false;
     uint64_t max_steps = 1000000000;
     uarch::SliceConfig slice_cfg;
 };
@@ -37,6 +37,8 @@ inline CliParseResult parse_cli_options(const std::vector<std::string>& args) {
             return result;
         } else if (arg == "-l" || arg == "--log" || arg == "--verbose") {
             options.enable_log = true;
+        } else if (arg == "--quiet") {
+            options.quiet = true;
         } else if (arg == "--firmware") {
             options.enable_firmware = true;
         } else if (arg == "--uarch" || arg == "--uarch-mode") {
