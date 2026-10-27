@@ -820,6 +820,10 @@ public:
         return run_loop(max_steps, false, {});
     }
 
+    uint32_t run_until(const std::function<bool()>& stop_requested, uint64_t max_steps = 0) {
+        return run_loop(max_steps, max_steps == 0, stop_requested);
+    }
+
 private:
     uint32_t run_loop(uint64_t max_steps, bool unlimited, const std::function<bool()>& stop_requested) {
         auto start_time = std::chrono::high_resolution_clock::now();
