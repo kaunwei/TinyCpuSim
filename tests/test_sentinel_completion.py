@@ -29,8 +29,10 @@ class SentinelCompletionTests(unittest.TestCase):
         temporary.write_text(json.dumps({'state': state, 'current_task': task, 'pid': os.getpid()}))
         temporary.replace(path)
 
-    def start(self, task='TASK-ONE', limit='3'):
+    def start(self, task='TASK-ONE', limit='3', env_overrides=None):
         watcher_env = os.environ.copy()
+        if env_overrides:
+            watcher_env.update(env_overrides)
         for name, filename in {
             'TASKS_FILE': 'tasks.txt', 'TASKS_DONE_FILE': 'tasks.done',
             'STATUS_FILE': 'worker.status', 'PROGRESS_FILE': 'progress.log',
@@ -193,3 +195,21 @@ class SentinelCompletionTests(unittest.TestCase):
             self.done()
             self.audit()
             self.assert_completed()
+
+    def test_inactive_worker_triggers_sentinel_inactive(self):
+        (self.ns / 'tasks.txt').write_text('TASK-ONE | LEVEL: 1\n')
+        self.status('IDLE')
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 5, out + err)
+        self.assertIn('[SENTINEL_INACTIVE]', out)
+
+    def test_long_running_compilation_or_test_does_not_trigger_inactive(self):
+        self.status('RUNNING', 'TASK-ONE')
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        time.sleep(1.2)
+        self.assertIsNone(self.process.poll(), 'active compiling/testing worker must not trigger inactivity')
+        self.done()
+        self.audit()
+        self.status('IDLE')
+        self.assert_completed()

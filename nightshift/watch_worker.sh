@@ -29,9 +29,11 @@ AGENT_EVENTS_FILE="${WORKER_AGENT_EVENTS_FILE:-$NIGHTSHIFT_DIR/.worker-agent-eve
 AGENT_EVENTS_CURSOR_FILE="${WORKER_AGENT_EVENTS_CURSOR_FILE:-$NIGHTSHIFT_DIR/.worker-agent-events.cursor.json}"
 AGENT_EVENTS_ACK_FILE="${WORKER_AGENT_EVENTS_ACK_FILE:-$NIGHTSHIFT_DIR/.worker-agent-events.acks.jsonl}"
 AGENT_DISPATCH_GATE_FILE="${AGENT_DISPATCH_GATE_FILE:-$NIGHTSHIFT_DIR/.worker-dispatch-gate.json}"
+INACTIVE_TIMEOUT="${WORKER_INACTIVE_TIMEOUT:-180}"
 
 SECONDS=0
 START_TIME=$SECONDS
+LAST_ACTIVE_SECONDS=$SECONDS
 LAST_DONE_BYTES=0
 BASELINE_AUDITS=$(mktemp "${TMPDIR:-/tmp}/nightshift-audit-baseline.XXXXXX") || exit 1
 trap 'rm -f "$BASELINE_AUDITS"' EXIT
@@ -200,11 +202,14 @@ while true; do
 
   REMAINING_TASKS=$(grep -v '^[[:space:]]*#' "$TASKS_FILE" 2>/dev/null | grep -v '^[[:space:]]*$' | wc -l | tr -d '[:space:]')
   ACTIVE_TASK=0
+  ANY_AGENT_ACTIVE=0
   # Treat any RUNNING observation in this iteration as active. A transition to
   # IDLE after the ledger read must not make us expire before reading its DONE.
-  if { [ "$STATE" = "RUNNING" ] || [ "$STATE" = "VERIFYING" ]; } &&
-     { [ -z "$EXPECTED_TASK_ID" ] || [ "$CURRENT_TASK" = "$EXPECTED_TASK_ID" ]; }; then
-    ACTIVE_TASK=1
+  if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "VERIFYING" ]; then
+    ANY_AGENT_ACTIVE=1
+    if [ -z "$EXPECTED_TASK_ID" ] || [ "$CURRENT_TASK" = "$EXPECTED_TASK_ID" ]; then
+      ACTIVE_TASK=1
+    fi
   fi
   # A task result is not delivered while any worker still executes that task.
   for active_status in "$STATUS_FILE" "$NIGHTSHIFT_DIR"/worker.*.status; do
@@ -212,11 +217,16 @@ while true; do
     ACTIVE_STATUS_SNAPSHOT=$(cat "$active_status" 2>/dev/null || true)
     active_state=$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"state":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
     active_id=$(canonical_task "$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"current_task":[[:space:]]*"[^"]*"' || true)")
-    if { [ "$active_state" = "RUNNING" ] || [ "$active_state" = "VERIFYING" ]; } &&
-       { [ -z "$EXPECTED_TASK_ID" ] || [ "$active_id" = "$EXPECTED_TASK_ID" ]; }; then
-      ACTIVE_TASK=1
+    if [ "$active_state" = "RUNNING" ] || [ "$active_state" = "VERIFYING" ]; then
+      ANY_AGENT_ACTIVE=1
+      if [ -z "$EXPECTED_TASK_ID" ] || [ "$active_id" = "$EXPECTED_TASK_ID" ]; then
+        ACTIVE_TASK=1
+      fi
     fi
   done
+  if [ "$ANY_AGENT_ACTIVE" -eq 1 ]; then
+    LAST_ACTIVE_SECONDS=$SECONDS
+  fi
 
   for task_id in $PENDING_DONE_TASKS; do
     FRESH_AUDIT=0
@@ -296,6 +306,12 @@ while true; do
   if [ "$MAX_WAIT_SECONDS" -gt 0 ] && [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ] && [ "$ACTIVE_TASK" -eq 0 ]; then
     echo "[SENTINEL_TIMEOUT] Exceeded ${MAX_WAIT_SECONDS}s waiting for task completion; no task failure inferred."
     exit 2
+  fi
+
+  INACTIVE_SECONDS=$(( SECONDS - LAST_ACTIVE_SECONDS ))
+  if [ "$INACTIVE_TIMEOUT" -gt 0 ] && [ "$INACTIVE_SECONDS" -ge "$INACTIVE_TIMEOUT" ] && [ "$ANY_AGENT_ACTIVE" -eq 0 ]; then
+    echo "[SENTINEL_INACTIVE] No agent active on worker for ${INACTIVE_SECONDS}s (State: ${STATE}, Remaining: ${REMAINING_TASKS}${EXPECTED_TASK_ID:+, Task: ${EXPECTED_TASK_ID}})."
+    exit 5
   fi
 
   sleep "$POLL_INTERVAL"
