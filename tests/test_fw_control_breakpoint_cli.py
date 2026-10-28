@@ -83,6 +83,46 @@ class TestFwControlBreakpointCli(unittest.TestCase):
             session.communicate(timeout=2.0)
             self.assertEqual(session.process.returncode, 0)
 
+    def test_replacing_breakpoint_after_step_reports_new_hit(self):
+        with controlled_firmware(
+            initial_commands="break 0x10080\n", max_steps=1000, host_timeout=2
+        ) as session:
+            self.assertEqual(
+                session.receive(), {"event": "breakpoint_set", "pc": 65664}
+            )
+            self.assertEqual(
+                session.receive(), {"event": "breakpoint", "pc": 65664}
+            )
+
+            session.send("step\nregs\n")
+            self.assertEqual(session.receive(), {"event": "stepped"})
+            after_step = session.receive()
+            self.assertEqual(after_step.get("event"), "regs")
+            self.assertEqual(after_step.get("pc"), 0x10084)
+            self.assertEqual(after_step.get("steps"), 1)
+
+            session.send("break 0x10084\ncontinue\n")
+            self.assertEqual(
+                session.receive(), {"event": "breakpoint_set", "pc": 65668}
+            )
+            self.assertEqual(session.receive(), {"event": "continued"})
+            self.assertEqual(
+                session.receive(), {"event": "breakpoint", "pc": 65668}
+            )
+
+            session.send("regs\n")
+            at_new_hit = session.receive()
+            self.assertEqual(at_new_hit.get("event"), "regs")
+            self.assertEqual(at_new_hit.get("pc"), 0x10084)
+            self.assertEqual(at_new_hit.get("steps"), 1)
+
+            session.send("stop\n")
+            self.assertEqual(
+                session.receive(), {"event": "stopped", "reason": "requested"}
+            )
+            session.communicate(timeout=2.0)
+            self.assertEqual(session.process.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

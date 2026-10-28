@@ -233,12 +233,14 @@ private:
             } else if (line == "step") {
                 if (paused_) {
                     step_pending_ = true;
+                    breakpoint_hit_reported_ = false;
                     break;
                 } else {
                     send_response("{\"error\":\"step requires pause\"}\n");
                 }
             } else if (line == "break clear") {
                 breakpoint_.reset();
+                breakpoint_hit_reported_ = false;
                 send_response("{\"event\":\"breakpoint_cleared\"}\n");
             } else if (line == "break" || line.rfind("break ", 0) == 0 || line.rfind("break\t", 0) == 0) {
                 uint32_t address = 0;
@@ -248,6 +250,7 @@ private:
                     send_response("{\"error\":\"missing pc provider\"}\n");
                 } else {
                     breakpoint_ = address;
+                    breakpoint_hit_reported_ = false;
                     send_response("{\"event\":\"breakpoint_set\",\"pc\":" + std::to_string(address) + "}\n");
                 }
             } else if (line == "regs") {
