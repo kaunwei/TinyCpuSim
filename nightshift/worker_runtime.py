@@ -252,7 +252,16 @@ def _read_json_lines(path):
     return rows
 
 
-def _watch_agent_events_locked(events_path, cursor_path, acknowledgements_path, gate_path, handoff_path):
+def format_planner_review_line(event):
+    event_id = event.get("event_id", "unknown")
+    return (f"[PLANNER_REVIEW_REQUIRED] Event={event_id} Cause={event.get('cause', 'unknown')} "
+            f"Task={event.get('task_id', 'unknown')} Registration={event.get('registration_id', 'unknown')} "
+            f"Score={event.get('previous_score', '?')}->{event.get('current_score', '?')} "
+            f"Level={event.get('previous_level', '?')}->{event.get('current_level', '?')}; "
+            "review affected queued work and acknowledge or revise it before dispatch resumes.")
+
+
+def _watch_agent_events_locked(events_path, cursor_path, acknowledgements_path, gate_path, handoff_path, replay_pending=False):
     events = _read_json_lines(events_path)
     acknowledgements = _read_json_lines(acknowledgements_path)
     acked = {item.get("event_id") for item in acknowledgements}
@@ -268,18 +277,17 @@ def _watch_agent_events_locked(events_path, cursor_path, acknowledgements_path, 
         event_id = event.get("event_id")
         if not isinstance(event_id, str) or not event_id:
             raise ValueError("agent event requires a non-empty event_id")
+        line = format_planner_review_line(event)
         if event_id not in seen:
             if event_id not in already_handed_off:
-                line = (f"[PLANNER_REVIEW_REQUIRED] Event={event_id} Cause={event.get('cause', 'unknown')} "
-                        f"Task={event.get('task_id', 'unknown')} Registration={event.get('registration_id', 'unknown')} "
-                        f"Score={event.get('previous_score', '?')}->{event.get('current_score', '?')} "
-                        f"Level={event.get('previous_level', '?')}->{event.get('current_level', '?')}; "
-                        "review affected queued work and acknowledge or revise it before dispatch resumes.")
                 with handoff_path.open("a", encoding="utf-8") as stream:
                     stream.write(line + "\n")
                 already_handed_off += line + "\n"
-                emitted.append(line)
             seen.add(event_id)
+            if not replay_pending:
+                emitted.append(line)
+        if replay_pending and event_id not in acked:
+            emitted.append(line)
     cursor_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(cursor_path, json.dumps({"version": 1, "seen_event_ids": sorted(seen)},
                                          ensure_ascii=False, indent=2) + "\n")
@@ -292,7 +300,7 @@ def _watch_agent_events_locked(events_path, cursor_path, acknowledgements_path, 
     return emitted
 
 
-def watch_agent_events(events_path, cursor_path, acknowledgements_path, gate_path, handoff_path):
+def watch_agent_events(events_path, cursor_path, acknowledgements_path, gate_path, handoff_path, replay_pending=False):
     gate_path = Path(gate_path)
     gate_path.parent.mkdir(parents=True, exist_ok=True)
     gate_lock = Path(f"{gate_path}.lock")
@@ -307,7 +315,7 @@ def watch_agent_events(events_path, cursor_path, acknowledgements_path, gate_pat
     try:
         return _watch_agent_events_locked(events_path, cursor_path,
                                           acknowledgements_path, gate_path,
-                                          handoff_path)
+                                          handoff_path, replay_pending=replay_pending)
     finally:
         gate_lock.rmdir()
 
@@ -2948,6 +2956,8 @@ def main(argv=None):
     event_watch.add_argument("--acknowledgements", required=True)
     event_watch.add_argument("--gate", required=True)
     event_watch.add_argument("--handoff", required=True)
+    event_watch.add_argument("--replay-pending", action="store_true",
+                             help="Replay all unacknowledged events even if already seen in cursor")
     event_ack = commands.add_parser("agent-event-ack")
     event_ack.add_argument("--events", required=True)
     event_ack.add_argument("--acknowledgements", required=True)
@@ -3090,7 +3100,7 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False))
     elif args.command == "agent-events-watch":
         for line in watch_agent_events(args.events, args.cursor, args.acknowledgements,
-                                       args.gate, args.handoff):
+                                       args.gate, args.handoff, replay_pending=args.replay_pending):
             print(line)
     elif args.command == "agent-event-ack":
         print(json.dumps({"event_id": args.event_id,
