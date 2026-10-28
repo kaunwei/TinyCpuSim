@@ -68,6 +68,103 @@ int main() {
         proc = run_cpp(source, timeout=5)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def test_closed_peer_write_preserves_thread_signal_state(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <cassert>
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
+#include <system_error>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+static void handler(int) {}
+
+int main() {
+    struct sigaction original_action{};
+    struct sigaction action{};
+    action.sa_handler = handler;
+    sigemptyset(&action.sa_mask);
+    assert(sigaction(SIGPIPE, &action, &original_action) == 0);
+
+    sigset_t pipe_set, original_mask;
+    sigemptyset(&pipe_set);
+    sigaddset(&pipe_set, SIGPIPE);
+    assert(pthread_sigmask(SIG_BLOCK, &pipe_set, &original_mask) == 0);
+
+    int fds[2];
+    assert(pipe(fds) == 0);
+    const int original_flags = fcntl(fds[1], F_GETFL);
+    assert(original_flags >= 0);
+    {
+        FirmwareUartOutput output(fds[1]);
+        close(fds[0]);
+
+        // Establish a pending SIGPIPE that the write guard must leave intact.
+        assert(raise(SIGPIPE) == 0);
+        sigset_t pending;
+        assert(sigpending(&pending) == 0);
+        assert(sigismember(&pending, SIGPIPE) == 1);
+        assert(output.enqueue('x'));
+        for (int i = 0; i < 2; ++i) {
+            bool caught = false;
+            try { (void)output.write_pending(); }
+            catch (const std::system_error& error) {
+                caught = true;
+                assert(error.code().value() == EPIPE);
+            }
+            assert(caught);
+            assert(output.pending_bytes() == 1);
+            assert(sigpending(&pending) == 0);
+            assert(sigismember(&pending, SIGPIPE) == 1);
+            sigset_t current_mask;
+            assert(pthread_sigmask(SIG_SETMASK, nullptr, &current_mask) == 0);
+            assert(sigismember(&current_mask, SIGPIPE) == 1);
+        }
+    }
+    sigset_t pending;
+    assert(sigpending(&pending) == 0);
+    assert(sigismember(&pending, SIGPIPE) == 1);
+    struct sigaction after_action{};
+    assert(sigaction(SIGPIPE, nullptr, &after_action) == 0);
+    assert(after_action.sa_handler == handler);
+    assert(pthread_sigmask(SIG_SETMASK, &original_mask, nullptr) == 0);
+
+    // Repeat with SIGPIPE originally unblocked and no preexisting pending signal.
+    sigset_t unblocked_mask;
+    assert(pthread_sigmask(SIG_SETMASK, &original_mask, &unblocked_mask) == 0);
+    assert(sigismember(&unblocked_mask, SIGPIPE) == 0);
+    assert(sigpending(&pending) == 0);
+    assert(sigismember(&pending, SIGPIPE) == 0);
+    int second_pipe[2];
+    assert(pipe(second_pipe) == 0);
+    {
+        FirmwareUartOutput output(second_pipe[1]);
+        close(second_pipe[0]);
+        assert(output.enqueue('y'));
+        bool caught = false;
+        try { (void)output.write_pending(); }
+        catch (const std::system_error& error) {
+            caught = true;
+            assert(error.code().value() == EPIPE);
+        }
+        assert(caught);
+        sigset_t restored_mask;
+        assert(pthread_sigmask(SIG_SETMASK, nullptr, &restored_mask) == 0);
+        assert(sigismember(&restored_mask, SIGPIPE) == 0);
+        assert(sigpending(&pending) == 0);
+        assert(sigismember(&pending, SIGPIPE) == 0);
+        assert(sigaction(SIGPIPE, nullptr, &after_action) == 0);
+        assert(after_action.sa_handler == handler);
+    }
+    close(second_pipe[1]);
+    assert(fcntl(fds[1], F_GETFD) >= 0);
+    close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
