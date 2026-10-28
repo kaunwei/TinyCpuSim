@@ -118,8 +118,9 @@ for task_id in $REPLAY_CANDIDATES; do
   fi
 done
 
-INITIAL_STATE=$(grep -o '"state":[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | cut -d'"' -f4 || true)
-INITIAL_TASK=$(canonical_task "$(grep -o '"current_task":[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null || true)")
+INITIAL_STATUS_SNAPSHOT=$(cat "$STATUS_FILE" 2>/dev/null || true)
+INITIAL_STATE=$(printf '%s\n' "$INITIAL_STATUS_SNAPSHOT" | grep -o '"state":[[:space:]]*"[^"]*"' 2>/dev/null | cut -d'"' -f4 || true)
+INITIAL_TASK=$(canonical_task "$(printf '%s\n' "$INITIAL_STATUS_SNAPSHOT" | grep -o '"current_task":[[:space:]]*"[^"]*"' 2>/dev/null || true)")
 track_task "$EXPECTED_TASK_ID"
 echo "[SENTINEL] Watching background worker (Timeout: ${MAX_WAIT_SECONDS}s, Interval: ${POLL_INTERVAL}s${EXPECTED_TASK_ID:+, Task: ${EXPECTED_TASK_ID}})..."
 
@@ -158,9 +159,10 @@ while true; do
   CURRENT_TASK=""
   WORKER_PID=""
   if [ -f "$STATUS_FILE" ]; then
-    STATE=$(grep -o '"state":[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | cut -d'"' -f4 || true)
-    CURRENT_TASK=$(grep -o '"current_task":[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | grep -Eo 'TASK-[[:alnum:]_.-]+' | head -n 1 || true)
-    WORKER_PID=$(grep -o '"pid":[[:space:]]*[0-9]*' "$STATUS_FILE" 2>/dev/null | awk '{print $2}' || true)
+    STATUS_SNAPSHOT=$(cat "$STATUS_FILE" 2>/dev/null || true)
+    STATE=$(printf '%s\n' "$STATUS_SNAPSHOT" | grep -o '"state":[[:space:]]*"[^"]*"' 2>/dev/null | cut -d'"' -f4 || true)
+    CURRENT_TASK=$(printf '%s\n' "$STATUS_SNAPSHOT" | grep -o '"current_task":[[:space:]]*"[^"]*"' 2>/dev/null | grep -Eo 'TASK-[[:alnum:]_.-]+' | head -n 1 || true)
+    WORKER_PID=$(printf '%s\n' "$STATUS_SNAPSHOT" | grep -o '"pid":[[:space:]]*[0-9]*' 2>/dev/null | awk '{print $2}' || true)
     [ -z "$STATE" ] && STATE="UNKNOWN"
   fi
   if [ -z "$EXPECTED_TASK_ID" ]; then track_task "$CURRENT_TASK"; fi
@@ -207,8 +209,9 @@ while true; do
   # A task result is not delivered while any worker still executes that task.
   for active_status in "$STATUS_FILE" "$NIGHTSHIFT_DIR"/worker.*.status; do
     [ -f "$active_status" ] || continue
-    active_state=$(grep -o '"state":[[:space:]]*"[^"]*"' "$active_status" | cut -d'"' -f4 || true)
-    active_id=$(canonical_task "$(grep -o '"current_task":[[:space:]]*"[^"]*"' "$active_status" || true)")
+    ACTIVE_STATUS_SNAPSHOT=$(cat "$active_status" 2>/dev/null || true)
+    active_state=$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"state":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
+    active_id=$(canonical_task "$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"current_task":[[:space:]]*"[^"]*"' || true)")
     if { [ "$active_state" = "RUNNING" ] || [ "$active_state" = "VERIFYING" ]; } &&
        { [ -z "$EXPECTED_TASK_ID" ] || [ "$active_id" = "$EXPECTED_TASK_ID" ]; }; then
       ACTIVE_TASK=1

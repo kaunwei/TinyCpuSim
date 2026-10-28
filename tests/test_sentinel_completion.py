@@ -1,0 +1,195 @@
+"""Completion delivery at the public watcher command, without model calls."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class SentinelCompletionTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.ns = self.root / 'nightshift'
+        self.ns.mkdir()
+        shutil.copy2(ROOT / 'nightshift/watch_worker.sh', self.ns / 'watch_worker.sh')
+        for name in ('tasks.txt', 'tasks.done', 'progress.log'):
+            (self.ns / name).write_text('')
+        self.status('IDLE')
+
+    def status(self, state, task=''):
+        path = self.ns / 'worker.status'
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'state': state, 'current_task': task, 'pid': os.getpid()}))
+        temporary.replace(path)
+
+    def start(self, task='TASK-ONE', limit='3'):
+        watcher_env = os.environ.copy()
+        for name, filename in {
+            'TASKS_FILE': 'tasks.txt', 'TASKS_DONE_FILE': 'tasks.done',
+            'STATUS_FILE': 'worker.status', 'PROGRESS_FILE': 'progress.log',
+            'WORKER_AGENT_EVENTS_FILE': '.worker-agent-events.jsonl',
+            'WORKER_AGENT_EVENTS_CURSOR_FILE': '.worker-agent-events.cursor.json',
+            'WORKER_AGENT_EVENTS_ACK_FILE': '.worker-agent-events.acks.jsonl',
+            'AGENT_DISPATCH_GATE_FILE': '.worker-dispatch-gate.json',
+        }.items():
+            watcher_env[name] = str(self.ns / filename)
+        watcher_env['WORKER_ID'] = 'default'
+        watcher_env['WATCH_TASK_ID'] = ''
+        self.process = subprocess.Popen(
+            ['bash', str(self.ns / 'watch_worker.sh'), limit, '0.02', task],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=watcher_env)
+        self.addCleanup(self.stop)
+        self.assertIn('[SENTINEL]', self.process.stdout.readline())
+        return self.process
+
+    def stop(self):
+        if self.process.poll() is None:
+            self.process.terminate()
+        self.process.communicate(timeout=5)
+
+    def done(self, task='TASK-ONE', kind='DONE'):
+        with (self.ns / 'tasks.done').open('a') as out:
+            out.write(f'[now] [{kind}] {task} | LEVEL: 1\n')
+
+    def audit(self, task='TASK-ONE', review='pending', audit_ns='123'):
+        with (self.ns / 'progress.log').open('a') as out:
+            out.write(f'[MECHANICAL_AUDIT] Status: PASS | Task: {task} | Verify_Exit: 0 | '
+                      f'Tests_Run: >=1 | Whitelist: PASS | Tree: CLEAN | Audit_NS: {audit_ns} | '
+                      f'Planner_Review: {review}\n')
+
+    def assert_completed(self):
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 0, out + err)
+        self.assertIn('[SENTINEL_COMPLETED]', out)
+
+    def test_research_tag_matches_exact_task(self):
+        self.start()
+        self.done('TASK-ONE [RESEARCH]')
+        self.audit('TASK-ONE[RESEARCH]')
+        self.assert_completed()
+
+    def test_done_is_retained_until_delayed_audit_arrives(self):
+        self.start()
+        self.done()
+        time.sleep(0.15)
+        self.audit()
+        self.assert_completed()
+
+    def test_pending_completion_is_replayed_when_watcher_starts_late(self):
+        self.done()
+        self.audit()
+        self.start()
+        self.assert_completed()
+
+    def test_running_agent_outlives_wait_window_without_planner_notification(self):
+        self.status('RUNNING', 'TASK-ONE')
+        self.start(limit='1')
+        time.sleep(1.15)
+        self.assertIsNone(self.process.poll(), 'live agent must not trigger a time-based wakeup')
+        self.done()
+        self.audit()
+        self.status('IDLE')
+        self.assert_completed()
+
+    def test_result_waits_for_all_workers_executing_same_task_to_finish(self):
+        self.status('RUNNING', 'TASK-ONE')
+        other = self.ns / 'worker.helper.status'
+        other.write_text(json.dumps({'state': 'RUNNING', 'current_task': 'TASK-ONE'}))
+        self.start()
+        self.done()
+        self.audit()
+        self.status('IDLE')
+        time.sleep(0.15)
+        self.assertIsNone(self.process.poll())
+        other.write_text(json.dumps({'state': 'IDLE', 'current_task': ''}))
+        self.assert_completed()
+
+    def test_unrelated_failure_and_stale_blocked_do_not_end_task_watch(self):
+        self.status('BLOCKED', 'TASK-OTHER')
+        self.start()
+        self.done('TASK-OTHER', kind='FAILED')
+        time.sleep(0.15)
+        self.assertIsNone(self.process.poll())
+        self.done()
+        self.audit()
+        self.assert_completed()
+
+    def test_reviewed_historical_completion_is_not_replayed(self):
+        self.done()
+        self.audit(review='accept')
+        self.start(limit='1')
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 2, out + err)
+        self.assertNotIn('[SENTINEL_COMPLETED]', out)
+
+    def test_pending_old_audit_cannot_satisfy_new_attempt_on_late_start(self):
+        self.done('TASK-ONE [Audit_NS: 999]')
+        self.audit(audit_ns='123')
+        self.start(limit='1')
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 2, out + err)
+        self.assertNotIn('[SENTINEL_COMPLETED]', out)
+
+    def test_matching_audit_identity_can_be_replayed_after_late_start(self):
+        self.done('TASK-ONE [RESEARCH] [Audit_NS: 999]')
+        self.audit('TASK-ONE[RESEARCH]', audit_ns='999')
+        self.start()
+        self.assert_completed()
+
+    def test_queue_watch_replays_pending_results(self):
+        self.done()
+        self.audit()
+        self.start(task='')
+        self.assert_completed()
+
+    def test_queue_watch_ignores_preexisting_global_blocked_status(self):
+        (self.ns / 'tasks.txt').write_text('TASK-ONE | LEVEL: 1\n')
+        self.status('BLOCKED', 'TASK-OLD')
+        self.start(task='')
+        time.sleep(0.15)
+        self.assertIsNone(self.process.poll(), 'old global BLOCKED is not a fresh task event')
+        self.status('RUNNING', 'TASK-ONE')
+        self.done()
+        self.audit()
+        (self.ns / 'tasks.txt').write_text('')
+        self.status('IDLE')
+        self.assert_completed()
+
+
+    def test_repeated_stale_blocked_transition_uses_consistent_snapshot(self):
+        for iteration in range(30):
+            with self.subTest(iteration=iteration):
+                case = type(self)('test_queue_watch_ignores_preexisting_global_blocked_status')
+                result = unittest.TestResult()
+                case.run(result)
+                self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
+
+    def test_genuine_current_task_blocked_still_notifies(self):
+        self.status('RUNNING', 'TASK-ONE')
+        self.start()
+        self.status('BLOCKED', 'TASK-ONE')
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 1, out + err)
+        self.assertIn('[SENTINEL_BLOCKED]', out)
+
+    def test_fixture_isolated_from_inherited_worker_paths(self):
+        from unittest import mock
+        foreign = self.root / 'foreign'
+        with mock.patch.dict(os.environ, {
+            'TASKS_FILE': str(foreign / 'tasks.txt'),
+            'TASKS_DONE_FILE': str(foreign / 'tasks.done'),
+            'STATUS_FILE': str(foreign / 'worker.status'),
+            'PROGRESS_FILE': str(foreign / 'progress.log'),
+            'WORKER_ID': 'foreign', 'WATCH_TASK_ID': 'TASK-FOREIGN',
+        }):
+            self.start()
+            self.done()
+            self.audit()
+            self.assert_completed()
