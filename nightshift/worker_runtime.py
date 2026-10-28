@@ -283,9 +283,9 @@ def _watch_agent_events_locked(events_path, cursor_path, acknowledgements_path, 
                 with handoff_path.open("a", encoding="utf-8") as stream:
                     stream.write(line + "\n")
                 already_handed_off += line + "\n"
+                if not replay_pending:
+                    emitted.append(line)
             seen.add(event_id)
-            if not replay_pending:
-                emitted.append(line)
         if replay_pending and event_id not in acked:
             emitted.append(line)
     cursor_path.parent.mkdir(parents=True, exist_ok=True)

@@ -307,6 +307,128 @@ class TestAgentEventDelivery(unittest.TestCase):
         self.assertEqual(watcher_proc.returncode, 0, f"STDOUT: {stdout}\nSTDERR: {stderr}")
         self.assertIn("[SENTINEL_COMPLETED]", stdout)
 
+    def test_two_different_watch_tasks_both_notify_exit4_and_ack_clears(self):
+        """Covers: two different watch tasks both notify exit 4 despite shared cursor, restart seen unacked notify, ACK then both quiet/gate clears."""
+        event = {
+            "event_id": "ev-global-cross-task",
+            "cause": "agent_failover",
+            "task_id": "TASK-OTHER-99",
+            "registration_id": "agy",
+        }
+        self.events_file.write_text(json.dumps(event) + "\n", encoding="utf-8")
+        self.gate_file.write_text(json.dumps({"version": 1, "pending_event_ids": [event["event_id"]]}), encoding="utf-8")
+        self.status_file.write_text(json.dumps({"state": "PAUSED_FOR_PLANNER", "current_task": "TASK-WATCH-A", "pid": 0}), encoding="utf-8")
+
+        # Watcher watching TASK-WATCH-A should wake, notify and exit 4 even though event is for TASK-OTHER-99
+        proc_a = self.run_watcher(timeout_sec="1", interval_sec="0.03", task_id="TASK-WATCH-A")
+        self.assertEqual(proc_a.returncode, 4, f"expected 4, got {proc_a.returncode}\n{proc_a.stdout}")
+        self.assertIn("[SENTINEL_PLANNER_REVIEW_REQUIRED]", proc_a.stdout)
+        self.assertIn("Task=TASK-OTHER-99", proc_a.stdout)
+        self.assertIn("ev-global-cross-task", proc_a.stdout)
+
+        # Shared cursor now contains ev-global-cross-task.
+        # Second watcher watching TASK-WATCH-B should also notify and exit 4 via replay of unacked event
+        self.status_file.write_text(json.dumps({"state": "PAUSED_FOR_PLANNER", "current_task": "TASK-WATCH-B", "pid": 0}), encoding="utf-8")
+        proc_b = self.run_watcher(timeout_sec="1", interval_sec="0.03", task_id="TASK-WATCH-B")
+        self.assertEqual(proc_b.returncode, 4, f"expected 4, got {proc_b.returncode}\n{proc_b.stdout}")
+        self.assertIn("[SENTINEL_PLANNER_REVIEW_REQUIRED]", proc_b.stdout)
+        self.assertIn("Task=TASK-OTHER-99", proc_b.stdout)
+        self.assertIn("ev-global-cross-task", proc_b.stdout)
+
+        # Restarting watcher on seen unacked event still notifies
+        proc_restart = self.run_watcher(timeout_sec="1", interval_sec="0.03", task_id="TASK-WATCH-A")
+        self.assertEqual(proc_restart.returncode, 4)
+        self.assertIn("[SENTINEL_PLANNER_REVIEW_REQUIRED]", proc_restart.stdout)
+
+        # ACK the event: both become quiet and gate clears
+        ack_res = self.run_runtime(
+            "agent-event-ack",
+            "--events", str(self.events_file),
+            "--acknowledgements", str(self.ack_file),
+            "--event-id", "ev-global-cross-task",
+            "--resolution", "acknowledged"
+        )
+        self.assertEqual(ack_res.returncode, 0)
+
+        # Trigger gate recheck via watch_agent_events
+        self.run_runtime(
+            "agent-events-watch",
+            "--events", str(self.events_file),
+            "--cursor", str(self.cursor_file),
+            "--acknowledgements", str(self.ack_file),
+            "--gate", str(self.gate_file),
+            "--handoff", str(self.progress_file),
+            "--replay-pending"
+        )
+        self.assertFalse(self.gate_file.exists())
+
+        # Now neither watcher exits 4
+        quiet_a = self.run_watcher(timeout_sec="1", interval_sec="0.03", task_id="TASK-WATCH-A")
+        self.assertNotEqual(quiet_a.returncode, 4)
+        self.assertNotIn("[SENTINEL_PLANNER_REVIEW_REQUIRED]", quiet_a.stdout)
+
+        quiet_b = self.run_watcher(timeout_sec="1", interval_sec="0.03", task_id="TASK-WATCH-B")
+        self.assertNotEqual(quiet_b.returncode, 4)
+        self.assertNotIn("[SENTINEL_PLANNER_REVIEW_REQUIRED]", quiet_b.stdout)
+
+    def test_default_cli_handoff_exists_cursor_removed_silent_vs_replay(self):
+        """Covers: original existing handoff + missing cursor must not emit duplicate default CLI output; opt-in replay still notifies all unacked."""
+        event = {
+            "event_id": "ev-compat-6",
+            "cause": "agent_failover",
+            "task_id": "TASK-UNIT-01",
+            "registration_id": "agy",
+        }
+        self.events_file.write_text(json.dumps(event) + "\n", encoding="utf-8")
+        # Existing handoff in progress_file
+        line = f"[PLANNER_REVIEW_REQUIRED] Event={event['event_id']} Task={event['task_id']}\n"
+        self.progress_file.write_text(line, encoding="utf-8")
+        # Cursor is missing / removed
+        self.cursor_file.unlink(missing_ok=True)
+
+        # Default CLI run (no --replay-pending): should be silent because event was already handed off
+        p_default = self.run_runtime(
+            "agent-events-watch",
+            "--events", str(self.events_file),
+            "--cursor", str(self.cursor_file),
+            "--acknowledgements", str(self.ack_file),
+            "--gate", str(self.gate_file),
+            "--handoff", str(self.progress_file)
+        )
+        self.assertEqual(p_default.returncode, 0)
+        self.assertEqual(p_default.stdout.strip(), "")
+
+        # Opt-in replay still notifies unacked event
+        p_replay = self.run_runtime(
+            "agent-events-watch",
+            "--events", str(self.events_file),
+            "--cursor", str(self.cursor_file),
+            "--acknowledgements", str(self.ack_file),
+            "--gate", str(self.gate_file),
+            "--handoff", str(self.progress_file),
+            "--replay-pending"
+        )
+        self.assertEqual(p_replay.returncode, 0)
+        self.assertIn("ev-compat-6", p_replay.stdout)
+
+    def test_malformed_event_stderr_visible_gate_preserved_no_fake_completion(self):
+        """Covers: stderr remains visible when CLI parse/runtime fails, plus generic warning/gate stays held, no fake completion."""
+        # Write malformed JSON line in events_file
+        self.events_file.write_text("{malformed json line\n", encoding="utf-8")
+        self.gate_file.write_text(json.dumps({"version": 1, "pending_event_ids": ["ev-malformed"]}), encoding="utf-8")
+        self.status_file.write_text(json.dumps({"state": "PAUSED_FOR_PLANNER", "current_task": "TASK-UNIT-01", "pid": 0}), encoding="utf-8")
+
+        proc = self.run_watcher(timeout_sec="1", interval_sec="0.03", task_id="TASK-UNIT-01")
+        # Stderr must contain the runtime error (ValueError / JSONDecodeError) and the sentinel warning
+        self.assertIn("invalid JSON line", proc.stderr)
+        self.assertIn("[SENTINEL_WARNING] Agent event watcher failed; dispatch remains gated.", proc.stderr)
+        # Gate remains held
+        self.assertTrue(self.gate_file.exists())
+        # No fake completion or review delivery
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotIn("[SENTINEL_COMPLETED]", proc.stdout)
+        self.assertNotIn("[SENTINEL_PLANNER_REVIEW_REQUIRED]", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,7 +129,7 @@ while true; do
     EVENT_LINES=$(python3 "$RUNTIME_PATH" agent-events-watch \
       --events "$AGENT_EVENTS_FILE" --cursor "$AGENT_EVENTS_CURSOR_FILE" \
       --acknowledgements "$AGENT_EVENTS_ACK_FILE" --gate "$AGENT_DISPATCH_GATE_FILE" \
-      --handoff "$PROGRESS_FILE" --replay-pending 2>&1) || echo "[SENTINEL_WARNING] Agent event watcher failed; dispatch remains gated." >&2
+      --handoff "$PROGRESS_FILE" --replay-pending) || echo "[SENTINEL_WARNING] Agent event watcher failed; dispatch remains gated." >&2
   fi
   NOW=$SECONDS
   ELAPSED=$(( NOW - START_TIME ))
@@ -141,9 +141,6 @@ while true; do
       if [[ "$eline" == *"[PLANNER_REVIEW_REQUIRED]"* ]]; then
         ev_id=$(printf '%s\n' "$eline" | grep -Eo 'Event=[^ ]+' | cut -d= -f2 || true)
         ev_task=$(printf '%s\n' "$eline" | grep -Eo 'Task=[^ ]+' | cut -d= -f2 || true)
-        if [ -n "$EXPECTED_TASK_ID" ] && [ -n "$ev_task" ] && [ "$ev_task" != "unknown" ] && [ "$ev_task" != "$EXPECTED_TASK_ID" ]; then
-          continue
-        fi
         echo "[SENTINEL_PLANNER_REVIEW_REQUIRED] Task=${ev_task:-$EXPECTED_TASK_ID} Event=${ev_id:-unknown} requires Planner review after ${ELAPSED}s: $eline"
         DELIVERED_REVIEW=1
       fi
