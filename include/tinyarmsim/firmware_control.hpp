@@ -111,7 +111,7 @@ public:
             return false;
         }
 
-        if (!stop_requested_ && !closed_without_stop_ && !transport_failed_ && breakpoint_ && pc_provider_) {
+        if (!paused_ && !breakpoint_hit_reported_ && !stop_requested_ && !closed_without_stop_ && !transport_failed_ && breakpoint_ && pc_provider_) {
             const uint32_t pc = pc_provider_();
             if (pc == *breakpoint_) {
                 paused_ = true;
