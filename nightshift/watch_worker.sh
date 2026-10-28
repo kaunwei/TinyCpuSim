@@ -30,6 +30,10 @@ AGENT_EVENTS_CURSOR_FILE="${WORKER_AGENT_EVENTS_CURSOR_FILE:-$NIGHTSHIFT_DIR/.wo
 AGENT_EVENTS_ACK_FILE="${WORKER_AGENT_EVENTS_ACK_FILE:-$NIGHTSHIFT_DIR/.worker-agent-events.acks.jsonl}"
 AGENT_DISPATCH_GATE_FILE="${AGENT_DISPATCH_GATE_FILE:-$NIGHTSHIFT_DIR/.worker-dispatch-gate.json}"
 INACTIVE_TIMEOUT="${WORKER_INACTIVE_TIMEOUT:-180}"
+if ! [[ "$INACTIVE_TIMEOUT" =~ ^[0-9]+$ ]]; then
+  echo "[SENTINEL_ERROR] Invalid WORKER_INACTIVE_TIMEOUT: '$INACTIVE_TIMEOUT'. Expected a nonnegative integer (0 disables)." >&2
+  exit 1
+fi
 
 SECONDS=0
 START_TIME=$SECONDS
@@ -73,6 +77,33 @@ task_ids_from_file() {
 # The queue stores kind tags separately; runtime audit identities may attach them.
 canonical_task() { printf '%s\n' "$1" | grep -Eo 'TASK-[[:alnum:]_.-]+' | head -n 1; }
 EXPECTED_TASK_ID=$(canonical_task "$EXPECTED_TASK_ID")
+
+is_pid_definitely_dead() {
+  local pid="$1"
+  [ -n "$pid" ] || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+
+  local kill_err
+  kill_err=$(kill -0 "$pid" 2>&1)
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    return 1
+  fi
+  if [ -d "/proc" ] && [ -d "/proc/$pid" ]; then
+    return 1
+  fi
+  case "$kill_err" in
+    *"Operation not permitted"*|*"operation not permitted"*)
+      return 1
+      ;;
+    *"No such process"*|*"no such process"*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 matching_audits() {
   [ -f "$PROGRESS_FILE" ] || return 0
@@ -206,21 +237,27 @@ while true; do
   # Treat any RUNNING observation in this iteration as active. A transition to
   # IDLE after the ledger read must not make us expire before reading its DONE.
   if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "VERIFYING" ]; then
-    ANY_AGENT_ACTIVE=1
-    if [ -z "$EXPECTED_TASK_ID" ] || [ "$CURRENT_TASK" = "$EXPECTED_TASK_ID" ]; then
-      ACTIVE_TASK=1
+    if ! is_pid_definitely_dead "$WORKER_PID"; then
+      ANY_AGENT_ACTIVE=1
+      if [ -z "$EXPECTED_TASK_ID" ] || [ "$CURRENT_TASK" = "$EXPECTED_TASK_ID" ]; then
+        ACTIVE_TASK=1
+      fi
     fi
   fi
   # A task result is not delivered while any worker still executes that task.
-  for active_status in "$STATUS_FILE" "$NIGHTSHIFT_DIR"/worker.*.status; do
+  for active_status in "$NIGHTSHIFT_DIR"/worker.*.status; do
     [ -f "$active_status" ] || continue
+    [ "$active_status" != "$STATUS_FILE" ] || continue
     ACTIVE_STATUS_SNAPSHOT=$(cat "$active_status" 2>/dev/null || true)
     active_state=$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"state":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
     active_id=$(canonical_task "$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"current_task":[[:space:]]*"[^"]*"' || true)")
+    active_pid=$(printf '%s\n' "$ACTIVE_STATUS_SNAPSHOT" | grep -o '"pid":[[:space:]]*[0-9]*' 2>/dev/null | awk '{print $2}' || true)
     if [ "$active_state" = "RUNNING" ] || [ "$active_state" = "VERIFYING" ]; then
-      ANY_AGENT_ACTIVE=1
-      if [ -z "$EXPECTED_TASK_ID" ] || [ "$active_id" = "$EXPECTED_TASK_ID" ]; then
-        ACTIVE_TASK=1
+      if ! is_pid_definitely_dead "$active_pid"; then
+        ANY_AGENT_ACTIVE=1
+        if [ -z "$EXPECTED_TASK_ID" ] || [ "$active_id" = "$EXPECTED_TASK_ID" ]; then
+          ACTIVE_TASK=1
+        fi
       fi
     fi
   done
@@ -295,9 +332,9 @@ while true; do
 
   fi
 
-  if [ -n "$WORKER_PID" ] && [ "$STATE" = "RUNNING" ] &&
+  if [ -n "$WORKER_PID" ] && { [ "$STATE" = "RUNNING" ] || [ "$STATE" = "VERIFYING" ]; } &&
      { [ -z "$EXPECTED_TASK_ID" ] || [ "$CURRENT_TASK" = "$EXPECTED_TASK_ID" ]; }; then
-    if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+    if is_pid_definitely_dead "$WORKER_PID"; then
       echo "[SENTINEL_WORKER_DIED] Worker process $WORKER_PID terminated unexpectedly."
       exit 1
     fi

@@ -23,11 +23,16 @@ class SentinelCompletionTests(unittest.TestCase):
             (self.ns / name).write_text('')
         self.status('IDLE')
 
-    def status(self, state, task=''):
+    def status(self, state, task='', pid=None):
         path = self.ns / 'worker.status'
         temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps({'state': state, 'current_task': task, 'pid': os.getpid()}))
+        temporary.write_text(json.dumps({'state': state, 'current_task': task, 'pid': os.getpid() if pid is None else pid}))
         temporary.replace(path)
+
+    def dead_pid(self):
+        dead = subprocess.Popen(['/bin/true'])
+        dead.wait()
+        return dead.pid
 
     def start(self, task='TASK-ONE', limit='3', env_overrides=None):
         watcher_env = os.environ.copy()
@@ -209,6 +214,82 @@ class SentinelCompletionTests(unittest.TestCase):
         self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
         time.sleep(1.2)
         self.assertIsNone(self.process.poll(), 'active compiling/testing worker must not trigger inactivity')
+        self.done()
+        self.audit()
+        self.status('IDLE')
+        self.assert_completed()
+
+    def test_invalid_inactive_timeout_exits_promptly_nonzero(self):
+        watcher_env = os.environ.copy()
+        watcher_env['WORKER_INACTIVE_TIMEOUT'] = 'invalid'
+        for name, filename in {
+            'TASKS_FILE': 'tasks.txt', 'TASKS_DONE_FILE': 'tasks.done',
+            'STATUS_FILE': 'worker.status', 'PROGRESS_FILE': 'progress.log',
+            'WORKER_AGENT_EVENTS_FILE': '.worker-agent-events.jsonl',
+            'WORKER_AGENT_EVENTS_CURSOR_FILE': '.worker-agent-events.cursor.json',
+            'WORKER_AGENT_EVENTS_ACK_FILE': '.worker-agent-events.acks.jsonl',
+            'AGENT_DISPATCH_GATE_FILE': '.worker-dispatch-gate.json',
+        }.items():
+            watcher_env[name] = str(self.ns / filename)
+        watcher_env['WORKER_ID'] = 'default'
+        watcher_env['WATCH_TASK_ID'] = ''
+        proc = subprocess.Popen(
+            ['bash', str(self.ns / 'watch_worker.sh'), '0', '0.02', 'TASK-ONE'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=watcher_env)
+        out, err = proc.communicate(timeout=5)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('[SENTINEL_ERROR]', err)
+        self.assertNotIn('integer expression expected', err)
+
+    def test_dead_verifying_worker_triggers_sentinel_worker_died(self):
+        self.status('VERIFYING', 'TASK-ONE', pid=self.dead_pid())
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 1, out + err)
+        self.assertIn('[SENTINEL_WORKER_DIED]', out)
+
+    def test_dead_running_worker_triggers_sentinel_worker_died(self):
+        self.status('RUNNING', 'TASK-ONE', pid=self.dead_pid())
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 1, out + err)
+        self.assertIn('[SENTINEL_WORKER_DIED]', out)
+
+    def test_dead_unrelated_helper_does_not_suppress_inactivity_or_fail_task(self):
+        (self.ns / 'tasks.txt').write_text('TASK-ONE | LEVEL: 1\n')
+        self.status('IDLE')
+        helper = self.ns / 'worker.helper.status'
+        helper.write_text(json.dumps({'state': 'RUNNING', 'current_task': 'TASK-OLD', 'pid': self.dead_pid()}))
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 5, out + err)
+        self.assertIn('[SENTINEL_INACTIVE]', out)
+        self.assertNotIn('[SENTINEL_FAILED]', out)
+        self.assertNotIn('[SENTINEL_WORKER_DIED]', out)
+
+    def test_live_unrelated_helper_suppresses_inactivity_without_failing_task(self):
+        (self.ns / 'tasks.txt').write_text('TASK-ONE | LEVEL: 1\n')
+        self.status('IDLE')
+        live_proc = subprocess.Popen(['sleep', '10'])
+        self.addCleanup(lambda: (live_proc.poll() is None and live_proc.terminate(), live_proc.wait()))
+        helper = self.ns / 'worker.helper.status'
+        helper.write_text(json.dumps({'state': 'RUNNING', 'current_task': 'TASK-OTHER', 'pid': live_proc.pid}))
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        time.sleep(1.2)
+        self.assertIsNone(self.process.poll(), 'live unrelated worker must suppress inactivity')
+        live_proc.terminate()
+        live_proc.wait()
+        helper.write_text(json.dumps({'state': 'IDLE', 'current_task': ''}))
+        out, err = self.process.communicate(timeout=5)
+        self.assertEqual(self.process.returncode, 5, out + err)
+        self.assertIn('[SENTINEL_INACTIVE]', out)
+        self.assertNotIn('[SENTINEL_FAILED]', out)
+
+    def test_live_verifying_worker_does_not_trigger_inactive(self):
+        self.status('VERIFYING', 'TASK-ONE')
+        self.start(limit='0', env_overrides={'WORKER_INACTIVE_TIMEOUT': '1'})
+        time.sleep(1.2)
+        self.assertIsNone(self.process.poll(), 'active verifying worker must not trigger inactivity')
         self.done()
         self.audit()
         self.status('IDLE')
