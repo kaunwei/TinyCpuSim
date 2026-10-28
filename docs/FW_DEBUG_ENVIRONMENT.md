@@ -1,12 +1,12 @@
 # Firmware Debug Environment Baseline
 
-## Verified Host and Build Baseline
+## Historical Host and Release Build Baseline
 
 Evidence collected from the existing checkout and artifacts on 2026-10-28; no build or configuration was changed.
 
 - **Host OS:** `uname -a` reported `Linux shadow 6.8.0-139-generic #139-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug 1 03:52:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux`.
 - **Normal Arm tools:** `/usr/bin/arm-none-eabi-gcc --version` reported `arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009`; `/usr/bin/arm-none-eabi-objdump --version` reported `GNU objdump (2.42-1ubuntu1+23) 2.42`.
-- **Simulator revision/version:** repository `HEAD` is `f89e219`; the existing `./build/tinycpusim` identifies itself as `TinyCpuSim v0.1.0` in its usage output. `--version` is not a supported option.
+- **Simulator revision/version at historical observation:** repository `HEAD` was `f89e219`; the existing `./build/tinycpusim` identified itself as `TinyCpuSim v0.1.0` in its usage output. `--version` is not a supported option.
 - **Existing CMake build:** `build/CMakeCache.txt` reports `CMAKE_BUILD_TYPE:STRING=Release` (only existing cache found). Debug flags are recorded as `-g`, but this build is not Debug; a Debug build baseline is therefore unresolved.
 - **Existing ELF debug evidence:** `/usr/bin/arm-none-eabi-objdump -h build/isa_boot_acceptance.elf` lists `.text`, `.data`, `.bss`, `.ARM.attributes`, and `.comment`, with no `.debug_*` sections. The symbol table contains linker/source names and functions such as `main` (`0x000100cc`) and `exercise_isa_families` (`0x00010114`), but no DWARF debug-section evidence. Source-level debug information is unresolved; these symbols do not establish source-line debugging.
 
@@ -166,18 +166,17 @@ The probe closed both descriptors it opened. This verifies that this process cou
 
 An intentional debugger pause blocks command handling until resumed/stopped and does not advance interpreter instructions or simulated peripheral time while blocked. Automated tests must keep an independent host wall-clock deadline active during such pauses; pausing simulation must not suspend or extend the test harness's timeout. Process-group termination/reaping and terminal-state restoration remain harness responsibilities on timeout.
 
-The earlier host, toolchain, Release-build, ELF, and step-limit evidence in this document remains the historical baseline record. The Debug evidence below was collected separately and does not replace the Release observations.
+The host, toolchain, Release-build, ELF, and step-limit observations above are historical baseline evidence. They remain separate from the refreshed Debug observations below.
 
 ## Isolated Debug Build and Guest DWARF Evidence
 
-On 2026-10-28, an isolated ordinary development build was configured and built with the repository's default tools:
+On 2026-10-28, the existing isolated development build was rebuilt with the repository's default tools. Its original source revision is unknown; the verified rebuild below used current checkout revision `97a04c4` (`git rev-parse --short HEAD`). The task context records an earlier successful Debug rebuild at `4bd5180`, after `720af7a`; that is historical handoff evidence and does not identify the source revision of this refreshed build.
 
 ```bash
-cmake -S . -B build/debug-baseline -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/debug-baseline --target tinycpusim -j2
+timeout --signal=TERM --kill-after=2s 120s cmake --build build/debug-baseline --target tinycpusim -j2
 ```
 
-The resulting `build/debug-baseline/CMakeCache.txt` reports `CMAKE_BUILD_TYPE:STRING=Debug`, `CMAKE_CXX_FLAGS_DEBUG:STRING=-g`, and `CMAKE_C_FLAGS_DEBUG:STRING=-g`. `build/debug-baseline/tinycpusim --help` identifies the binary as `TinyCpuSim v0.1.0`; `--version` is unsupported (it prints usage and `Unknown option: --version`). The source revision was `f89e219` (`git rev-parse HEAD`) when evidence was collected. This isolated binary was built from that checkout; the existing root `build/` Release cache and artifacts were retained.
+The bounded rebuild succeeded (`baremetal_firmware_elf` and `tinycpusim` targets built). The existing `build/debug-baseline/CMakeCache.txt` reports `CMAKE_BUILD_TYPE:STRING=Debug`, `CMAKE_CXX_FLAGS_DEBUG:STRING=-g`, and `CMAKE_C_FLAGS_DEBUG:STRING=-g`. `build/debug-baseline/tinycpusim --help` identifies the binary as `TinyCpuSim v0.1.0`; `--version` is unsupported (it prints usage and `Unknown option: --version`). This documents a verified rebuild at `97a04c4`; the source revision that produced the pre-existing build is unknown. No CMake configuration or build profile was changed. The existing root `build/` Release cache and artifacts were retained.
 
 The existing minimal `firmware/template` sources and Makefile were copied unchanged to `build/debug-baseline/guest/` and built there with its existing `OPT=-O0` profile:
 
@@ -185,7 +184,7 @@ The existing minimal `firmware/template` sources and Makefile were copied unchan
 make -C build/debug-baseline/guest OPT=-O0
 ```
 
-The emitted command used `-mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -O0 -g -Wall -Wextra -T linker.ld`; no ISA workaround or extra debug option was added. `/usr/bin/arm-none-eabi-readelf -S build/debug-baseline/guest/template.elf` reports `.debug_line` (size `0xd8`) and `.debug_info` (size `0xca`). `arm-none-eabi-nm -n` reports `main=000100cc` and `g_counter=00020000`. `arm-none-eabi-objdump -d` shows `main` starting `0x100cc: b480 push {r7}`, `0x100ce: af00 add r7, sp, #0`, and `0x100d0: 4b04 ldr r3, [pc, #16]`. `arm-none-eabi-objdump --dwarf=decodedline` maps `startup.s` lines to instruction addresses, confirming that the copied guest ELF contains DWARF line information.
+The emitted command used `-mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -O0 -g -Wall -Wextra -T linker.ld`; no ISA workaround or extra debug option was added. `/usr/bin/arm-none-eabi-readelf -S build/debug-baseline/guest/template.elf` reports `.debug_line` (size `0xd8`) and `.debug_info` (size `0xca`). `/usr/bin/arm-none-eabi-nm -n` reports `main=000100cc` and `g_counter=00020000`. `/usr/bin/arm-none-eabi-objdump -d` shows `main` starting `0x100cc: b480 push {r7}`, `0x100ce: af00 add r7, sp, #0`, and `0x100d0: 4b04 ldr r3, [pc, #16]`. `/usr/bin/arm-none-eabi-objdump --dwarf=decodedline` maps `startup.s` lines to instruction addresses, confirming the copied guest ELF contains DWARF line information. These section, symbol, and decoded-line checks were reconfirmed after the bounded rebuild.
 
 For a bounded run, the Debug simulator executed the Debug guest with a five-instruction limit and a separate ten-second host timeout:
 
@@ -210,3 +209,31 @@ For each optimization level, the test stops at `main` before its first instructi
 Observed on this toolchain for both copied builds: `nm` reports `main=000100cc` and `g_counter=00020000`. O0 begins `0x100cc: b480 push {r7}` followed by `0x100ce: af00 add r7, sp, #0`; O2 begins `0x100cc: 232a movs r3, #42` followed by `0x100ce: 4a03 ldr r2, [pc, #12]`. The controlled run reaches `main` after 16 startup instructions. The required unittest command completed with 2 tests passing (O0 and O2), exit code 0.
 
 This demonstrates **instruction stepping**: one simulator instruction advances the architectural PC by the encoded instruction width (2 or 4 bytes here). It does not provide **source stepping**, which would group machine instructions according to compiler debug-line mappings and stop on source lines. Optimization can change that mapping and instruction sequence; this walkthrough makes no source-line stepping claim.
+
+## Bounded Quiet-Fault and Host-Timeout Observations
+
+These existing unittest suites were run on 2026-10-28 against the current checkout; they exercise bounded firmware fault reporting and host timeout/process cleanup without changing product code or build profiles.
+
+Quiet undefined-instruction (UDF) behavior:
+
+```bash
+/usr/bin/python3 -m unittest discover -s tests -p test_fw_quiet_udf.py -v
+```
+
+Result: exit code 0; 1 test passed (`test_udf_reports_cpu_fault_on_stderr_without_stdout`). The test's simulator subprocess has a five-second timeout. It verifies quiet mode keeps stdout empty while reporting the CPU fault on stderr.
+
+Host timeout and process-group cleanup:
+
+```bash
+/usr/bin/python3 -m unittest discover -s tests -p test_fw_host_timeout.py -v
+```
+
+Result: exit code 0; 7 tests passed. Coverage includes timeout killing/reaping the process group, descendants that inherit pipes, cleanup after direct child exit and caller interruption, exit-code preservation, bounded successful execution, and a real simulator step-limit run through `run_bounded`.
+
+Required step-limit regression suite:
+
+```bash
+/usr/bin/python3 -m unittest discover -s tests -p test_fw_step_limit.py -v
+```
+
+Result: exit code 0; 1 test passed. It confirms firmware execution exceeding the explicit step limit exits with the expected error.
