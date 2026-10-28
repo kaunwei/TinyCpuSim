@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
     cout_redirect.restore();
     if (enable_firmware && !soc.uart->get_tx_output().empty()) {
         std::cout << soc.uart->get_tx_output();
-        if (soc.uart->get_tx_output().back() != '\n') std::cout << '\n';
+        if (!quiet && soc.uart->get_tx_output().back() != '\n') std::cout << '\n';
     }
 
     if (enable_uarch) {
