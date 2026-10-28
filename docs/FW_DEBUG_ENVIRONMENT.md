@@ -166,7 +166,34 @@ The probe closed both descriptors it opened. This verifies that this process cou
 
 An intentional debugger pause blocks command handling until resumed/stopped and does not advance interpreter instructions or simulated peripheral time while blocked. Automated tests must keep an independent host wall-clock deadline active during such pauses; pausing simulation must not suspend or extend the test harness's timeout. Process-group termination/reaping and terminal-state restoration remain harness responsibilities on timeout.
 
-The earlier host, toolchain, build, ELF, and step-limit evidence in this document remains the baseline record. Debug-build and source-level debug proof remain unresolved.
+The earlier host, toolchain, Release-build, ELF, and step-limit evidence in this document remains the historical baseline record. The Debug evidence below was collected separately and does not replace the Release observations.
+
+## Isolated Debug Build and Guest DWARF Evidence
+
+On 2026-10-28, an isolated ordinary development build was configured and built with the repository's default tools:
+
+```bash
+cmake -S . -B build/debug-baseline -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/debug-baseline --target tinycpusim -j2
+```
+
+The resulting `build/debug-baseline/CMakeCache.txt` reports `CMAKE_BUILD_TYPE:STRING=Debug`, `CMAKE_CXX_FLAGS_DEBUG:STRING=-g`, and `CMAKE_C_FLAGS_DEBUG:STRING=-g`. `build/debug-baseline/tinycpusim --help` identifies the binary as `TinyCpuSim v0.1.0`; `--version` is unsupported (it prints usage and `Unknown option: --version`). The source revision was `f89e219` (`git rev-parse HEAD`) when evidence was collected. This isolated binary was built from that checkout; the existing root `build/` Release cache and artifacts were retained.
+
+The existing minimal `firmware/template` sources and Makefile were copied unchanged to `build/debug-baseline/guest/` and built there with its existing `OPT=-O0` profile:
+
+```bash
+make -C build/debug-baseline/guest OPT=-O0
+```
+
+The emitted command used `-mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -O0 -g -Wall -Wextra -T linker.ld`; no ISA workaround or extra debug option was added. `/usr/bin/arm-none-eabi-readelf -S build/debug-baseline/guest/template.elf` reports `.debug_line` (size `0xd8`) and `.debug_info` (size `0xca`). `arm-none-eabi-nm -n` reports `main=000100cc` and `g_counter=00020000`. `arm-none-eabi-objdump -d` shows `main` starting `0x100cc: b480 push {r7}`, `0x100ce: af00 add r7, sp, #0`, and `0x100d0: 4b04 ldr r3, [pc, #16]`. `arm-none-eabi-objdump --dwarf=decodedline` maps `startup.s` lines to instruction addresses, confirming that the copied guest ELF contains DWARF line information.
+
+For a bounded run, the Debug simulator executed the Debug guest with a five-instruction limit and a separate ten-second host timeout:
+
+```bash
+timeout --signal=TERM --kill-after=2s 10s build/debug-baseline/tinycpusim --firmware --log --max-steps 5 build/debug-baseline/guest/template.elf
+```
+
+It executed five instructions and reported `SIMULATION FAILED` / `Simulation execution exceeded max step limit (5)`, exiting 1. The host timeout did not fire. This is the expected step-limit failure, not a successful stop. This proves availability of guest debug information and instruction disassembly; the simulator walkthrough remains instruction stepping only and makes no source-stepping claim.
 
 ## Minimal Copied Firmware Debugger Walkthrough (O0 and O2)
 
