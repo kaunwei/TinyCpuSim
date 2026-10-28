@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <string>
 #include "tinyarmsim/mmio/device.hpp"
 
@@ -75,13 +76,22 @@ public:
 
     [[nodiscard]] const std::string& get_tx_output() const noexcept { return tx_output_; }
 
+    void set_tx_consumer(std::function<void(uint8_t)> consumer) {
+        tx_consumer_ = std::move(consumer);
+    }
+
     [[nodiscard]] bool has_pending_irq() const noexcept override {
         return ((control_ & 0x04u) != 0) && !rx_fifo_.empty();
     }
 
 protected:
     void on_transfer_complete() override {
-        tx_output_.push_back(pending_tx_char_);
+        const auto byte = static_cast<uint8_t>(pending_tx_char_);
+        if (tx_consumer_) {
+            tx_consumer_(byte);
+        } else {
+            tx_output_.push_back(pending_tx_char_);
+        }
     }
 
 private:
@@ -93,6 +103,7 @@ private:
     char pending_tx_char_{0};
     std::deque<uint8_t> rx_fifo_;
     std::string tx_output_;
+    std::function<void(uint8_t)> tx_consumer_;
 };
 
 } // namespace tinyarmsim::mmio
