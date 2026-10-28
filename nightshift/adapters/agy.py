@@ -151,14 +151,19 @@ else:
     outcome = "failure"
 
 text = ""
+message_present = False
 try:
     with open(message, encoding="utf-8") as source:
         text = source.read().strip()
+        message_present = True
 except OSError:
     pass
 
 payload = None
-if text:
+invalid_payload = {"outcome": "failure", "error_code": "invalid_result",
+                   "diagnostic": "AgY terminal result is malformed or absent"}
+if message_present:
+    payload = dict(invalid_payload)
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
@@ -167,29 +172,16 @@ if text:
         pass
 
 if payload is None:
-    matches = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", full_log, re.DOTALL)
-    for m in reversed(matches):
-        try:
-            parsed = json.loads(m.strip())
-            if isinstance(parsed, dict) and "outcome" in parsed:
-                payload = parsed
-                break
-        except ValueError:
-            pass
-
-if payload is None:
-    for line in reversed(full_log.strip().splitlines()):
-        line = line.strip()
-        if line.startswith("{") and line.endswith("}"):
+    candidates = []
+    for m in re.finditer(r"```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```", full_log):
+        block_text = m.group(1).strip()
+        if block_text.startswith("{") and block_text.endswith("}"):
             try:
-                parsed = json.loads(line)
+                parsed = json.loads(block_text)
                 if isinstance(parsed, dict) and "outcome" in parsed:
-                    payload = parsed
-                    break
+                    candidates.append((m.end(), parsed))
             except ValueError:
                 pass
-
-if payload is None:
     decoder = json.JSONDecoder()
     pos = 0
     while True:
@@ -199,12 +191,39 @@ if payload is None:
         try:
             parsed, end_idx = decoder.raw_decode(full_log, pos)
             if isinstance(parsed, dict) and "outcome" in parsed:
-                if not full_log[end_idx:].strip():
-                    payload = parsed
-                    break
-            pos += 1
+                line_start = full_log.rfind("\n", 0, pos) + 1
+                prefix = full_log[line_start:pos].strip()
+                line_end = full_log.find("\n", end_idx)
+                if line_end == -1:
+                    line_end = len(full_log)
+                suffix = full_log[end_idx:line_end].strip()
+                if prefix in ("", "```") or prefix.startswith("```"):
+                    if suffix in ("", "```") or suffix.endswith("```") or not full_log[end_idx:].strip():
+                        candidates.append((end_idx, parsed))
+            pos = end_idx
         except ValueError:
-            pos += 1
+            line_start = full_log.rfind("\n", 0, pos) + 1
+            prefix = full_log[line_start:pos]
+            if not prefix.strip():
+                # Do not reinterpret a nested object as an independent closeout
+                # when its enclosing top-level result failed to decode.
+                indent = len(prefix)
+                next_pos = len(full_log)
+                for following in re.finditer(r"(?m)^([ \t]*)(?=\{|```)", full_log[pos + 1:]):
+                    if len(following.group(1)) <= indent:
+                        next_pos = pos + 1 + following.start() + len(following.group(1))
+                        break
+                candidates.append((next_pos - 1, dict(invalid_payload)))
+                pos = next_pos
+            else:
+                pos += 1
+    if candidates:
+        candidates.sort(key=lambda c: c[0])
+        terminal_end, payload = candidates[-1]
+        # A later incomplete structured closeout cannot revive historical success.
+        suffix = full_log[terminal_end:]
+        if re.search(r"(?m)^\s*(?:\{|```)", suffix):
+            payload = dict(invalid_payload)
 
 if not isinstance(payload, dict):
     markers = (("SCOPE_BLOCKED", "scope_blocked"), ("BLOCKED", "blocked"),

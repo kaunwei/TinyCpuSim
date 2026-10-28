@@ -191,6 +191,199 @@ echo '{{"outcome": "complete"}}'
         self.assertEqual(result_data["outcome"], "complete")
         self.assertEqual(result_data.get("actions_used"), 0)
 
+    def test_terminal_bare_blocked_overrides_earlier_fenced_complete(self):
+        script = """echo '[EXEC] step 1'
+echo '```json'
+echo '{"outcome": "complete", "changed": true}'
+echo '```'
+echo '[EXEC] step 2'
+echo '{"outcome": "blocked"}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "failed")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "blocked")
+
+    def test_terminal_fenced_complete_overrides_earlier_bare_blocked(self):
+        script = """echo '[EXEC] step 1'
+echo '{"outcome": "blocked"}'
+echo '[EXEC] step 2'
+echo '```json'
+echo '{"outcome": "complete", "changed": true}'
+echo '```'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertTrue(result_data.get("changed"))
+
+    def test_terminal_fenced_blocked_overrides_earlier_bare_complete(self):
+        script = """echo '[EXEC] step 1'
+echo '{"outcome": "complete", "changed": true}'
+echo '[EXEC] step 2'
+echo '```json'
+echo '{"outcome": "blocked"}'
+echo '```'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "failed")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "blocked")
+
+    def test_terminal_bare_complete_overrides_earlier_fenced_blocked(self):
+        script = """echo '[EXEC] step 1'
+echo '```json'
+echo '{"outcome": "blocked"}'
+echo '```'
+echo '[EXEC] step 2'
+echo '{"outcome": "complete", "changed": true}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertTrue(result_data.get("changed"))
+
+    def test_terminal_pretty_blocked_overrides_earlier_bare_complete(self):
+        script = """echo '[EXEC] step 1'
+echo '{"outcome": "complete", "changed": true}'
+echo '[EXEC] step 2'
+echo '{'
+echo '  "outcome": "blocked",'
+echo '  "details": {'
+echo '    "note": "nested object with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "failed")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "blocked")
+        self.assertEqual(result_data["details"]["note"], 'nested object with { braces } and "quotes"')
+
+    def test_terminal_pretty_blocked_overrides_earlier_fenced_complete(self):
+        script = """echo '[EXEC] step 1'
+echo '```json'
+echo '{'
+echo '  "outcome": "complete",'
+echo '  "details": {'
+echo '    "note": "earlier fenced with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+echo '```'
+echo '[EXEC] step 2'
+echo '{'
+echo '  "outcome": "blocked",'
+echo '  "details": {'
+echo '    "note": "final pretty with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "failed")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "blocked")
+        self.assertEqual(result_data["details"]["note"], 'final pretty with { braces } and "quotes"')
+
+    def test_terminal_pretty_complete_overrides_earlier_fenced_blocked(self):
+        script = """echo '[EXEC] step 1'
+echo '```json'
+echo '{"outcome": "blocked"}'
+echo '```'
+echo '[EXEC] step 2'
+echo '{'
+echo '  "outcome": "complete",'
+echo '  "changed": true,'
+echo '  "details": {'
+echo '    "note": "final pretty complete with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertTrue(result_data.get("changed"))
+        self.assertEqual(result_data["details"]["note"], 'final pretty complete with { braces } and "quotes"')
+
+    def test_terminal_bare_complete_overrides_earlier_pretty_blocked(self):
+        script = """echo '[EXEC] step 1'
+echo '{'
+echo '  "outcome": "blocked",'
+echo '  "details": {'
+echo '    "note": "nested object with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+echo '[EXEC] step 2'
+echo '{"outcome": "complete", "changed": true}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertTrue(result_data.get("changed"))
+
+    def test_terminal_fenced_complete_overrides_earlier_pretty_blocked(self):
+        script = """echo '[EXEC] step 1'
+echo '{'
+echo '  "outcome": "blocked",'
+echo '  "details": {'
+echo '    "note": "nested object with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+echo '[EXEC] step 2'
+echo '```json'
+echo '{'
+echo '  "outcome": "complete",'
+echo '  "changed": true,'
+echo '  "details": {'
+echo '    "note": "final fenced complete with { braces } and \\"quotes\\""'
+echo '  }'
+echo '}'
+echo '```'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertTrue(result_data.get("changed"))
+        self.assertEqual(result_data["details"]["note"], 'final fenced complete with { braces } and "quotes"')
+
+
+
+    def test_malformed_terminal_bare_rejects_historical_complete(self):
+        status, result = self.run_adapter_start_and_wait("echo '```json'\necho '{\"outcome\":\"complete\"}'\necho '```'\necho '{\"outcome\":\"blocked\"'")
+        self.assertEqual((status["status"], result["outcome"], result["error_code"]), ("failed", "failure", "invalid_result"))
+
+    def test_malformed_terminal_fence_rejects_historical_complete(self):
+        status, result = self.run_adapter_start_and_wait("echo '{\"outcome\":\"complete\"}'\necho '```json'\necho '{\"outcome\":\"blocked\"'\necho '```'")
+        self.assertEqual((status["status"], result["outcome"], result["error_code"]), ("failed", "failure", "invalid_result"))
+
+    def test_unknown_terminal_outcome_rejects_historical_complete(self):
+        status, result = self.run_adapter_start_and_wait("echo '```json'\necho '{\"outcome\":\"complete\"}'\necho '```'\necho '{\"outcome\":\"unknown\"}'")
+        self.assertEqual((status["status"], result["outcome"], result["error_code"]), ("failed", "failure", "invalid_result"))
+
+    def test_authoritative_message_never_falls_back_to_historical_success(self):
+        import shlex
+        for content in ('{"outcome":"blocked"', '', '[]', '{"outcome":"unknown"}'):
+            with self.subTest(content=content):
+                script = "printf %s " + shlex.quote(content) + " > output/agy-message.json\necho '{\"outcome\":\"complete\"}'"
+                status, result = self.run_adapter_start_and_wait(script)
+                self.assertEqual((status["status"], result["outcome"], result["error_code"]), ("failed", "failure", "invalid_result"))
+
+    def test_valid_authoritative_message_overrides_later_stdout(self):
+        status, result = self.run_adapter_start_and_wait("echo '{\"outcome\":\"blocked\"}' > output/agy-message.json\necho '{\"outcome\":\"complete\"}'")
+        self.assertEqual((status["status"], result["outcome"]), ("failed", "blocked"))
+
+    def test_malformed_nested_result_cannot_promote_inner_success(self):
+        script = "echo '{\"outcome\":\"blocked\",'\necho '  \"details\": {'\necho '    \"outcome\":\"complete\"'\necho '  }'"
+        status, result = self.run_adapter_start_and_wait(script)
+        self.assertEqual((status["status"], result["outcome"], result["error_code"]), ("failed", "failure", "invalid_result"))
+
+    def test_valid_terminal_result_after_earlier_malformed_object(self):
+        status, result = self.run_adapter_start_and_wait("echo '{\"outcome\":\"blocked\"'\necho '{\"outcome\":\"complete\"}'")
+        self.assertEqual((status["status"], result["outcome"]), ("complete", "complete"))
 
 if __name__ == "__main__":
     unittest.main()
