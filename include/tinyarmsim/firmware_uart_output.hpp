@@ -19,6 +19,8 @@ namespace tinyarmsim {
 class FirmwareUartOutput {
 public:
     static constexpr std::size_t kCapacity = 65536;
+    static constexpr std::size_t kMaxServiceSyscalls = 8;
+    static constexpr std::size_t kMaxServiceBytes = 4096;
 
     explicit FirmwareUartOutput(int output_fd = STDOUT_FILENO) {
         owned_fd_ = ::dup(output_fd);
@@ -68,6 +70,30 @@ public:
 
     [[nodiscard]] std::size_t pending_bytes() const noexcept { return size_; }
     [[nodiscard]] bool failed() const noexcept { return failed_; }
+
+    // Write a bounded amount of queued output without waiting for descriptor space.
+    std::size_t service() {
+        if (failed_) {
+            throw std::system_error(std::make_error_code(std::errc::no_buffer_space),
+                                    "firmware UART output overflow");
+        }
+
+        std::size_t total_written = 0;
+        for (std::size_t attempt = 0;
+             attempt < kMaxServiceSyscalls && total_written < kMaxServiceBytes && size_ != 0;
+             ++attempt) {
+            try {
+                total_written += write_pending(kMaxServiceBytes - total_written);
+            } catch (const std::system_error& error) {
+                if (error.code().value() == EINTR) continue;
+                if (error.code().value() == EAGAIN || error.code().value() == EWOULDBLOCK) {
+                    return total_written;
+                }
+                throw;
+            }
+        }
+        return total_written;
+    }
 
     // Drain all pending bytes before one absolute deadline. A timeout leaves
     // unwritten bytes queued and is reported as std::errc::timed_out.
@@ -133,7 +159,7 @@ public:
     }
 
     // Make one bounded, nonblocking write attempt. Bytes remain queued on error.
-    std::size_t write_pending() {
+    std::size_t write_pending(std::size_t byte_limit = kCapacity) {
         if (size_ == 0) return 0;
 
         sigset_t pipe_set;
@@ -156,7 +182,8 @@ public:
             const bool was_pending = ::sigismember(&pending_before, SIGPIPE) == 1;
 
             const std::size_t contiguous = ring_.size() - head_;
-            const std::size_t count = size_ < contiguous ? size_ : contiguous;
+            const std::size_t available = size_ < contiguous ? size_ : contiguous;
+            const std::size_t count = available < byte_limit ? available : byte_limit;
             written = ::write(owned_fd_, ring_.data() + head_, count);
             write_error = written == -1 ? errno : 0;
 

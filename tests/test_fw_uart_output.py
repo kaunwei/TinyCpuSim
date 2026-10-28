@@ -4,6 +4,79 @@ from tests.fw_cpp_test_support import run_cpp
 
 
 class TestFwUartOutput(unittest.TestCase):
+    def test_service_retains_backlog_on_eagain_then_drains_in_order(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <fcntl.h>
+#include <vector>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    int fds[2];
+    assert(pipe(fds) == 0);
+    assert(fcntl(fds[1], F_SETPIPE_SZ, 4096) >= 4096);
+    std::array<uint8_t, 4096> full{};
+    full.fill(0x5a);
+    assert(write(fds[1], full.data(), full.size()) == static_cast<ssize_t>(full.size()));
+
+    FirmwareUartOutput output(fds[1]);
+    const std::array<uint8_t, 7> expected{0, 255, 1, 2, 0, 128, 255};
+    for (uint8_t byte : expected) assert(output.enqueue(byte));
+    assert(output.service() == 0);
+    assert(output.pending_bytes() == expected.size());
+
+    std::array<uint8_t, 8192> buffer{};
+    assert(read(fds[0], buffer.data(), full.size()) == static_cast<ssize_t>(full.size()));
+    while (output.pending_bytes() != 0) (void)output.service();
+    std::array<uint8_t, 7> actual{};
+    assert(read(fds[0], actual.data(), actual.size()) == static_cast<ssize_t>(actual.size()));
+    assert(actual == expected);
+    assert(output.pending_bytes() == 0);
+    close(fds[0]); close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_service_reports_overflow_and_fatal_peer_error(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <cassert>
+#include <cerrno>
+#include <system_error>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    int fds[2]; assert(pipe(fds) == 0);
+    {
+        FirmwareUartOutput output(fds[1]);
+        for (std::size_t i = 0; i < FirmwareUartOutput::kCapacity; ++i)
+            assert(output.enqueue(static_cast<uint8_t>(i)));
+        assert(!output.enqueue(1));
+        try { (void)output.service(); assert(false); }
+        catch (const std::system_error& error) {
+            assert(error.code() == std::make_error_code(std::errc::no_buffer_space));
+        }
+        assert(output.pending_bytes() == FirmwareUartOutput::kCapacity);
+    }
+    close(fds[0]); close(fds[1]);
+
+    assert(pipe(fds) == 0);
+    FirmwareUartOutput output(fds[1]);
+    close(fds[0]);
+    assert(output.enqueue(0xa5));
+    try { (void)output.service(); assert(false); }
+    catch (const std::system_error& error) { assert(error.code().value() == EPIPE); }
+    assert(output.pending_bytes() == 1);
+    close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_flush_waits_for_reader_and_drains_exact_bytes(self):
         source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
 #include <array>
