@@ -383,46 +383,6 @@ int main() {
         proc = run_cpp(source, timeout=5)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_default_sigpipe_disposition_returns_epipe_without_termination(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
-#include <cassert>
-#include <cerrno>
-#include <csignal>
-#include <system_error>
-#include <sys/wait.h>
-#include <unistd.h>
-using tinyarmsim::FirmwareUartOutput;
-
-int main() {
-    const pid_t child = fork();
-    assert(child >= 0);
-    if (child == 0) {
-        struct sigaction action{};
-        action.sa_handler = SIG_DFL;
-        sigemptyset(&action.sa_mask);
-        assert(sigaction(SIGPIPE, &action, nullptr) == 0);
-        int fds[2];
-        assert(pipe(fds) == 0);
-        FirmwareUartOutput output(fds[1]);
-        close(fds[0]);
-        assert(output.enqueue('z'));
-        try { (void)output.write_pending(); }
-        catch (const std::system_error& error) {
-            if (error.code().value() == EPIPE) _exit(42);
-            _exit(43);
-        }
-        _exit(44);
-    }
-    int status = 0;
-    const pid_t waited = waitpid(child, &status, 0);
-    assert(waited == child);
-    assert(WIFEXITED(status));
-    assert(WEXITSTATUS(status) == 42);
-    return 0;
-}'''
-        proc = run_cpp(source, timeout=5)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-
     def test_closed_peer_write_preserves_thread_signal_state(self):
         source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
 #include <cassert>
@@ -555,6 +515,48 @@ int main() {
     assert(waited == child);
     assert(WIFEXITED(status));
     assert(WEXITSTATUS(status) == 42);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_default_sigpipe_service_preserves_latched_flush_epipe(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <cassert>
+#include <cerrno>
+#include <chrono>
+#include <csignal>
+#include <system_error>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    struct sigaction action{};
+    action.sa_handler = SIG_DFL;
+    sigemptyset(&action.sa_mask);
+    assert(sigaction(SIGPIPE, &action, nullptr) == 0);
+    int fds[2];
+    assert(pipe(fds) == 0);
+    FirmwareUartOutput output(fds[1]);
+    close(fds[0]);
+    assert(output.enqueue('z'));
+    bool flush_caught_epipe = false;
+    try { output.flush(std::chrono::milliseconds(200)); }
+    catch (const std::system_error& error) {
+        flush_caught_epipe = true;
+        assert(error.code().value() == EPIPE);
+    }
+    assert(flush_caught_epipe);
+    assert(output.failed());
+    bool service_caught_epipe = false;
+    try { (void)output.service(); }
+    catch (const std::system_error& error) {
+        service_caught_epipe = true;
+        assert(error.code().value() == EPIPE);
+    }
+    assert(service_caught_epipe);
+    assert(output.failed());
+    close(fds[1]);
     return 0;
 }'''
         proc = run_cpp(source, timeout=5)

@@ -74,8 +74,7 @@ public:
     // Write a bounded amount of queued output without waiting for descriptor space.
     std::size_t service() {
         if (failed_) {
-            throw std::system_error(std::make_error_code(std::errc::no_buffer_space),
-                                    "firmware UART output overflow");
+            throw std::system_error(failure_code_, "firmware UART output failed");
         }
 
         std::size_t total_written = 0;
