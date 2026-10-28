@@ -15,7 +15,7 @@ from typing import Optional, Sequence, Set, Tuple
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _DEFAULT_CACHE_DIR = _REPO_ROOT / ".cache" / "cpp_builds"
 
-# Standard library headers that do not depend on local repo or external files
+# Standard library headers reference (retained for backward compatibility)
 _STD_HEADERS = {
     "algorithm", "any", "array", "atomic", "barrier", "bit", "bitset", "charconv",
     "chrono", "codecvt", "compare", "complex", "concepts", "condition_variable",
@@ -67,76 +67,90 @@ class CppBuildConfig:
 
 
 def _get_compiler_identity(compiler_path: str) -> str:
+    p = pathlib.Path(shutil.which(compiler_path) or compiler_path)
+    real_path = str(p.resolve()) if p.exists() else compiler_path
+    content_hash = "missing"
+    if p.exists():
+        try:
+            content_hash = hashlib.sha256(p.read_bytes()).hexdigest()
+        except OSError:
+            stat = p.stat()
+            content_hash = f"stat:{stat.st_size}:{stat.st_mtime_ns}"
+    version = ""
     try:
         proc = subprocess.run(
             [compiler_path, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
-            check=True,
         )
-        return proc.stdout.strip()
+        version = proc.stdout.strip()
     except Exception:
-        stat = os.stat(compiler_path) if os.path.exists(compiler_path) else None
-        return f"{compiler_path}:{stat.st_mtime if stat else 'unknown'}"
+        version = "unknown"
+    return f"path:{compiler_path}|real:{real_path}|hash:{content_hash}|ver:{version}"
 
 
-def _find_included_headers(source: str) -> Set[str]:
-    pattern = re.compile(r'^[ \t]*#[ \t]*include[ \t]+([<"][^>"]+[>"])', re.MULTILINE)
-    return set(pattern.findall(source))
-
-
-def _resolve_header_dependencies(
-    headers: Set[str], include_dirs: Sequence[str]
+def _get_compiler_dependencies(
+    source: str, config: CppBuildConfig
 ) -> Tuple[bool, Sequence[pathlib.Path]]:
-    """Resolves header paths.
+    """Query compiler for actual dependencies using -M.
 
-    Returns (can_cache, resolved_paths).
-    If any non-std header cannot be resolved in include_dirs, can_cache is False.
+    Returns (can_cache, resolved_header_paths).
+    If dependency extraction fails (e.g. syntax error or missing header),
+    returns (False, []).
     """
-    resolved: Set[pathlib.Path] = set()
-    for h in headers:
-        header_name = h[1:-1]
-        if h.startswith("<") and header_name in _STD_HEADERS:
-            continue
-        found = False
-        for inc_dir in include_dirs:
-            p = pathlib.Path(inc_dir) / header_name
-            if p.is_file():
-                found = True
-                _collect_transitive_headers(p, include_dirs, resolved)
-                break
-        if not found:
-            return False, []
-    return True, sorted(resolved)
+    cmd = [config.compiler]
+    cmd.extend(config.flags)
+    for inc in config.include_dirs:
+        cmd.append(f"-I{inc}")
+    cmd.extend(["-M", "-x", "c++", "-"])
 
-
-def _collect_transitive_headers(
-    header_path: pathlib.Path, include_dirs: Sequence[str], visited: Set[pathlib.Path]
-) -> None:
-    if header_path in visited:
-        return
-    visited.add(header_path)
     try:
-        content = header_path.read_text(encoding="utf-8", errors="ignore")
+        proc = subprocess.run(
+            cmd,
+            input=source,
+            capture_output=True,
+            text=True,
+            timeout=config.compile_timeout,
+        )
+        if proc.returncode != 0:
+            return False, []
     except Exception:
-        return
-    child_headers = _find_included_headers(content)
-    for ch in child_headers:
-        ch_name = ch[1:-1]
-        if ch.startswith("<") and ch_name in _STD_HEADERS:
-            continue
-        # Check relative to current header directory first
-        local_p = header_path.parent / ch_name
-        if local_p.is_file():
-            _collect_transitive_headers(local_p.resolve(), include_dirs, visited)
-            continue
-        # Then search include_dirs
-        for inc_dir in include_dirs:
-            p = pathlib.Path(inc_dir) / ch_name
-            if p.is_file():
-                _collect_transitive_headers(p.resolve(), include_dirs, visited)
-                break
+        return False, []
+
+    # Parse makefile dependency output
+    raw = proc.stdout
+    colon_idx = raw.find(":")
+    body = raw[colon_idx + 1 :] if colon_idx != -1 else raw
+    body = body.replace("\\\n", " ").replace("\\\r\n", " ")
+
+    tokens = []
+    tok = []
+    in_esc = False
+    for ch in body:
+        if in_esc:
+            tok.append(ch)
+            in_esc = False
+        elif ch == "\\":
+            in_esc = True
+        elif ch in " \t\n\r":
+            if tok:
+                tokens.append("".join(tok))
+                tok = []
+        else:
+            tok.append(ch)
+    if tok:
+        tokens.append("".join(tok))
+
+    deps: Set[pathlib.Path] = set()
+    for token in tokens:
+        p = pathlib.Path(token).resolve()
+        if p.is_file():
+            deps.add(p)
+        else:
+            # Cannot prove missing dependency path
+            return False, []
+    return True, sorted(deps)
 
 
 def _compute_cache_key(
@@ -146,6 +160,7 @@ def _compute_cache_key(
     header_paths: Sequence[pathlib.Path],
 ) -> str:
     h = hashlib.sha256()
+    h.update(b"v2_proven_dep_cache\x00")
     h.update(source.encode("utf-8"))
     h.update(b"\x00")
     h.update(compiler_id.encode("utf-8"))
@@ -160,10 +175,9 @@ def _compute_cache_key(
         h.update(str(hdr.resolve()).encode("utf-8"))
         h.update(b"\x00")
         try:
-            stat = hdr.stat()
-            h.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
+            h.update(hashlib.sha256(hdr.read_bytes()).digest())
         except OSError:
-            h.update(b"missing")
+            return ""  # Unreadable dependency cannot be safely cached
         h.update(b"\x00")
     return h.hexdigest()
 
@@ -261,11 +275,10 @@ def get_or_compile_cpp(
         _compile_to_binary(source, bin_file, config)
         return bin_file, False
 
-    # Check header dependencies
-    headers = _find_included_headers(source)
-    can_cache, header_paths = _resolve_header_dependencies(headers, config.include_dirs)
+    # Check compiler-reported dependencies
+    can_cache, header_paths = _get_compiler_dependencies(source, config)
     if not can_cache:
-        # External or unresolvable header - safely bypass cache
+        # Cannot prove dependencies or external/broken header - safely bypass cache
         tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="cpp_run_"))
         bin_file = tmp_dir / "app"
         _compile_to_binary(source, bin_file, config)
@@ -273,6 +286,12 @@ def get_or_compile_cpp(
 
     compiler_id = _get_compiler_identity(config.compiler)
     cache_key = _compute_cache_key(source, compiler_id, config, header_paths)
+    if not cache_key:
+        tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="cpp_run_"))
+        bin_file = tmp_dir / "app"
+        _compile_to_binary(source, bin_file, config)
+        return bin_file, False
+
     cache_dir = pathlib.Path(config.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 

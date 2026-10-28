@@ -1,4 +1,6 @@
 import concurrent.futures
+import dataclasses
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -245,6 +247,182 @@ int main() {
             res = run_cpp(source, config=cfg)
             self.assertEqual(res.returncode, 0)
             self.assertIn("parallel_safe", res.stdout)
+
+    def test_invalidation_macro_include(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            inc = root / "macro"
+            inc.mkdir()
+            header = inc / "value.hpp"
+            header.write_text("#define VALUE 11\n")
+            cfg = CppBuildConfig(include_dirs=(str(inc),), cache_dir=root / "cache-macro")
+            program = '#define CHOSEN "value.hpp"\n#include CHOSEN\nint main(){return VALUE;}\n'
+
+            first = run_cpp(program, timeout=5, config=cfg)
+            self.assertEqual(first.returncode, 11)
+
+            header.write_text("#define VALUE 22\n")
+            cached = run_cpp(program, timeout=5, config=cfg)
+            fresh = run_cpp(program, timeout=5, config=dataclasses.replace(cfg, cache_dir=None))
+            self.assertEqual(cached.returncode, 22)
+            self.assertEqual(fresh.returncode, 22)
+
+    def test_invalidation_unresolved_transitive(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            inc = root / "transitive"
+            inc.mkdir()
+            external = root / "external"
+            external.mkdir()
+            (inc / "outer.hpp").write_text("#include <hidden.hpp>\n")
+            header = external / "hidden.hpp"
+            header.write_text("#define VALUE 11\n")
+            cfg = CppBuildConfig(
+                flags=("-std=c++20", f"-I{external}"),
+                include_dirs=(str(inc),),
+                cache_dir=root / "cache-transitive",
+            )
+            program = '#include "outer.hpp"\nint main(){return VALUE;}\n'
+
+            first = run_cpp(program, timeout=5, config=cfg)
+            self.assertEqual(first.returncode, 11)
+
+            header.write_text("#define VALUE 22\n")
+            cached = run_cpp(program, timeout=5, config=cfg)
+            fresh = run_cpp(program, timeout=5, config=dataclasses.replace(cfg, cache_dir=None))
+            self.assertEqual(cached.returncode, 22)
+            self.assertEqual(fresh.returncode, 22)
+
+    def test_invalidation_standard_header_shadow(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            inc = root / "shadow"
+            inc.mkdir()
+            header = inc / "vector"
+            header.write_text("#define VALUE 11\n")
+            cfg = CppBuildConfig(include_dirs=(str(inc),), cache_dir=root / "cache-shadow")
+            program = "#include <vector>\nint main(){return VALUE;}\n"
+
+            first = run_cpp(program, timeout=5, config=cfg)
+            self.assertEqual(first.returncode, 11)
+
+            header.write_text("#define VALUE 22\n")
+            cached = run_cpp(program, timeout=5, config=cfg)
+            fresh = run_cpp(program, timeout=5, config=dataclasses.replace(cfg, cache_dir=None))
+            self.assertEqual(cached.returncode, 22)
+            self.assertEqual(fresh.returncode, 22)
+
+    def test_invalidation_same_size_and_mtime(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            inc = root / "stamp"
+            inc.mkdir()
+            header = inc / "value.hpp"
+            header.write_text("#define VALUE 11\n")
+            stamp = header.stat()
+
+            cfg = CppBuildConfig(include_dirs=(str(inc),), cache_dir=root / "cache-stamp")
+            program = '#include "value.hpp"\nint main(){return VALUE;}\n'
+
+            first = run_cpp(program, timeout=5, config=cfg)
+            self.assertEqual(first.returncode, 11)
+
+            header.write_text("#define VALUE 22\n")
+            os.utime(header, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+
+            cached = run_cpp(program, timeout=5, config=cfg)
+            fresh = run_cpp(program, timeout=5, config=dataclasses.replace(cfg, cache_dir=None))
+            self.assertEqual(cached.returncode, 22)
+            self.assertEqual(fresh.returncode, 22)
+
+    def test_invalidation_compiler_path_same_version(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            compilers = []
+            for value in [11, 22]:
+                compiler = root / f"compiler-{value}"
+                compiler.write_text(
+                    f'#!/bin/sh\nif [ "$1" = "--version" ]; then echo same-version; exit 0; fi\nexec /usr/bin/c++ -DVALUE={value} "$@"\n'
+                )
+                compiler.chmod(0o755)
+                compilers.append(compiler)
+
+            first_config = CppBuildConfig(
+                compiler=str(compilers[0]),
+                include_dirs=(),
+                cache_dir=root / "cache-compiler",
+            )
+            second_config = dataclasses.replace(first_config, compiler=str(compilers[1]))
+            program = "int main(){return VALUE;}\n"
+
+            first = run_cpp(program, timeout=5, config=first_config)
+            self.assertEqual(first.returncode, 11)
+
+            cached = run_cpp(program, timeout=5, config=second_config)
+            fresh = run_cpp(
+                program, timeout=5, config=dataclasses.replace(second_config, cache_dir=None)
+            )
+            self.assertEqual(cached.returncode, 22)
+            self.assertEqual(fresh.returncode, 22)
+
+    def test_invalidation_relative_leading_hyphen_header(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            cwd = root / "cwd"
+            cwd.mkdir()
+            h = cwd / "-value.hpp"
+            h.write_text("#define VALUE 11\n")
+            previous = pathlib.Path.cwd()
+            try:
+                os.chdir(cwd)
+                program = '#include "-value.hpp"\nint main(){return VALUE;}\n'
+                cfg = CppBuildConfig(include_dirs=(".",), cache_dir=root / "cache-hyphen")
+
+                first = run_cpp(program, timeout=5, config=cfg)
+                self.assertEqual(first.returncode, 11)
+
+                h.write_text("#define VALUE 22\n")
+                cached = run_cpp(program, timeout=5, config=cfg)
+                fresh = run_cpp(program, timeout=5, config=dataclasses.replace(cfg, cache_dir=None))
+                self.assertEqual(cached.returncode, 22)
+                self.assertEqual(fresh.returncode, 22)
+            finally:
+                os.chdir(previous)
+
+    def test_invalidation_compiler_selected_via_PATH(self):
+        with tempfile.TemporaryDirectory() as root_str:
+            root = pathlib.Path(root_str)
+            dirs = []
+            for value in [11, 22]:
+                folder = root / f"compiler{value}"
+                folder.mkdir()
+                wrapper = folder / "review-cxx"
+                wrapper.write_text(
+                    f'#!/bin/sh\nif [ "$1" = "--version" ]; then echo same-version; exit 0; fi\nexec /usr/bin/c++ -DVALUE={value} "$@"\n'
+                )
+                wrapper.chmod(0o755)
+                dirs.append(folder)
+
+            oldpath = os.environ.get("PATH", "")
+            try:
+                cfg = CppBuildConfig(
+                    compiler="review-cxx",
+                    include_dirs=(),
+                    cache_dir=root / "cache-PATH",
+                )
+                program = "int main(){return VALUE;}\n"
+
+                os.environ["PATH"] = str(dirs[0]) + os.pathsep + oldpath
+                first = run_cpp(program, timeout=5, config=cfg)
+                self.assertEqual(first.returncode, 11)
+
+                os.environ["PATH"] = str(dirs[1]) + os.pathsep + oldpath
+                cached = run_cpp(program, timeout=5, config=cfg)
+                fresh = run_cpp(program, timeout=5, config=dataclasses.replace(cfg, cache_dir=None))
+                self.assertEqual(cached.returncode, 22)
+                self.assertEqual(fresh.returncode, 22)
+            finally:
+                os.environ["PATH"] = oldpath
 
 
 if __name__ == "__main__":
