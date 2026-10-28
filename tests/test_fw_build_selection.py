@@ -165,20 +165,49 @@ class TestFwBuildSelection(unittest.TestCase):
 
     def test_two_simultaneous_explicit_profiles_without_crosstalk(self):
         with controlled_firmware(
-            build_root=self.root_a, initial_commands="stop\n"
+            build_root=self.root_a, initial_commands="", host_timeout=2.0
         ) as session_a, controlled_firmware(
-            build_root=self.root_b, initial_commands="stop\n"
+            build_root=self.root_b, initial_commands="", host_timeout=2.0
         ) as session_b:
+            alive = [session_a.process.poll() is None, session_b.process.poll() is None]
+            self.assertEqual(alive, [True, True])
+            self.assertIsNone(session_a.process.poll())
+            self.assertIsNone(session_b.process.poll())
+            self.assertNotEqual(session_a.process.pid, session_b.process.pid)
+            self.assertEqual(session_a.process.args[0], str(self.root_a / "tinycpusim"))
+            self.assertEqual(session_a.process.args[-1], str(self.root_a / "isa_boot_acceptance.elf"))
+            self.assertEqual(session_b.process.args[0], str(self.root_b / "tinycpusim"))
+            self.assertEqual(session_b.process.args[-1], str(self.root_b / "isa_boot_acceptance.elf"))
+            self.assertNotEqual(session_a.process.args[0], session_b.process.args[0])
+            self.assertNotEqual(session_a.process.args[-1], session_b.process.args[-1])
+
+            session_a.send("stop\n")
+            session_b.send("stop\n")
             msg_a = session_a.receive()
             msg_b = session_b.receive()
+
+            self.assertEqual(msg_a.get("event"), "stopped")
+            self.assertEqual(msg_a.get("reason"), "requested")
             self.assertEqual(msg_a.get("marker"), "PROFILE_A")
+            self.assertEqual(msg_a.get("sim_path"), str(self.root_a / "tinycpusim"))
+            self.assertEqual(msg_a.get("elf_path"), str(self.root_a / "isa_boot_acceptance.elf"))
             self.assertEqual(msg_a.get("elf_content"), "ELF_CONTENT_A")
+
+            self.assertEqual(msg_b.get("event"), "stopped")
+            self.assertEqual(msg_b.get("reason"), "requested")
             self.assertEqual(msg_b.get("marker"), "PROFILE_B")
+            self.assertEqual(msg_b.get("sim_path"), str(self.root_b / "tinycpusim"))
+            self.assertEqual(msg_b.get("elf_path"), str(self.root_b / "isa_boot_acceptance.elf"))
             self.assertEqual(msg_b.get("elf_content"), "ELF_CONTENT_B")
-            session_a.communicate(timeout=2.0)
-            session_b.communicate(timeout=2.0)
+
+            stdout_a, stderr_a = session_a.communicate(timeout=2.0)
+            stdout_b, stderr_b = session_b.communicate(timeout=2.0)
             self.assertEqual(session_a.process.returncode, 0)
             self.assertEqual(session_b.process.returncode, 0)
+            self.assertEqual(stdout_a, "")
+            self.assertEqual(stderr_a, "")
+            self.assertEqual(stdout_b, "")
+            self.assertEqual(stderr_b, "")
 
     def test_selected_missing_binary_must_fail(self):
         missing_root = self.base_path / "nonexistent_build_dir"
