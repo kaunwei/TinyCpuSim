@@ -64,14 +64,14 @@ int main() {
 }
 """
             # Cold build
-            bin_path1, from_cache1 = get_or_compile_cpp(source, config=cfg)
-            self.assertFalse(from_cache1)
-            self.assertTrue(bin_path1.exists())
+            with get_or_compile_cpp(source, config=cfg) as (bin_path1, from_cache1):
+                self.assertFalse(from_cache1)
+                self.assertTrue(bin_path1.exists())
 
             # Warm build
-            bin_path2, from_cache2 = get_or_compile_cpp(source, config=cfg)
-            self.assertTrue(from_cache2)
-            self.assertEqual(bin_path1, bin_path2)
+            with get_or_compile_cpp(source, config=cfg) as (bin_path2, from_cache2):
+                self.assertTrue(from_cache2)
+                self.assertEqual(bin_path1, bin_path2)
 
             # Execution produces expected output on both calls
             p1 = run_cpp(source, config=cfg)
@@ -97,10 +97,12 @@ int main() {
     return 0;
 }
 """
-            bin1, cached1 = get_or_compile_cpp(source_v1, config=cfg)
+            with get_or_compile_cpp(source_v1, config=cfg) as ((bin1, cached1)):
+                pass
             self.assertFalse(cached1)
 
-            bin2, cached2 = get_or_compile_cpp(source_v2, config=cfg)
+            with get_or_compile_cpp(source_v2, config=cfg) as ((bin2, cached2)):
+                pass
             self.assertFalse(cached2)
             self.assertNotEqual(bin1, bin2)
 
@@ -128,7 +130,8 @@ int main() {
     return 0;
 }
 """
-            bin1, cached1 = get_or_compile_cpp(source, config=cfg)
+            with get_or_compile_cpp(source, config=cfg) as ((bin1, cached1)):
+                pass
             self.assertFalse(cached1)
             p1 = run_cpp(source, config=cfg)
             self.assertIn("10", p1.stdout)
@@ -137,7 +140,8 @@ int main() {
             time.sleep(0.01)  # Ensure nanosecond mtime delta
             custom_header.write_text("#define MAGIC_VAL 20\n", encoding="utf-8")
 
-            bin2, cached2 = get_or_compile_cpp(source, config=cfg)
+            with get_or_compile_cpp(source, config=cfg) as ((bin2, cached2)):
+                pass
             self.assertFalse(cached2)
             self.assertNotEqual(bin1, bin2)
             p2 = run_cpp(source, config=cfg)
@@ -159,12 +163,14 @@ int main() {
     return 0;
 }
 """
-            bin1, cached1 = get_or_compile_cpp(source, config=cfg1)
+            with get_or_compile_cpp(source, config=cfg1) as ((bin1, cached1)):
+                pass
             self.assertFalse(cached1)
             p1 = run_cpp(source, config=cfg1)
             self.assertIn("1", p1.stdout)
 
-            bin2, cached2 = get_or_compile_cpp(source, config=cfg2)
+            with get_or_compile_cpp(source, config=cfg2) as ((bin2, cached2)):
+                pass
             self.assertFalse(cached2)
             self.assertNotEqual(bin1, bin2)
             p2 = run_cpp(source, config=cfg2)
@@ -179,7 +185,8 @@ int main() { return 0; }
 """
             # Should fail compilation and bypass cache without creating artifacts in cache_dir
             with self.assertRaises(subprocess.CalledProcessError):
-                get_or_compile_cpp(source, config=cfg)
+                with get_or_compile_cpp(source, config=cfg) as _build:
+                    pass
 
             cached_bins = list(pathlib.Path(tmp_cache).glob("bin_*"))
             self.assertEqual(len(cached_bins), 0)
@@ -228,7 +235,8 @@ int main() {
             num_workers = 6
 
             def worker_fn():
-                return get_or_compile_cpp(source, config=cfg)
+                with get_or_compile_cpp(source, config=cfg) as (binary, hit):
+                    return binary, hit
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = [executor.submit(worker_fn) for _ in range(num_workers)]
@@ -423,6 +431,113 @@ int main() {
                 self.assertEqual(fresh.returncode, 22)
             finally:
                 os.environ["PATH"] = oldpath
+
+
+    def test_bypass_artifacts_cleanup_across_public_run_outcomes(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory(prefix="cpp-owned-spool-") as directory:
+            root = pathlib.Path(directory)
+            spool = root / "spool"
+            spool.mkdir()
+            cfg = CppBuildConfig(cache_dir=None, include_dirs=())
+            with mock.patch.object(tempfile, "tempdir", str(spool)):
+                result = run_cpp("int main(){return 7;}", config=cfg)
+                self.assertEqual(result.returncode, 7)
+                self.assertEqual(list(spool.iterdir()), [])
+                with self.assertRaises(CompileError):
+                    run_cpp("int main(){invalid_token;}", config=cfg)
+                self.assertEqual(list(spool.iterdir()), [])
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    run_cpp("int main(){for(;;){}}", timeout=0.05, config=cfg)
+                self.assertEqual(list(spool.iterdir()), [])
+                compiler = root / "no-dependencies-cxx"
+                compiler.write_text('#!/bin/sh\nfor arg do\n if [ "$arg" = "-M" ]; then exit 1; fi\ndone\nexec /usr/bin/c++ "$@"\n')
+                compiler.chmod(0o755)
+                bypass = dataclasses.replace(cfg, compiler=str(compiler), cache_dir=root / "cache")
+                result = run_cpp("int main(){return 0;}", config=bypass)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(list(spool.iterdir()), [])
+                self.assertFalse((root / "cache").exists())
+
+    def test_resolver_context_owns_bypass_and_preserves_cold_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = CppBuildConfig(cache_dir=None, include_dirs=())
+            with self.assertRaisesRegex(RuntimeError, "caller failed"):
+                with get_or_compile_cpp("int main(){return 0;}", cfg) as (binary, hit):
+                    self.assertFalse(hit)
+                    self.assertTrue(binary.exists())
+                    owned_directory = binary.parent
+                    raise RuntimeError("caller failed")
+            self.assertFalse(owned_directory.exists())
+            cached_cfg = dataclasses.replace(cfg, cache_dir=pathlib.Path(directory) / "cache")
+            with get_or_compile_cpp("int main(){return 0;}", cached_cfg) as (cold, hit):
+                self.assertFalse(hit)
+                self.assertTrue(cold.exists())
+            self.assertTrue(cold.exists())
+            with get_or_compile_cpp("int main(){return 0;}", cached_cfg) as (warm, hit):
+                self.assertTrue(hit)
+                self.assertEqual(warm, cold)
+
+    def test_same_key_compilation_across_real_processes(self):
+        import json
+        import sys
+        with tempfile.TemporaryDirectory(prefix="cpp-real-processes-") as directory:
+            root = pathlib.Path(directory)
+            compiler = root / "counting-cxx"
+            compile_log = root / "compiles"
+            compiler.write_text(
+                '#!/usr/bin/python3\nimport os,sys,time\n'
+                'if "--version" not in sys.argv and "-M" not in sys.argv:\n'
+                ' with open(' + repr(str(compile_log)) + ',"a") as f:f.write("compile\\n")\n'
+                ' time.sleep(.15)\n'
+                'os.execv("/usr/bin/c++",["c++",*sys.argv[1:]])\n'
+            )
+            compiler.chmod(0o755)
+            worker = root / "worker.py"
+            worker.write_text(
+                'import importlib.util,json,os,pathlib,subprocess,sys,time\n'
+                'spec=importlib.util.spec_from_file_location("owned",sys.argv[1]);m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)\n'
+                'pathlib.Path(sys.argv[5]).write_text("ready")\n'
+                'deadline=time.monotonic()+5\n'
+                'while not pathlib.Path(sys.argv[4]).exists():\n'
+                ' if time.monotonic()>=deadline:raise TimeoutError("start barrier")\n'
+                ' time.sleep(.005)\n'
+                'cfg=m.CppBuildConfig(compiler=sys.argv[3],cache_dir=pathlib.Path(sys.argv[2]),include_dirs=(),lock_timeout=3)\n'
+                'with m.get_or_compile_cpp("int main(){return 0;}",cfg) as (binary,hit):\n'
+                ' p=subprocess.run([str(binary)],timeout=2)\n'
+                ' print(json.dumps({"pid":os.getpid(),"hit":hit,"returncode":p.returncode}),flush=True)\n'
+            )
+            gate = root / "go"
+            cache = root / "cache"
+            helper = pathlib.Path(__file__).with_name("fw_cpp_test_support.py")
+            peers = []
+            try:
+                for index in range(4):
+                    peers.append(subprocess.Popen(
+                        [sys.executable, str(worker), str(helper), str(cache), str(compiler), str(gate), str(root / f"ready{index}")],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    ))
+                deadline = time.monotonic() + 5
+                while len(list(root.glob("ready*"))) < 4:
+                    if time.monotonic() >= deadline:
+                        self.fail("child readiness deadline expired")
+                    time.sleep(.005)
+                gate.write_text("go")
+                observations = []
+                for peer in peers:
+                    out, err = peer.communicate(timeout=8)
+                    self.assertEqual(peer.returncode, 0, out + err)
+                    observations.append(json.loads(out))
+                self.assertEqual(len({item["pid"] for item in observations}), 4)
+                self.assertEqual(sum(not item["hit"] for item in observations), 1)
+                self.assertTrue(all(item["returncode"] == 0 for item in observations))
+                self.assertEqual(compile_log.read_text().splitlines(), ["compile"])
+                self.assertEqual(len(list(cache.glob("bin_*"))), 1)
+            finally:
+                for peer in peers:
+                    if peer.poll() is None:
+                        peer.kill()
+                    peer.communicate(timeout=3)
 
 
 if __name__ == "__main__":

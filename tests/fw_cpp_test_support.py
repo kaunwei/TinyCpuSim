@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Optional, Sequence, Set, Tuple
+from typing import Iterator, Optional, Sequence, Set, Tuple
 
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -186,10 +186,10 @@ def _compute_cache_key(
 def _acquire_cross_process_lock(lock_file_path: pathlib.Path, timeout: float = 60.0):
     lock_file_path.parent.mkdir(parents=True, exist_ok=True)
     f = open(lock_file_path, "a+")
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + timeout
     acquired = False
     try:
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 acquired = True
@@ -257,57 +257,55 @@ def _compile_to_binary(
                 pass
 
 
+@contextlib.contextmanager
 def get_or_compile_cpp(
     source: str,
     config: Optional[CppBuildConfig] = None,
-) -> Tuple[pathlib.Path, bool]:
-    """Retrieve compiled binary from cache or compile it.
+) -> Iterator[Tuple[pathlib.Path, bool]]:
+    """Own a build during a with-block; yield (binary_path, from_cache).
 
-    Returns (binary_path, from_cache).
+    Bypassed builds are deleted on every context exit, including execution errors.
+    Persistent cache entries survive exit even when from_cache is False (cold build).
+    The returned binary is guaranteed available only within this context.
     """
     if config is None:
         config = CppBuildConfig()
 
-    if config.cache_dir is None:
-        # Cache explicitly bypassed
-        tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="cpp_run_"))
-        bin_file = tmp_dir / "app"
-        _compile_to_binary(source, bin_file, config)
-        return bin_file, False
+    can_cache = False
+    header_paths = []
+    if config.cache_dir is not None:
+        can_cache, header_paths = _get_compiler_dependencies(source, config)
 
-    # Check compiler-reported dependencies
-    can_cache, header_paths = _get_compiler_dependencies(source, config)
     if not can_cache:
-        # Cannot prove dependencies or external/broken header - safely bypass cache
-        tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="cpp_run_"))
-        bin_file = tmp_dir / "app"
-        _compile_to_binary(source, bin_file, config)
-        return bin_file, False
+        with tempfile.TemporaryDirectory(prefix="cpp_run_") as directory:
+            binary = pathlib.Path(directory) / "app"
+            _compile_to_binary(source, binary, config)
+            yield binary, False
+        return
 
     compiler_id = _get_compiler_identity(config.compiler)
     cache_key = _compute_cache_key(source, compiler_id, config, header_paths)
     if not cache_key:
-        tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="cpp_run_"))
-        bin_file = tmp_dir / "app"
-        _compile_to_binary(source, bin_file, config)
-        return bin_file, False
+        with tempfile.TemporaryDirectory(prefix="cpp_run_") as directory:
+            binary = pathlib.Path(directory) / "app"
+            _compile_to_binary(source, binary, config)
+            yield binary, False
+        return
 
     cache_dir = pathlib.Path(config.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    bin_path = cache_dir / f"bin_{cache_key}"
+    binary = cache_dir / f"bin_{cache_key}"
     lock_path = cache_dir / f".lock_{cache_key}"
 
-    if bin_path.exists():
-        return bin_path, True
-
-    # Acquire bounded cross-process lock for this specific key
-    with _acquire_cross_process_lock(lock_path, timeout=config.lock_timeout):
-        # Double check if another process finished compilation while we waited
-        if bin_path.exists():
-            return bin_path, True
-        _compile_to_binary(source, bin_path, config)
-        return bin_path, False
+    from_cache = binary.exists()
+    if not from_cache:
+        with _acquire_cross_process_lock(lock_path, timeout=config.lock_timeout):
+            from_cache = binary.exists()
+            if not from_cache:
+                _compile_to_binary(source, binary, config)
+    # Release the compile lock before exposing an executable to the caller.
+    yield binary, from_cache
 
 
 def run_cpp(
@@ -324,11 +322,10 @@ def run_cpp(
     if config is None:
         config = CppBuildConfig()
 
-    bin_file, _ = get_or_compile_cpp(source, config)
-
-    return subprocess.run(
-        [str(bin_file)],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    with get_or_compile_cpp(source, config) as (bin_file, _):
+        return subprocess.run(
+            [str(bin_file)],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
