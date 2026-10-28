@@ -4,6 +4,67 @@ from tests.fw_cpp_test_support import run_cpp
 
 
 class TestFwUartOutput(unittest.TestCase):
+    def test_partial_pipe_writes_preserve_wrapped_byte_order(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <fcntl.h>
+#include <vector>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    int fds[2];
+    assert(pipe(fds) == 0);
+    assert(fcntl(fds[1], F_SETPIPE_SZ, 4096) >= 4096);
+    const int flags = fcntl(fds[1], F_GETFL);
+    assert(flags >= 0 && fcntl(fds[1], F_SETFL, flags | O_NONBLOCK) == 0);
+    FirmwareUartOutput output(fds[1]);
+
+    std::vector<uint8_t> expected;
+    expected.reserve(FirmwareUartOutput::kCapacity + 32768);
+    for (std::size_t i = 0; i < FirmwareUartOutput::kCapacity; ++i) {
+        const auto byte = i == 0 ? uint8_t{0} :
+                          i + 1 == FirmwareUartOutput::kCapacity ? uint8_t{255} :
+                          static_cast<uint8_t>((i * 37u) & 0xffu);
+        assert(output.enqueue(byte));
+        expected.push_back(byte);
+    }
+
+    const std::size_t first_count = output.write_pending();
+    assert(first_count > 0);
+    assert(first_count < FirmwareUartOutput::kCapacity);
+    assert(output.pending_bytes() == FirmwareUartOutput::kCapacity - first_count);
+
+    for (std::size_t i = 0; i < first_count; ++i) {
+        const auto byte = static_cast<uint8_t>((i * 53u + 11u) & 0xffu);
+        assert(output.enqueue(byte));
+        expected.push_back(byte);
+    }
+
+    std::vector<uint8_t> actual;
+    actual.reserve(expected.size());
+    std::array<uint8_t, 8192> buffer{};
+    while (actual.size() < expected.size()) {
+        ssize_t count;
+        do { count = ::read(fds[0], buffer.data(), buffer.size()); }
+        while (count == -1 && errno == EINTR);
+        assert(count >= 0);
+        if (count > 0) actual.insert(actual.end(), buffer.begin(), buffer.begin() + count);
+        if (output.pending_bytes() > 0) (void)output.write_pending();
+        assert(count > 0 || output.pending_bytes() > 0 || actual.size() == expected.size());
+    }
+    assert(actual == expected);
+    assert(output.pending_bytes() == 0);
+    close(fds[0]);
+    close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_ring_and_descriptor_ownership(self):
         source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
 #include <cassert>

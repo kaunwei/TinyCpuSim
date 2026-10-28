@@ -87,7 +87,9 @@ public:
         int write_error = 0;
         bool generated_signal = false;
         try {
-            written = ::write(owned_fd_, ring_.data() + head_, size_);
+            const std::size_t contiguous = ring_.size() - head_;
+            const std::size_t count = size_ < contiguous ? size_ : contiguous;
+            written = ::write(owned_fd_, ring_.data() + head_, count);
             write_error = written == -1 ? errno : 0;
 
             if (written == -1 && write_error == EPIPE && !was_pending) {
