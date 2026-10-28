@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import socket
 import subprocess
@@ -84,11 +85,26 @@ def controlled_firmware(
     max_steps: int | None = None,
     elf_path: str | pathlib.Path | None = None,
     host_timeout: float = 10.0,
+    *,
+    build_root: str | pathlib.Path | None = None,
+    env: dict | None = None,
 ):
     if host_timeout <= 0:
         raise ValueError("host_timeout must be positive")
-    sim = str(_REPO_ROOT / "build" / "tinycpusim")
-    elf = str(elf_path) if elf_path is not None else str(_REPO_ROOT / "build" / "isa_boot_acceptance.elf")
+
+    if build_root is not None:
+        root = pathlib.Path(build_root).resolve()
+    elif "FW_TEST_BUILD_ROOT" in os.environ:
+        root = pathlib.Path(os.environ["FW_TEST_BUILD_ROOT"]).resolve()
+    else:
+        root = _REPO_ROOT / "build"
+
+    sim_path = root / "tinycpusim"
+    if not sim_path.exists():
+        raise FileNotFoundError(f"Selected firmware simulator binary not found: {sim_path}")
+    sim = str(sim_path)
+
+    elf = str(elf_path) if elf_path is not None else str(root / "isa_boot_acceptance.elf")
     parent_sock, child_sock = socket.socketpair()
     parent_sock.settimeout(host_timeout)
     proc = None
@@ -101,7 +117,12 @@ def controlled_firmware(
             cmd.extend(["--max-steps", str(max_steps)])
         cmd.append(elf)
         proc = subprocess.Popen(
-            cmd, pass_fds=(child_sock.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            cmd,
+            pass_fds=(child_sock.fileno(),),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
         )
         child_sock.close()
         child_sock = None
