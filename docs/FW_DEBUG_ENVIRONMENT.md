@@ -214,6 +214,8 @@ An earlier O2 ternary form (`status = result == expected ? PASS : FAIL`) compile
 
 This demonstrates **instruction stepping**: one simulator instruction advances the architectural PC by the encoded instruction width (2 or 4 bytes here). It does not provide **source stepping**, which would group machine instructions according to compiler debug-line mappings and stop on source lines. Optimization can change that mapping and instruction sequence; this walkthrough makes no source-line stepping claim. The copied template also does not provide a scheduler or PTY integration; host control is through the separate `--control-fd` command channel.
 
+For firmware control sessions, the CLI supplies the interpreter's actual `instruction_count` to the step controller. A requested instruction step can therefore include the normal exception-entry dispatch and its peripheral tick before the handler instruction retires; the step acknowledgement waits for that instruction progress. The focused regression starts with Timer0 IRQ pending at PC `0x100`, then verifies one requested instruction reaches handler PC `0x2002`, sets R4 to 99, advances the timer from 100 to 98, and emits `paused`, `regs`, `stepped`, `regs`, then `stopped` in order. The existing fixture Debug baseline and its evidence limits are recorded in [`baseline-existing-fixture-debug.md`](../todo/fw-development/reviews/baseline-existing-fixture-debug.md).
+
 ## Bounded Quiet-Fault and Host-Timeout Observations
 
 These existing unittest suites were run on 2026-10-28 against the current checkout; they exercise bounded firmware fault reporting and host timeout/process cleanup without changing product code or build profiles.

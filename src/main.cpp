@@ -207,6 +207,9 @@ int main(int argc, char* argv[]) {
     try {
         if (enable_firmware && options.control_fd >= 0) {
             tinyarmsim::FirmwareControl control(options.control_fd);
+            control.set_instruction_counter([&interpreter]() {
+                return interpreter.get_stats().instruction_count;
+            });
             control.set_pc_provider([&state]() {
                 return state.get_pc();
             });
