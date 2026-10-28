@@ -2427,7 +2427,17 @@ def run_verify(command, work_dir, port, timeout):
                     os.killpg(process.pid, signal.SIGKILL)
                 except OSError:
                     process.kill()
-            output, _ = process.communicate()
+            try:
+                output, _ = process.communicate(timeout=0.5)
+            except subprocess.TimeoutExpired as error:
+                output = error.output or b""
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired as cleanup_error:
+                    raise RuntimeError("VERIFY cleanup could not reap owned direct child") from cleanup_error
         return 124, output.decode("utf-8", "replace")
     else:
         return process.returncode, output.decode("utf-8", "replace")
