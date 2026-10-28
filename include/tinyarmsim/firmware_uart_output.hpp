@@ -71,12 +71,6 @@ public:
         sigemptyset(&pipe_set);
         sigaddset(&pipe_set, SIGPIPE);
 
-        sigset_t pending_before;
-        if (::sigpending(&pending_before) != 0) {
-            throw std::system_error(errno, std::generic_category(), "inspect pending SIGPIPE");
-        }
-        const bool was_pending = ::sigismember(&pending_before, SIGPIPE) == 1;
-
         sigset_t original_mask;
         const int block_error = ::pthread_sigmask(SIG_BLOCK, &pipe_set, &original_mask);
         if (block_error != 0) {
@@ -85,8 +79,13 @@ public:
 
         ssize_t written = -1;
         int write_error = 0;
-        bool generated_signal = false;
         try {
+            sigset_t pending_before;
+            if (::sigpending(&pending_before) != 0) {
+                throw std::system_error(errno, std::generic_category(), "inspect pending SIGPIPE");
+            }
+            const bool was_pending = ::sigismember(&pending_before, SIGPIPE) == 1;
+
             const std::size_t contiguous = ring_.size() - head_;
             const std::size_t count = size_ < contiguous ? size_ : contiguous;
             written = ::write(owned_fd_, ring_.data() + head_, count);
@@ -97,13 +96,21 @@ public:
                 if (::sigpending(&pending_after) != 0) {
                     throw std::system_error(errno, std::generic_category(), "inspect generated SIGPIPE");
                 }
-                generated_signal = ::sigismember(&pending_after, SIGPIPE) == 1;
-                if (generated_signal) {
+                if (::sigismember(&pending_after, SIGPIPE) == 1) {
                     timespec no_wait{};
-                    const int wait_error = ::sigtimedwait(&pipe_set, nullptr, &no_wait);
-                    if (wait_error != SIGPIPE) {
-                        const int error = wait_error == -1 ? errno : EIO;
+                    bool consumed = false;
+                    for (int attempt = 0; attempt < 3; ++attempt) {
+                        const int wait_result = ::sigtimedwait(&pipe_set, nullptr, &no_wait);
+                        if (wait_result == SIGPIPE) {
+                            consumed = true;
+                            break;
+                        }
+                        if (wait_result == -1 && errno == EINTR) continue;
+                        const int error = wait_result == -1 ? errno : EIO;
                         throw std::system_error(error, std::generic_category(), "consume generated SIGPIPE");
+                    }
+                    if (!consumed) {
+                        throw std::system_error(EINTR, std::generic_category(), "consume generated SIGPIPE");
                     }
                 }
             }
