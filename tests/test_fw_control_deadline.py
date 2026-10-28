@@ -19,13 +19,16 @@ class TestFwControlDeadline(unittest.TestCase):
 from tests.fw_control_test_support import controlled_firmware
 
 proc_ref = None
+paused_acknowledged = False
 try:
     with controlled_firmware(initial_commands="pause\\n", host_timeout=0.2) as session:
         proc_ref = session.process
         assert session.receive() == {"event": "paused"}
+        paused_acknowledged = True
         # Leave the socket idle so the real host deadline expires.
         session.sock.recv(1)
 except TimeoutError as error:
+    assert paused_acknowledged, "host deadline expired before pause acknowledgement"
     assert "host deadline" in str(error), str(error)
 else:
     raise AssertionError("paused firmware session did not raise its host deadline")

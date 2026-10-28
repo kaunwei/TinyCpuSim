@@ -164,7 +164,7 @@ closed master_fd=3
 
 The probe closed both descriptors it opened. This verifies that this process could allocate a PTY pair and read slave terminal attributes at that time; it does not establish simulator PTY integration or establish that the PTY mount, path, or permissions will be identical in another execution environment. Any future terminal adapter must restore saved terminal attributes and close its own PTY and control descriptors on normal stop, errors, and timeout.
 
-An intentional debugger pause blocks command handling until resumed/stopped and does not advance interpreter instructions or simulated peripheral time while blocked. Automated tests must keep an independent host wall-clock deadline active during such pauses; pausing simulation must not suspend or extend the test harness's timeout. Process-group termination/reaping and terminal-state restoration remain harness responsibilities on timeout.
+An intentional debugger pause blocks guest instruction execution until resumed/stopped while debugger command handling continues; it does not advance simulated peripheral time while guest execution is paused. Automated tests must keep an independent host wall-clock deadline active during such pauses; pausing simulation must not suspend or extend the test harness's timeout. Process-group termination/reaping and terminal-state restoration remain harness responsibilities on timeout.
 
 The host, toolchain, Release-build, ELF, and step-limit observations above are historical baseline evidence. They remain separate from the refreshed Debug observations below.
 
