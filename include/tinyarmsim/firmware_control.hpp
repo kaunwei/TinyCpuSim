@@ -49,6 +49,7 @@ public:
                                                        eof_reached_(other.eof_reached_),
                                                        instruction_counter_(std::move(other.instruction_counter_)),
                                                        instruction_baseline_(other.instruction_baseline_),
+                                                       host_service_(std::move(other.host_service_)),
                                                        register_provider_(std::move(other.register_provider_)),
                                                        memory_provider_(std::move(other.memory_provider_)),
                                                        pc_provider_(std::move(other.pc_provider_)),
@@ -73,6 +74,7 @@ public:
             eof_reached_ = other.eof_reached_;
             instruction_counter_ = std::move(other.instruction_counter_);
             instruction_baseline_ = other.instruction_baseline_;
+            host_service_ = std::move(other.host_service_);
             register_provider_ = std::move(other.register_provider_);
             memory_provider_ = std::move(other.memory_provider_);
             pc_provider_ = std::move(other.pc_provider_);
@@ -85,6 +87,10 @@ public:
 
     void set_instruction_counter(std::function<uint64_t()> provider) {
         instruction_counter_ = std::move(provider);
+    }
+
+    void set_host_service(std::function<void()> service) {
+        host_service_ = std::move(service);
     }
 
     void set_register_provider(std::function<std::string()> provider) {
@@ -139,6 +145,9 @@ public:
         }
 
         while (paused_ && !stop_requested_) {
+            if (host_service_) {
+                host_service_();
+            }
             if (fd_ < 0 || closed_without_stop_ || transport_failed_) {
                 stop_requested_ = true;
                 break;
@@ -149,7 +158,7 @@ public:
             pfd.events = POLLIN;
             pfd.revents = 0;
 
-            int ret = ::poll(&pfd, 1, -1);
+            int ret = ::poll(&pfd, 1, host_service_ ? 10 : -1);
             if (ret < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -462,6 +471,7 @@ private:
     bool eof_reached_ = false;
     std::function<uint64_t()> instruction_counter_;
     uint64_t instruction_baseline_ = 0;
+    std::function<void()> host_service_;
     std::function<std::string()> register_provider_;
     std::function<std::optional<std::vector<uint8_t>>(uint32_t, size_t)> memory_provider_;
     std::function<uint32_t()> pc_provider_;
