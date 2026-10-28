@@ -47,6 +47,8 @@ public:
                                                        breakpoint_hit_reported_(other.breakpoint_hit_reported_),
                                                        stepped_notify_pending_(other.stepped_notify_pending_),
                                                        eof_reached_(other.eof_reached_),
+                                                       instruction_counter_(std::move(other.instruction_counter_)),
+                                                       instruction_baseline_(other.instruction_baseline_),
                                                        register_provider_(std::move(other.register_provider_)),
                                                        memory_provider_(std::move(other.memory_provider_)),
                                                        pc_provider_(std::move(other.pc_provider_)),
@@ -69,6 +71,8 @@ public:
             breakpoint_hit_reported_ = other.breakpoint_hit_reported_;
             stepped_notify_pending_ = other.stepped_notify_pending_;
             eof_reached_ = other.eof_reached_;
+            instruction_counter_ = std::move(other.instruction_counter_);
+            instruction_baseline_ = other.instruction_baseline_;
             register_provider_ = std::move(other.register_provider_);
             memory_provider_ = std::move(other.memory_provider_);
             pc_provider_ = std::move(other.pc_provider_);
@@ -77,6 +81,10 @@ public:
             other.fd_ = -1;
         }
         return *this;
+    }
+
+    void set_instruction_counter(std::function<uint64_t()> provider) {
+        instruction_counter_ = std::move(provider);
     }
 
     void set_register_provider(std::function<std::string()> provider) {
@@ -97,6 +105,15 @@ public:
         }
 
         if (stepped_notify_pending_) {
+            read_available();
+            check_eof_status();
+            if (closed_without_stop_ || transport_failed_) {
+                stop_requested_ = true;
+                return true;
+            }
+            if (instruction_counter_ && instruction_counter_() == instruction_baseline_) {
+                return false;
+            }
             stepped_notify_pending_ = false;
             send_response("{\"event\":\"stepped\"}\n");
         }
@@ -107,6 +124,7 @@ public:
 
         if (step_pending_ && !transport_failed_ && !closed_without_stop_) {
             step_pending_ = false;
+            if (instruction_counter_) instruction_baseline_ = instruction_counter_();
             stepped_notify_pending_ = true;
             return false;
         }
@@ -147,6 +165,7 @@ public:
 
             if (step_pending_ && !transport_failed_ && !closed_without_stop_) {
                 step_pending_ = false;
+                if (instruction_counter_) instruction_baseline_ = instruction_counter_();
                 stepped_notify_pending_ = true;
                 return false;
             }
@@ -441,6 +460,8 @@ private:
     bool breakpoint_hit_reported_ = false;
     bool stepped_notify_pending_ = false;
     bool eof_reached_ = false;
+    std::function<uint64_t()> instruction_counter_;
+    uint64_t instruction_baseline_ = 0;
     std::function<std::string()> register_provider_;
     std::function<std::optional<std::vector<uint8_t>>(uint32_t, size_t)> memory_provider_;
     std::function<uint32_t()> pc_provider_;
