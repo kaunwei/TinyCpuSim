@@ -87,13 +87,13 @@ int main() {
         return out.str();
     });
 
+    send_command(sv[1], "pause");
     std::thread execution_thread([&]() {
         while (!control.stop_requested()) {
             interp.step();
         }
     });
 
-    send_command(sv[1], "pause");
     assert(read_line(sv[1]) == "{\"event\":\"paused\"}\n");
 
     send_command(sv[1], "regs");
