@@ -123,7 +123,7 @@ with open(log, "w", encoding="utf-8") as stream:
                     error_messages.append(message_text)
         except (ValueError, AttributeError):
             pass
-        if line.strip().startswith("[EXEC]") or ("item.completed" in line and "command_execution" in line):
+        if line.strip().startswith("[EXEC]"):
             actions += 1
         if actions > int(limit) and process.poll() is None:
             over_budget = True

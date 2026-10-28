@@ -145,6 +145,52 @@ echo '{"outcome": "complete"}'
         self.assertIsNotNone(result_data)
         self.assertEqual(result_data["outcome"], "step_budget_exceeded")
 
+    def test_single_json_command_actions_used_one(self):
+        cmd_event = json.dumps({"type": "item.completed", "item": {"type": "command_execution"}})
+        script = f"""echo '{cmd_event}'
+echo '{{"outcome": "complete"}}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script, action_limit=5)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertEqual(result_data.get("actions_used"), 1)
+
+    def test_exact_limit_n_succeeds(self):
+        cmd_event = json.dumps({"type": "item.completed", "item": {"type": "command_execution"}})
+        script = f"""echo '{cmd_event}'
+echo '{cmd_event}'
+echo '{{"outcome": "complete"}}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script, action_limit=2)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertEqual(result_data.get("actions_used"), 2)
+
+    def test_n_plus_one_budget_exceeded(self):
+        cmd_event = json.dumps({"type": "item.completed", "item": {"type": "command_execution"}})
+        script = f"""echo '{cmd_event}'
+echo '{cmd_event}'
+echo '{cmd_event}'
+echo '{{"outcome": "complete"}}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script, action_limit=2)
+        self.assertEqual(status_resp["status"], "step_budget_exceeded")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "step_budget_exceeded")
+
+    def test_non_command_actions_zero(self):
+        msg_event = json.dumps({"type": "item.completed", "item": {"type": "message", "text": "hello"}})
+        script = f"""echo '{msg_event}'
+echo '{{"outcome": "complete"}}'
+"""
+        status_resp, result_data = self.run_adapter_start_and_wait(script, action_limit=5)
+        self.assertEqual(status_resp["status"], "complete")
+        self.assertIsNotNone(result_data)
+        self.assertEqual(result_data["outcome"], "complete")
+        self.assertEqual(result_data.get("actions_used"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
