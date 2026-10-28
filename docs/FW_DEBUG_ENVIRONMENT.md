@@ -134,9 +134,39 @@ As established in `todo/fw-development/README.md`:
    - **Target-Service Progress Watchdog**: A bounded simulated-step progress deadline detects missing progress early. A heartbeat alone cannot establish the health of unrelated services.
    - **Independent Host Wall-Clock Timeout**: Catches simulator/IO hangs, terminates/reaps the entire test process group, restores terminal state, and retains necessary diagnostics. Intentional debug pauses freeze simulated time and must never silently extend automated deadlines.
 
-3. **Current vs. Planned Capabilities**:
-   - **Existing**: `--max-steps` bounded execution reporting exit code 1 with explicit error message, instruction execution tracing via `--log`, and independent subprocess host timeouts in test harnesses (`tests/test_fw_step_limit.py`).
-   - **Planned**: Target-service progress watchdog, interactive pause/step/state-inspection controls, live UART bidirectional transport, and graceful controlled-stop interface.
+3. **Current vs. Planned Capabilities** (source state checked at revision `e029830`, 2026-10-28):
+
+   | Capability | State at `e029830` | Evidence / limit |
+   |---|---|---|
+   | Quiet output | Existing | `--quiet` redirects `std::cout` in `src/main.cpp`; firmware UART's buffered TX string is printed after simulation (`src/main.cpp`). |
+   | Controlled stop | Existing with firmware control FD | `stop` on `--control-fd` requests a normal stop and emits a `stopped` acknowledgement (`include/tinyarmsim/firmware_control.hpp`). Without this control channel, `--max-steps` exhaustion remains a failure. |
+   | Pause and register inspection | Existing with firmware control FD | `pause`, `continue`, and `regs` commands; the register response includes PC, registers, and instruction count (`include/tinyarmsim/firmware_control.hpp`, `src/main.cpp`). |
+   | Single instruction step | Existing with firmware control FD | `step` is accepted while paused; the interpreter runs one instruction before reporting `stepped` (`include/tinyarmsim/firmware_control.hpp`, `tests/test_fw_debug_walkthrough.py`). |
+   | Memory inspection | Existing with firmware control FD | `mem <address> <length>` returns 1–64 bytes through the RAM provider; out-of-range or MMIO requests are rejected (`include/tinyarmsim/firmware_control.hpp`, `src/main.cpp`). |
+   | Breakpoints | Existing, one address | `break <address>` and `break clear` pause when the PC reaches the selected address (`include/tinyarmsim/firmware_control.hpp`; exercised by `tests/test_fw_debug_walkthrough.py`). |
+   | Live UART/PTY adapter | Missing | UART receives only through device-level `inject_rx`, accumulates completed TX characters in `tx_output_`, then `main` prints them after execution. No live UART-to-PTY adapter is connected (`include/tinyarmsim/mmio/uart.hpp`, `src/main.cpp`). |
+   | Target-service progress watchdog | Missing | No service-specific simulated-step watchdog is established by the inspected implementation. |
+   | Service watchdog | Missing | No independent service-health watchdog is established by the inspected implementation. |
+
+   The UART is the firmware data channel: its MMIO DATA register carries guest bytes. The `--control-fd` socket is a separate inherited host control channel for newline-delimited commands and JSON events; it does not carry UART bytes. A PTY-capable host therefore does not imply a simulator PTY adapter.
+
+### PTY/Terminal Host Capability Probe
+
+On 2026-10-28, a bounded Python `os.openpty()` / `termios.tcgetattr()` probe succeeded on this host:
+
+```text
+master_fd=3 path='/dev/ptmx'
+slave_fd=4 path='/dev/pts/5'
+termios.tcgetattr(slave): ok, 7 attribute fields
+closed slave_fd=4
+closed master_fd=3
+```
+
+The probe closed both descriptors it opened. This verifies that this process could allocate a PTY pair and read slave terminal attributes at that time; it does not establish simulator PTY integration or establish that the PTY mount, path, or permissions will be identical in another execution environment. Any future terminal adapter must restore saved terminal attributes and close its own PTY and control descriptors on normal stop, errors, and timeout.
+
+An intentional debugger pause blocks command handling until resumed/stopped and does not advance interpreter instructions or simulated peripheral time while blocked. Automated tests must keep an independent host wall-clock deadline active during such pauses; pausing simulation must not suspend or extend the test harness's timeout. Process-group termination/reaping and terminal-state restoration remain harness responsibilities on timeout.
+
+The earlier host, toolchain, build, ELF, and step-limit evidence in this document remains the baseline record. Debug-build and source-level debug proof remain unresolved.
 
 ## Minimal Copied Firmware Debugger Walkthrough (O0 and O2)
 
