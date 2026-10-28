@@ -2,10 +2,13 @@
 
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <csignal>
 #include <fcntl.h>
+#include <limits>
+#include <poll.h>
 #include <pthread.h>
 #include <stdexcept>
 #include <system_error>
@@ -53,6 +56,9 @@ public:
     [[nodiscard]] bool enqueue(uint8_t byte) noexcept {
         if (size_ == ring_.size()) {
             failed_ = true;
+            if (!fatal_failure_) {
+                failure_code_ = std::make_error_code(std::errc::no_buffer_space);
+            }
             return false;
         }
         ring_[(head_ + size_) % ring_.size()] = byte;
@@ -62,6 +68,69 @@ public:
 
     [[nodiscard]] std::size_t pending_bytes() const noexcept { return size_; }
     [[nodiscard]] bool failed() const noexcept { return failed_; }
+
+    // Drain all pending bytes before one absolute deadline. A timeout leaves
+    // unwritten bytes queued and is reported as std::errc::timed_out.
+    void flush(std::chrono::milliseconds timeout) {
+        using Clock = std::chrono::steady_clock;
+        const auto started = Clock::now();
+        const auto available = Clock::time_point::max() - started;
+        const auto max_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(available);
+        const auto deadline = timeout <= std::chrono::milliseconds::zero()
+                                  ? started
+                                  : timeout >= max_timeout
+                                        ? Clock::time_point::max()
+                                        : started + std::chrono::duration_cast<Clock::duration>(timeout);
+
+        if (fatal_failure_) {
+            throw std::system_error(failure_code_, "flush firmware UART output");
+        }
+
+        while (size_ > 0) {
+            if (Clock::now() >= deadline) {
+                throw std::system_error(std::make_error_code(std::errc::timed_out),
+                                        "flush firmware UART output");
+            }
+
+            try {
+                const std::size_t written = write_pending();
+                if (written == 0) {
+                    latch_fatal_error(std::make_error_code(std::errc::io_error));
+                }
+            } catch (const std::system_error& error) {
+                const int code = error.code().value();
+                if (code == EINTR) {
+                    continue;
+                }
+                if (code != EAGAIN && code != EWOULDBLOCK) {
+                    latch_fatal_error(error.code());
+                }
+
+                const auto now = Clock::now();
+                if (now >= deadline) {
+                    throw std::system_error(std::make_error_code(std::errc::timed_out),
+                                            "flush firmware UART output");
+                }
+                const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
+                const auto capped = remaining.count() > std::numeric_limits<int>::max()
+                                        ? std::numeric_limits<int>::max()
+                                        : static_cast<int>(remaining.count());
+                pollfd descriptor{owned_fd_, POLLOUT, 0};
+                const int ready = ::poll(&descriptor, 1, capped);
+                if (ready == -1) {
+                    if (errno == EINTR) continue;
+                    latch_fatal_error(std::error_code(errno, std::generic_category()));
+                }
+                if (ready > 0 && (descriptor.revents & POLLNVAL) != 0) {
+                    latch_fatal_error(std::make_error_code(std::errc::bad_file_descriptor));
+                }
+            }
+        }
+
+        if (failed_) {
+            throw std::system_error(failure_code_, "flush firmware UART output");
+        }
+    }
 
     // Make one bounded, nonblocking write attempt. Bytes remain queued on error.
     std::size_t write_pending() {
@@ -132,6 +201,13 @@ public:
     }
 
 private:
+    [[noreturn]] void latch_fatal_error(const std::error_code& error) {
+        failed_ = true;
+        fatal_failure_ = true;
+        failure_code_ = error;
+        throw std::system_error(error, "flush firmware UART output");
+    }
+
     void close_owned_fd() noexcept {
         if (owned_fd_ != -1) {
             (void)::close(owned_fd_);
@@ -146,6 +222,8 @@ private:
     std::size_t head_{0};
     std::size_t size_{0};
     bool failed_{false};
+    bool fatal_failure_{false};
+    std::error_code failure_code_{};
 };
 
 } // namespace tinyarmsim

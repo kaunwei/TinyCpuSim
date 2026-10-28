@@ -4,6 +4,180 @@ from tests.fw_cpp_test_support import run_cpp
 
 
 class TestFwUartOutput(unittest.TestCase):
+    def test_flush_waits_for_reader_and_drains_exact_bytes(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <array>
+#include <cassert>
+#include <chrono>
+#include <cstdint>
+#include <thread>
+#include <vector>
+#include <fcntl.h>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    int fds[2];
+    assert(pipe(fds) == 0);
+    assert(fcntl(fds[1], F_SETPIPE_SZ, 4096) >= 4096);
+    FirmwareUartOutput output(fds[1]);
+    std::vector<uint8_t> expected;
+    expected.reserve(FirmwareUartOutput::kCapacity);
+    for (std::size_t i = 0; i < FirmwareUartOutput::kCapacity; ++i) {
+        const auto byte = static_cast<uint8_t>((i * 37u + 19u) & 0xffu);
+        assert(output.enqueue(byte));
+        expected.push_back(byte);
+    }
+
+    std::vector<uint8_t> actual;
+    actual.reserve(expected.size());
+    std::thread reader([&] {
+        std::array<uint8_t, 2048> buffer{};
+        while (actual.size() < expected.size()) {
+            const ssize_t count = ::read(fds[0], buffer.data(), buffer.size());
+            assert(count > 0);
+            actual.insert(actual.end(), buffer.begin(), buffer.begin() + count);
+        }
+    });
+    output.flush(std::chrono::seconds(2));
+    reader.join();
+    assert(actual == expected);
+    assert(output.pending_bytes() == 0);
+    close(fds[0]);
+    close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_flush_timeout_is_bounded_and_retains_pending_bytes(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <cassert>
+#include <chrono>
+#include <system_error>
+#include <fcntl.h>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    int fds[2];
+    assert(pipe(fds) == 0);
+    assert(fcntl(fds[1], F_SETPIPE_SZ, 4096) >= 4096);
+    const int original_flags = fcntl(fds[1], F_GETFL);
+    assert(original_flags >= 0);
+    {
+        FirmwareUartOutput output(fds[1]);
+        for (std::size_t i = 0; i < FirmwareUartOutput::kCapacity; ++i)
+            assert(output.enqueue(static_cast<uint8_t>(i)));
+        bool timed_out = false;
+        try { output.flush(std::chrono::milliseconds(100)); }
+        catch (const std::system_error& error) {
+            timed_out = true;
+            assert(error.code() == std::make_error_code(std::errc::timed_out));
+        }
+        assert(timed_out);
+        assert(output.pending_bytes() > 0);
+        assert(output.pending_bytes() <= FirmwareUartOutput::kCapacity);
+    }
+    assert((fcntl(fds[1], F_GETFL) & O_NONBLOCK) == (original_flags & O_NONBLOCK));
+    assert(fcntl(fds[1], F_GETFD) >= 0);
+    close(fds[0]);
+    close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_flush_reports_overflow_after_queue_drains(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <array>
+#include <cassert>
+#include <chrono>
+#include <cstdint>
+#include <system_error>
+#include <thread>
+#include <vector>
+#include <fcntl.h>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    int fds[2];
+    assert(pipe(fds) == 0);
+    assert(fcntl(fds[1], F_SETPIPE_SZ, 4096) >= 4096);
+    FirmwareUartOutput output(fds[1]);
+    for (std::size_t i = 0; i < FirmwareUartOutput::kCapacity; ++i)
+        assert(output.enqueue(static_cast<uint8_t>(i)));
+    assert(!output.enqueue(0xee));
+    assert(output.failed());
+
+    std::thread reader([&] {
+        std::array<uint8_t, 4096> buffer{};
+        std::size_t total = 0;
+        while (total < FirmwareUartOutput::kCapacity) {
+            const ssize_t count = ::read(fds[0], buffer.data(), buffer.size());
+            assert(count > 0);
+            total += static_cast<std::size_t>(count);
+        }
+    });
+    bool overflow_reported = false;
+    try { output.flush(std::chrono::seconds(2)); }
+    catch (const std::system_error& error) {
+        overflow_reported = true;
+        assert(error.code() == std::make_error_code(std::errc::no_buffer_space));
+    }
+    reader.join();
+    assert(overflow_reported);
+    assert(output.pending_bytes() == 0);
+    assert(output.failed());
+    close(fds[0]);
+    close(fds[1]);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_flush_closed_peer_survives_default_sigpipe_and_latches_failure(self):
+        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+#include <cassert>
+#include <chrono>
+#include <csignal>
+#include <system_error>
+#include <sys/wait.h>
+#include <unistd.h>
+using tinyarmsim::FirmwareUartOutput;
+
+int main() {
+    const pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        struct sigaction action{};
+        action.sa_handler = SIG_DFL;
+        sigemptyset(&action.sa_mask);
+        assert(sigaction(SIGPIPE, &action, nullptr) == 0);
+        int fds[2];
+        assert(pipe(fds) == 0);
+        FirmwareUartOutput output(fds[1]);
+        close(fds[0]);
+        assert(output.enqueue('z'));
+        try { output.flush(std::chrono::milliseconds(200)); }
+        catch (const std::system_error& error) {
+            if (error.code().value() == EPIPE && output.failed() &&
+                output.pending_bytes() == 1) _exit(42);
+            _exit(43);
+        }
+        _exit(44);
+    }
+    int status = 0;
+    const pid_t waited = waitpid(child, &status, 0);
+    assert(waited == child);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 42);
+    return 0;
+}'''
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_partial_pipe_writes_preserve_wrapped_byte_order(self):
         source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
 #include <algorithm>
