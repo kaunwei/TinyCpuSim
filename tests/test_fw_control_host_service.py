@@ -4,6 +4,80 @@ from tests.fw_cpp_test_support import run_cpp
 
 
 class TestFwControlHostService(unittest.TestCase):
+    def test_host_service_runs_for_running_checks_and_step_grants(self):
+        source = r"""
+#include <tinyarmsim/firmware_control.hpp>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <cassert>
+#include <cstdint>
+#include <string>
+
+static std::string read_line(int fd) {
+    std::string line;
+    char c = 0;
+    while (::read(fd, &c, 1) == 1) {
+        line.push_back(c);
+        if (c == '\n') return line;
+    }
+    return line;
+}
+
+static void running_check_calls_host_service() {
+    int sv[2];
+    assert(::socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    tinyarmsim::FirmwareControl control(sv[0]);
+    int host_calls = 0;
+    control.set_host_service([&] { ++host_calls; });
+    assert(!control.stop_requested());
+    assert(host_calls == 1);
+    assert(!control.stop_requested());
+    assert(host_calls == 2);
+    ::close(sv[1]);
+}
+
+static void initial_step_grant_calls_host_service() {
+    int sv[2];
+    assert(::socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    tinyarmsim::FirmwareControl control(sv[0]);
+    uint64_t instructions = 0;
+    int host_calls = 0;
+    control.set_instruction_counter([&] { return instructions; });
+    control.set_host_service([&] { ++host_calls; });
+    assert(::write(sv[1], "pause\nstep\n", 11) == 11);
+    assert(!control.stop_requested());
+    assert(host_calls == 1);
+    assert(instructions == 0);
+    assert(read_line(sv[1]) == "{\"event\":\"paused\"}\n");
+    ::close(sv[1]);
+}
+
+static void unchanged_step_progress_calls_host_service() {
+    int sv[2];
+    assert(::socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    tinyarmsim::FirmwareControl control(sv[0]);
+    uint64_t instructions = 0;
+    int host_calls = 0;
+    control.set_instruction_counter([&] { return instructions; });
+    control.set_host_service([&] { ++host_calls; });
+    assert(::write(sv[1], "pause\nstep\n", 11) == 11);
+    assert(!control.stop_requested());
+    assert(host_calls == 1);
+    assert(!control.stop_requested());
+    assert(host_calls == 2);
+    assert(instructions == 0);
+    ::close(sv[1]);
+}
+
+int main() {
+    running_check_calls_host_service();
+    initial_step_grant_calls_host_service();
+    unchanged_step_progress_calls_host_service();
+}
+"""
+        proc = run_cpp(source, timeout=5)
+        self.assertEqual(proc.returncode, 0, f"Failed with stderr:\n{proc.stderr}")
+
     def test_host_service_runs_while_paused_until_peer_stops(self):
         source = r"""
 #include <tinyarmsim/firmware_control.hpp>

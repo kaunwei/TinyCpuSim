@@ -110,6 +110,10 @@ public:
             return true;
         }
 
+        if (host_service_) {
+            host_service_();
+        }
+
         if (stepped_notify_pending_) {
             read_available();
             check_eof_status();
