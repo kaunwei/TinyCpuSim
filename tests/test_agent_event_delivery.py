@@ -292,6 +292,21 @@ class TestAgentEventDelivery(unittest.TestCase):
             cwd=str(self.root),
         )
 
+        def _cleanup_watcher():
+            if watcher_proc.poll() is None:
+                watcher_proc.terminate()
+                try:
+                    watcher_proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    watcher_proc.kill()
+                    watcher_proc.wait(timeout=2)
+            if watcher_proc.stdout and not watcher_proc.stdout.closed:
+                watcher_proc.stdout.close()
+            if watcher_proc.stderr and not watcher_proc.stderr.closed:
+                watcher_proc.stderr.close()
+
+        self.addCleanup(_cleanup_watcher)
+
         import time
         time.sleep(0.1)
 
