@@ -1,6 +1,9 @@
-import threading
+import pathlib
+import subprocess
+import sys
 import unittest
 
+from scripts.firmware_test_harness import FirmwareTimeoutError, run_bounded
 from tests.fw_control_test_support import controlled_firmware
 
 
@@ -12,21 +15,34 @@ class TestFwControlDeadline(unittest.TestCase):
             self.assertEqual(session.process.returncode, 0)
 
     def test_idle_paused_session_expires_and_reaps_child(self):
-        proc_ref = None
-        watchdog = threading.Timer(3.0, self.fail, ("test watchdog expired",))
-        watchdog.daemon = True
-        watchdog.start()
+        inner_check = """\
+from tests.fw_control_test_support import controlled_firmware
+
+proc_ref = None
+try:
+    with controlled_firmware(initial_commands="pause\\n", host_timeout=0.2) as session:
+        proc_ref = session.process
+        assert session.receive() == {"event": "paused"}
+        # Leave the socket idle so the real host deadline expires.
+        session.sock.recv(1)
+except TimeoutError as error:
+    assert "host deadline" in str(error), str(error)
+else:
+    raise AssertionError("paused firmware session did not raise its host deadline")
+
+assert proc_ref is not None
+assert proc_ref.poll() is not None, "deadline did not reap the simulator child"
+"""
+        command = [sys.executable, "-c", inner_check]
         try:
-            with self.assertRaisesRegex(TimeoutError, "host deadline"):
-                with controlled_firmware(initial_commands="pause\n", host_timeout=0.2) as session:
-                    proc_ref = session.process
-                    self.assertEqual(session.receive(), {"event": "paused"})
-                    # Intentionally make no further socket calls while the host deadline expires.
-                    threading.Event().wait(0.4)
-            self.assertIsNotNone(proc_ref)
-            self.assertIsNotNone(proc_ref.poll())
-        finally:
-            watchdog.cancel()
+            result = run_bounded(command, timeout=3.0)
+        except FirmwareTimeoutError as error:
+            self.fail(f"outer deadline expired instead of completing checks: {error}")
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"inner deadline check failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
 
 
 if __name__ == "__main__":
