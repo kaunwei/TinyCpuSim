@@ -8,6 +8,7 @@ class TestFwControlProgressStep(unittest.TestCase):
         source = r"""
 #include <tinyarmsim/firmware_control.hpp>
 #include <sys/socket.h>
+#include <poll.h>
 #include <unistd.h>
 #include <cassert>
 #include <cstdint>
@@ -44,14 +45,16 @@ static void progress_case(bool half_close) {
     });
     const std::string preload = "pause\nstep\nregs\ncontinue\nstop\n";
     assert(::write(sv[1], preload.data(), preload.size()) == static_cast<ssize_t>(preload.size()));
+    if (half_close) assert(::shutdown(sv[1], SHUT_WR) == 0);
     assert(control.stop_requested() == false);
     assert(read_line(sv[1]) == "{\"event\":\"paused\"}\n");
 
     tinyarmsim::FirmwareControl moved(std::move(control));
     assert(moved.stop_requested() == false);
+    pollfd response_ready{sv[1], POLLIN, 0};
+    assert(::poll(&response_ready, 1, 0) == 0);
     instructions = 1;
     assert(moved.stop_requested() == true);
-    if (half_close) assert(::shutdown(sv[1], SHUT_WR) == 0);
     const auto lines = read_lines(sv[1], 4);
     assert(lines[0] == "{\"event\":\"stepped\"}\n");
     assert(lines[1] == "{\"event\":\"regs\",\"steps\":1}\n");
