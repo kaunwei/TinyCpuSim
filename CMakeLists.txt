@@ -335,8 +335,29 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     add_custom_target(scheduler_acceptance_elf DEPENDS "${SCHEDULER_ACCEPTANCE_ELF}" "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}")
     add_dependencies(tinycpusim scheduler_acceptance_elf)
 
+    set(SHELL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/shell_acceptance.elf")
+    add_custom_command(
+        OUTPUT "${SHELL_ACCEPTANCE_ELF}"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/shell.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/shell_acceptance.c"
+            -o "${SHELL_ACCEPTANCE_ELF}"
+        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
+            firmware/bsp/uart.c firmware/bsp/uart.h firmware/bsp/ring_buffer.h firmware/bsp/shell.c firmware/bsp/shell.h
+            firmware/apps/shell_acceptance.c
+        VERBATIM
+        COMMENT "Compiling shell acceptance ELF")
+
+    add_custom_target(shell_acceptance_elf DEPENDS "${SHELL_ACCEPTANCE_ELF}")
+    add_dependencies(tinycpusim shell_acceptance_elf)
+
     add_test(NAME fw_scheduler_test
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_scheduler.py" -v)
+    add_test(NAME fw_shell_test
+        COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_shell.py" -v)
     add_test(NAME fw_uart_pty_test
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_uart_pty.py" -v)
     add_test(NAME fw_watchdog_test
