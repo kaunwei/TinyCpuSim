@@ -301,6 +301,197 @@ except KeyboardInterrupt:
             self.assertEqual(res.stderr, "err_test\n")
             self.assertTrue(marker.exists(), "Command must execute when cancelled callback returns False")
 
+    def test_run_bounded_cancellation_cleans_child_and_samegroup_descendant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "ready.txt"
+            pids_file = Path(tmpdir) / "pids.txt"
+
+            child_code = f"""
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+descendant = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+sys.stdout.write("unique_cancel_stdout\\n")
+sys.stdout.flush()
+sys.stderr.write("unique_cancel_stderr\\n")
+sys.stderr.flush()
+
+Path({repr(str(pids_file))}).write_text(f"{{os.getpid()}} {{descendant.pid}}")
+Path({repr(str(ready_file))}).write_text("ready")
+time.sleep(30)
+"""
+            child_pgid = None
+
+            def is_pid_live(pid: int) -> bool:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return False
+                try:
+                    with open(f"/proc/{pid}/status", "r") as f:
+                        for line in f:
+                            if line.startswith("State:"):
+                                return line.split()[1] != "Z"
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    return False
+                return True
+
+            def cancelled_cb() -> bool:
+                return ready_file.exists() and pids_file.exists()
+
+            cmd = [sys.executable, "-c", child_code]
+            t0 = time.monotonic()
+            try:
+                with self.assertRaises(FirmwareCancellationError) as ctx:
+                    run_bounded(cmd, timeout=10.0, cancelled=cancelled_cb)
+                elapsed = time.monotonic() - t0
+                err = ctx.exception
+
+                self.assertIn("unique_cancel_stdout", err.stdout)
+                self.assertIn("unique_cancel_stderr", err.stderr)
+                self.assertIsNotNone(err.pid)
+
+                raw_pids = pids_file.read_text().strip().split()
+                child_pid = int(raw_pids[0])
+                descendant_pid = int(raw_pids[1])
+                child_pgid = child_pid
+
+                self.assertEqual(err.pid, child_pid)
+
+                # Direct child reaped
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child_pid, 0)
+
+                # Descendant in same process group must no longer be live
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline and is_pid_live(descendant_pid):
+                    time.sleep(0.02)
+                self.assertFalse(
+                    is_pid_live(descendant_pid),
+                    f"Descendant PID {descendant_pid} still running after cancellation cleanup",
+                )
+                self.assertLess(elapsed, 4.0, f"Elapsed time {elapsed}s exceeded bounded allowance")
+            finally:
+                if child_pgid is not None:
+                    try:
+                        os.killpg(child_pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+    def test_run_bounded_callback_exception_propagates_identity_and_cleans_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "ready.txt"
+            pids_file = Path(tmpdir) / "pids.txt"
+
+            child_code = f"""
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+descendant = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+sys.stdout.write("out_before_cb_exc\\n")
+sys.stdout.flush()
+sys.stderr.write("err_before_cb_exc\\n")
+sys.stderr.flush()
+
+Path({repr(str(pids_file))}).write_text(f"{{os.getpid()}} {{descendant.pid}}")
+Path({repr(str(ready_file))}).write_text("ready")
+time.sleep(30)
+"""
+            child_pgid = None
+            sentinel_exc = RuntimeError("sentinel callback exception after launch")
+
+            def is_pid_live(pid: int) -> bool:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return False
+                try:
+                    with open(f"/proc/{pid}/status", "r") as f:
+                        for line in f:
+                            if line.startswith("State:"):
+                                return line.split()[1] != "Z"
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    return False
+                return True
+
+            def raising_cb() -> bool:
+                if ready_file.exists() and pids_file.exists():
+                    raise sentinel_exc
+                return False
+
+            cmd = [sys.executable, "-c", child_code]
+            t0 = time.monotonic()
+            try:
+                with self.assertRaises(RuntimeError) as ctx:
+                    run_bounded(cmd, timeout=10.0, cancelled=raising_cb)
+                elapsed = time.monotonic() - t0
+
+                # Re-raised by identity
+                self.assertIs(ctx.exception, sentinel_exc)
+
+                # Diagnostics attached best-effort
+                self.assertTrue(hasattr(sentinel_exc, "stdout"))
+                self.assertIn("out_before_cb_exc", getattr(sentinel_exc, "stdout"))
+                self.assertTrue(hasattr(sentinel_exc, "stderr"))
+                self.assertIn("err_before_cb_exc", getattr(sentinel_exc, "stderr"))
+                self.assertTrue(hasattr(sentinel_exc, "pid"))
+
+                raw_pids = pids_file.read_text().strip().split()
+                child_pid = int(raw_pids[0])
+                descendant_pid = int(raw_pids[1])
+                child_pgid = child_pid
+
+                self.assertEqual(getattr(sentinel_exc, "pid"), child_pid)
+
+                # Direct child reaped
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child_pid, 0)
+
+                # Descendant in same group cleaned
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline and is_pid_live(descendant_pid):
+                    time.sleep(0.02)
+                self.assertFalse(
+                    is_pid_live(descendant_pid),
+                    f"Descendant PID {descendant_pid} still running after callback exception cleanup",
+                )
+                self.assertLess(elapsed, 4.0)
+            finally:
+                if child_pgid is not None:
+                    try:
+                        os.killpg(child_pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+    def test_run_bounded_periodic_output_alwaysfalse_callback_reaches_original_deadline(self) -> None:
+        child_code = (
+            "import sys, time\n"
+            "for i in range(25):\n"
+            "    sys.stdout.write(f'CHUNK_{i}\\n')\n"
+            "    sys.stdout.flush()\n"
+            "    time.sleep(0.03)\n"
+        )
+        cmd = [sys.executable, "-c", child_code]
+        t0 = time.monotonic()
+        with self.assertRaises(FirmwareTimeoutError) as ctx:
+            run_bounded(cmd, timeout=0.25, cancelled=lambda: False)
+        elapsed = time.monotonic() - t0
+
+        err = ctx.exception
+        self.assertIsNotNone(err.pid)
+        self.assertIn("CHUNK_0\n", err.stdout)
+        # Repeated stdout prefix appears exactly once (communicate returns accumulated data)
+        self.assertEqual(err.stdout.count("CHUNK_0\n"), 1)
+        # Verify elapsed time respects original deadline without resetting (<1.5s)
+        self.assertLess(elapsed, 1.5, f"Elapsed time {elapsed}s indicates deadline was reset")
+        self.assertGreaterEqual(elapsed, 0.20, f"Elapsed time {elapsed}s exited too early")
+
 
 if __name__ == "__main__":
     unittest.main()
