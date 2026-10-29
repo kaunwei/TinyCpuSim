@@ -6,10 +6,12 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tests.fw_cpp_test_support import (
     CompileError,
     CppBuildConfig,
+    _resolve_build_config,
     get_or_compile_cpp,
     run_cpp,
 )
@@ -538,6 +540,147 @@ int main() {
                     if peer.poll() is None:
                         peer.kill()
                     peer.communicate(timeout=3)
+
+    def test_default_config_env_opt_and_cache_root(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env = {
+                "FW_CPP_TEST_OPT": "O0",
+                "FW_CPP_CACHE_ROOT": tmp_dir,
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                resolved = _resolve_build_config(None)
+                self.assertEqual(resolved.flags, ("-std=c++20", "-O0"))
+                self.assertEqual(resolved.cache_dir, pathlib.Path(tmp_dir))
+
+                source = "int main() { return 42; }"
+                with get_or_compile_cpp(source) as (bin_path, from_cache):
+                    self.assertFalse(from_cache)
+                    self.assertTrue(str(bin_path).startswith(tmp_dir))
+                    self.assertTrue(bin_path.exists())
+
+                proc = run_cpp(source)
+                self.assertEqual(proc.returncode, 42)
+
+    def test_default_config_env_opt_O2_and_cache_root(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env = {
+                "FW_CPP_TEST_OPT": "O2",
+                "FW_CPP_CACHE_ROOT": tmp_dir,
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                resolved = _resolve_build_config(None)
+                self.assertEqual(resolved.flags, ("-std=c++20", "-O2"))
+                self.assertEqual(resolved.cache_dir, pathlib.Path(tmp_dir))
+
+                proc = run_cpp("int main() { return 13; }")
+                self.assertEqual(proc.returncode, 13)
+
+    def test_explicit_config_precedence_over_env_vars(self):
+        with tempfile.TemporaryDirectory() as explicit_dir:
+            env = {
+                "FW_CPP_TEST_OPT": "MALFORMED_OPT",
+                "FW_CPP_CACHE_ROOT": "",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                explicit_cfg = CppBuildConfig(
+                    flags=("-std=c++20", "-DVALUE=99"),
+                    cache_dir=pathlib.Path(explicit_dir),
+                )
+                resolved = _resolve_build_config(explicit_cfg)
+                self.assertIs(resolved, explicit_cfg)
+
+                source = """#include <iostream>
+int main() {
+    std::cout << VALUE << std::endl;
+    return 0;
+}
+"""
+                with get_or_compile_cpp(source, config=explicit_cfg) as (bin_path, from_cache):
+                    self.assertFalse(from_cache)
+                    self.assertTrue(str(bin_path).startswith(explicit_dir))
+
+                proc = run_cpp(source, config=explicit_cfg)
+                self.assertEqual(proc.returncode, 0)
+                self.assertIn("99", proc.stdout)
+
+    def test_malformed_opt_fails_clearly(self):
+        for bad_opt in ["O1", "O3", "-O0", "-O2", "debug", "", "   "]:
+            with mock.patch.dict(os.environ, {"FW_CPP_TEST_OPT": bad_opt}, clear=False):
+                with self.assertRaises(ValueError):
+                    _resolve_build_config(None)
+                with self.assertRaises(ValueError):
+                    run_cpp("int main() { return 0; }")
+                with self.assertRaises(ValueError):
+                    with get_or_compile_cpp("int main() { return 0; }"):
+                        pass
+
+    def test_malformed_cache_root_fails_clearly(self):
+        for bad_root in ["", "   "]:
+            with mock.patch.dict(os.environ, {"FW_CPP_CACHE_ROOT": bad_root}, clear=False):
+                with self.assertRaises(ValueError):
+                    _resolve_build_config(None)
+                with self.assertRaises(ValueError):
+                    run_cpp("int main() { return 0; }")
+                with self.assertRaises(ValueError):
+                    with get_or_compile_cpp("int main() { return 0; }"):
+                        pass
+
+        with tempfile.NamedTemporaryFile() as tmp_file:
+            with mock.patch.dict(os.environ, {"FW_CPP_CACHE_ROOT": tmp_file.name}, clear=False):
+                with self.assertRaises(ValueError):
+                    _resolve_build_config(None)
+
+    def test_opt_keys_separate_and_invalidate_correctly(self):
+        with tempfile.TemporaryDirectory() as tmp_cache:
+            source = """#include <iostream>
+int main() {
+#if defined(__OPTIMIZE__)
+    std::cout << "optimized" << std::endl;
+#else
+    std::cout << "unoptimized" << std::endl;
+#endif
+    return 0;
+}
+"""
+            with mock.patch.dict(os.environ, {"FW_CPP_TEST_OPT": "O0", "FW_CPP_CACHE_ROOT": tmp_cache}, clear=False):
+                with get_or_compile_cpp(source) as (bin_o0, hit_o0):
+                    self.assertFalse(hit_o0)
+                p0 = run_cpp(source)
+                self.assertEqual(p0.returncode, 0)
+                self.assertIn("unoptimized", p0.stdout)
+
+            with mock.patch.dict(os.environ, {"FW_CPP_TEST_OPT": "O2", "FW_CPP_CACHE_ROOT": tmp_cache}, clear=False):
+                with get_or_compile_cpp(source) as (bin_o2, hit_o2):
+                    self.assertFalse(hit_o2)
+                p2 = run_cpp(source)
+                self.assertEqual(p2.returncode, 0)
+                self.assertIn("optimized", p2.stdout)
+
+            self.assertNotEqual(bin_o0, bin_o2)
+            bins = list(pathlib.Path(tmp_cache).glob("bin_*"))
+            self.assertEqual(len(bins), 2)
+
+    def test_assertions_remain_enabled_under_opt(self):
+        with tempfile.TemporaryDirectory() as tmp_cache:
+            pass_source = """#include <cassert>
+int main() {
+    assert(2 + 2 == 4);
+    return 0;
+}
+"""
+            fail_source = """#include <cassert>
+int main() {
+    assert(2 + 2 == 5);
+    return 0;
+}
+"""
+            for opt_mode in ["O0", "O2"]:
+                with mock.patch.dict(os.environ, {"FW_CPP_TEST_OPT": opt_mode, "FW_CPP_CACHE_ROOT": tmp_cache}, clear=False):
+                    res_pass = run_cpp(pass_source)
+                    self.assertEqual(res_pass.returncode, 0)
+
+                    res_fail = run_cpp(fail_source)
+                    self.assertNotEqual(res_fail.returncode, 0)
 
 
 if __name__ == "__main__":

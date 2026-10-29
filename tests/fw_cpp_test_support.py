@@ -66,6 +66,35 @@ class CppBuildConfig:
     lock_timeout: float = 60.0
 
 
+def _resolve_build_config(config: Optional[CppBuildConfig] = None) -> CppBuildConfig:
+    if config is not None:
+        return config
+
+    flags = ("-std=c++20",)
+    opt = os.environ.get("FW_CPP_TEST_OPT")
+    if opt is not None:
+        if opt in ("O0", "O2"):
+            flags = flags + (f"-{opt}",)
+        else:
+            raise ValueError(f"Invalid FW_CPP_TEST_OPT: {opt!r}. Expected 'O0' or 'O2'.")
+
+    cache_dir: Optional[pathlib.Path] = _DEFAULT_CACHE_DIR
+    cache_root = os.environ.get("FW_CPP_CACHE_ROOT")
+    if cache_root is not None:
+        if not cache_root.strip():
+            raise ValueError("Invalid FW_CPP_CACHE_ROOT: cannot be empty or whitespace.")
+        p = pathlib.Path(cache_root)
+        if p.exists() and not p.is_dir():
+            raise ValueError(f"Invalid FW_CPP_CACHE_ROOT: {cache_root!r} is not a directory.")
+        cache_dir = p
+
+    return dataclasses.replace(
+        CppBuildConfig(),
+        flags=flags,
+        cache_dir=cache_dir,
+    )
+
+
 def _get_compiler_identity(compiler_path: str) -> str:
     p = pathlib.Path(shutil.which(compiler_path) or compiler_path)
     real_path = str(p.resolve()) if p.exists() else compiler_path
@@ -268,8 +297,7 @@ def get_or_compile_cpp(
     Persistent cache entries survive exit even when from_cache is False (cold build).
     The returned binary is guaranteed available only within this context.
     """
-    if config is None:
-        config = CppBuildConfig()
+    config = _resolve_build_config(config)
 
     can_cache = False
     header_paths = []
@@ -319,8 +347,7 @@ def run_cpp(
     publication and bounded same-key locking. Preserves subprocess.CompletedProcess
     return behavior, CalledProcessError compatibility, and TimeoutExpired behavior.
     """
-    if config is None:
-        config = CppBuildConfig()
+    config = _resolve_build_config(config)
 
     with get_or_compile_cpp(source, config) as (bin_file, _):
         return subprocess.run(
