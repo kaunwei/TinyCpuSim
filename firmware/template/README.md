@@ -71,3 +71,38 @@ A step limit is a bound, not a successful completion signal: if it expires
 before an external stop, TinyCpuSim reports a step-limit failure. The
 self-check's current O0/O2 and negative-expectation coverage is in
 `tests/test_fw_template_selfcheck.py`.
+
+## Full reference application and developer guide
+
+Beyond the minimal template, the project provides a full reference application
+(`firmware/apps/reference_app.c`) demonstrating:
+- Static cooperative scheduler with power-of-2 ring buffer (`firmware/bsp/ring_buffer.h`)
+- Periodic timer callbacks: 1 ms, 10 ms, 100 ms, and 1-second UART heartbeat (`[HB]\n`)
+- Interactive non-blocking UART shell (`firmware/bsp/shell.h`) supporting `ping`, `help`, `status`, `selfcheck`, and deterministic `compute <N>` commands
+- Bounded watchdog execution via `run_service_watchdog()` in `scripts/firmware_test_harness.py`
+- Controlled shutdown through `--control-fd` socket interface (`break`, `pause`, `step`, `regs`, `continue`, `stop`)
+
+### Building and running
+
+Run using the top-level launcher:
+```sh
+# Build all firmware artifacts
+./scripts/run_firmware.sh build
+
+# Run automated firmware test suite
+./scripts/run_firmware.sh test
+
+# Run interactive terminal session with PTY device
+./scripts/run_firmware.sh interactive --pty
+
+# Launch via project run.sh
+./run.sh fw test
+```
+
+### ISA Coverage and Peripheral Support
+
+The Cortex-M3 emulator supports standard Thumb-1 and Thumb-2 instructions including:
+- Arithmetic, logic, bitfield operations, hardware multiply and divide (`UDIV`/`SDIV`)
+- Memory loads/stores with scaled and shifted register offsets
+- System registers, NVIC auto-stacking and interrupt arbitration (`NVIC_BASE 0xE000E000`)
+- Peripherals: UART (`0x40000000`), Timer (`0x40001000`), GPIO (`0x40005000`), DMA (`0x40006000`), I2C (`0x40002000`), SPI (`0x40003000`), CRC (`0x40004000`)
