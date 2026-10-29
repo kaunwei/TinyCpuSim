@@ -255,11 +255,11 @@ def run_bounded(
             except BaseException as cb_exc:
                 _cleanup_and_drain()
                 for attr, val in (("stdout", latest_stdout), ("stderr", latest_stderr), ("pid", pid)):
-                    if not hasattr(cb_exc, attr):
-                        try:
+                    try:
+                        if not hasattr(cb_exc, attr):
                             setattr(cb_exc, attr, val)
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
                 raise
 
             if time.monotonic() >= deadline:

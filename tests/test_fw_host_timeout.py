@@ -531,5 +531,44 @@ time.sleep(30)
                         pass
 
 
+    def test_callback_exception_unreadable_diagnostic_preserves_identity(self) -> None:
+        class OriginalError(RuntimeError):
+            @property
+            def stdout(self):
+                raise ValueError("diagnostic attribute cannot be read")
+        sentinel = OriginalError("original callback failure")
+        sentinel.stderr = "PREEXISTING_STDERR"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready = Path(tmpdir) / "ready"
+            code = (
+                "import os,sys,time;from pathlib import Path;"
+                "print('IDENTITY_STDOUT',flush=True);"
+                "print('IDENTITY_STDERR',file=sys.stderr,flush=True);"
+                "Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(5)"
+            )
+            def cancelled() -> bool:
+                if ready.exists():
+                    raise sentinel
+                return False
+            started = time.monotonic()
+            try:
+                with self.assertRaises(OriginalError) as ctx:
+                    run_bounded([sys.executable, "-c", code, str(ready)],
+                                timeout=1.0, cancelled=cancelled)
+                self.assertIs(ctx.exception, sentinel)
+                self.assertEqual(sentinel.stderr, "PREEXISTING_STDERR")
+                pid = int(ready.read_text())
+                self.assertEqual(sentinel.pid, pid)
+                self.assertLess(time.monotonic() - started, 1.5)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid, 0)
+            finally:
+                if ready.exists():
+                    try:
+                        os.killpg(int(ready.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+
 if __name__ == "__main__":
     unittest.main()
