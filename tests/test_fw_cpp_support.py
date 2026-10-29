@@ -683,5 +683,109 @@ int main() {
                     self.assertNotEqual(res_fail.returncode, 0)
 
 
+    def test_bad_resource_pool_or_overrides_fail_promptly(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing_dir = os.path.join(td, "non_existent_pool")
+            with mock.patch.dict(os.environ, {"FW_TEST_RESOURCE_POOL": missing_dir}):
+                with self.assertRaises(ValueError):
+                    run_cpp("int main(){return 0;}")
+
+            with mock.patch.dict(os.environ, {"FW_TEST_RESOURCE_POOL": "   "}):
+                with self.assertRaises(ValueError):
+                    run_cpp("int main(){return 0;}")
+
+            with mock.patch.dict(os.environ, {"FW_CPP_COMPILE_MEMORY_MIB": "-10"}):
+                with self.assertRaises(ValueError):
+                    run_cpp("int main(){return 0;}")
+
+            with mock.patch.dict(os.environ, {"FW_CPP_EXEC_MEMORY_MIB": "abc"}):
+                with self.assertRaises(ValueError):
+                    run_cpp("int main(){return 0;}")
+
+            with mock.patch.dict(os.environ, {"FW_TEST_RESOURCE_TIMEOUT": "nan"}):
+                with self.assertRaises(ValueError):
+                    run_cpp("int main(){return 0;}")
+
+            with mock.patch.dict(os.environ, {"FW_TEST_RESOURCE_TIMEOUT": "-1.0"}):
+                with self.assertRaises(ValueError):
+                    run_cpp("int main(){return 0;}")
+
+    def test_pool_reservation_success_and_release(self):
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=2, memory_mib=2048))
+            source = """#include <iostream>
+int main() {
+    std::cout << "pool_ok" << std::endl;
+    return 0;
+}"""
+            with mock.patch.dict(os.environ, {
+                "FW_TEST_RESOURCE_POOL": pool_dir,
+                "FW_CPP_CACHE_ROOT": cache_dir,
+            }):
+                p1 = run_cpp(source)
+                self.assertEqual(p1.returncode, 0)
+                self.assertIn("pool_ok", p1.stdout)
+
+                p2 = run_cpp(source)
+                self.assertEqual(p2.returncode, 0)
+                self.assertIn("pool_ok", p2.stdout)
+
+    def test_compile_error_releases_pool(self):
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=1, memory_mib=1024))
+            bad_source = "int main() { syntax error }"
+            good_source = "int main() { return 0; }"
+            with mock.patch.dict(os.environ, {
+                "FW_TEST_RESOURCE_POOL": pool_dir,
+                "FW_CPP_CACHE_ROOT": cache_dir,
+            }):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    run_cpp(bad_source)
+
+                p = run_cpp(good_source)
+                self.assertEqual(p.returncode, 0)
+
+    def test_pool_timeout_on_starvation(self):
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=1, memory_mib=1024))
+            with pool.reserve(cpu_slots=1, memory_mib=1024):
+                with mock.patch.dict(os.environ, {
+                    "FW_TEST_RESOURCE_POOL": pool_dir,
+                    "FW_CPP_CACHE_ROOT": cache_dir,
+                    "FW_TEST_RESOURCE_TIMEOUT": "0.1",
+                }):
+                    with self.assertRaises(TimeoutError):
+                        run_cpp("int main(){return 0;}")
+
+    def test_multi_process_same_key_and_different_keys_under_pool(self):
+        import multiprocessing as mp
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=2, memory_mib=2048))
+            q1, q2 = mp.Queue(), mp.Queue()
+            s1 = "int main() { return 11; }"
+            s2 = "int main() { return 22; }"
+            def _sub(src, q):
+                os.environ["FW_TEST_RESOURCE_POOL"] = pool_dir
+                os.environ["FW_CPP_CACHE_ROOT"] = cache_dir
+                try:
+                    res = run_cpp(src)
+                    q.put(("SUCCESS", res.returncode))
+                except Exception as e:
+                    q.put(("ERROR", type(e).__name__))
+            p1 = mp.Process(target=_sub, args=(s1, q1))
+            p2 = mp.Process(target=_sub, args=(s2, q2))
+            p1.start()
+            p2.start()
+            p1.join(timeout=10)
+            p2.join(timeout=10)
+            self.assertFalse(p1.is_alive())
+            self.assertFalse(p2.is_alive())
+            self.assertEqual(q1.get_nowait(), ("SUCCESS", 11))
+            self.assertEqual(q2.get_nowait(), ("SUCCESS", 22))
+
 if __name__ == "__main__":
     unittest.main()

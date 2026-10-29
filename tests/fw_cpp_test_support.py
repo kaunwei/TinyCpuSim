@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import fcntl
 import hashlib
+import math
 import os
 import pathlib
 import re
@@ -10,6 +11,23 @@ import subprocess
 import tempfile
 import time
 from typing import Iterator, Optional, Sequence, Set, Tuple
+
+try:
+    from tests.fw_resource_support import ResourcePool
+except ImportError:
+    try:
+        from fw_resource_support import ResourcePool  # type: ignore
+    except ImportError:
+        import sys
+        _root = str(pathlib.Path(__file__).resolve().parent.parent)
+        _parent = str(pathlib.Path(__file__).resolve().parent)
+        for _p in (_root, _parent):
+            if _p not in sys.path:
+                sys.path.insert(0, _p)
+        try:
+            from tests.fw_resource_support import ResourcePool
+        except ImportError:
+            from fw_resource_support import ResourcePool  # type: ignore
 
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -66,6 +84,95 @@ class CppBuildConfig:
     lock_timeout: float = 60.0
 
 
+DEFAULT_COMPILE_MEMORY_MIB: int = 1024
+DEFAULT_EXEC_MEMORY_MIB: int = 256
+DEFAULT_RESOURCE_TIMEOUT_SEC: float = 30.0
+
+
+@dataclasses.dataclass(frozen=True)
+class ResourcePolicy:
+    pool: Optional[ResourcePool] = None
+    compile_memory_mib: int = DEFAULT_COMPILE_MEMORY_MIB
+    exec_memory_mib: int = DEFAULT_EXEC_MEMORY_MIB
+    timeout: float = DEFAULT_RESOURCE_TIMEOUT_SEC
+
+    @contextlib.contextmanager
+    def reserve(self, cpu_slots: int, memory_mib: int) -> Iterator[None]:
+        if self.pool is None:
+            yield
+        else:
+            with self.pool.reserve(
+                cpu_slots=cpu_slots,
+                memory_mib=memory_mib,
+                timeout=self.timeout,
+            ):
+                yield
+
+    @contextlib.contextmanager
+    def reserve_compile(self) -> Iterator[None]:
+        with self.reserve(cpu_slots=1, memory_mib=self.compile_memory_mib):
+            yield
+
+    @contextlib.contextmanager
+    def reserve_exec(self) -> Iterator[None]:
+        with self.reserve(cpu_slots=1, memory_mib=self.exec_memory_mib):
+            yield
+
+
+def _parse_positive_int_env(name: str, default: int) -> int:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    val_str = val.strip()
+    try:
+        iv = int(val_str)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid {name}: {val!r}. Must be a positive integer.")
+    if iv <= 0:
+        raise ValueError(f"Invalid {name}: {val!r}. Must be a positive integer.")
+    return iv
+
+
+def _parse_positive_float_env(name: str, default: float) -> float:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    val_str = val.strip()
+    try:
+        fv = float(val_str)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid {name}: {val!r}. Must be a finite positive number.")
+    if not math.isfinite(fv) or fv <= 0:
+        raise ValueError(f"Invalid {name}: {val!r}. Must be a finite positive number.")
+    return fv
+
+
+def _resolve_resource_policy(policy: Optional[ResourcePolicy] = None) -> ResourcePolicy:
+    if policy is not None:
+        return policy
+
+    compile_mem = _parse_positive_int_env("FW_CPP_COMPILE_MEMORY_MIB", DEFAULT_COMPILE_MEMORY_MIB)
+    exec_mem = _parse_positive_int_env("FW_CPP_EXEC_MEMORY_MIB", DEFAULT_EXEC_MEMORY_MIB)
+    timeout = _parse_positive_float_env("FW_TEST_RESOURCE_TIMEOUT", DEFAULT_RESOURCE_TIMEOUT_SEC)
+
+    pool_env = os.environ.get("FW_TEST_RESOURCE_POOL")
+    pool: Optional[ResourcePool] = None
+    if pool_env is not None:
+        if not pool_env.strip():
+            raise ValueError(f"Invalid FW_TEST_RESOURCE_POOL: {pool_env!r}. Cannot be empty or whitespace.")
+        pool_path = pathlib.Path(pool_env)
+        if not pool_path.exists():
+            raise ValueError(f"Invalid FW_TEST_RESOURCE_POOL: {pool_env!r} does not exist.")
+        pool = ResourcePool.open(pool_path)
+
+    return ResourcePolicy(
+        pool=pool,
+        compile_memory_mib=compile_mem,
+        exec_memory_mib=exec_mem,
+        timeout=timeout,
+    )
+
+
 def _resolve_build_config(config: Optional[CppBuildConfig] = None) -> CppBuildConfig:
     if config is not None:
         return config
@@ -95,7 +202,11 @@ def _resolve_build_config(config: Optional[CppBuildConfig] = None) -> CppBuildCo
     )
 
 
-def _get_compiler_identity(compiler_path: str) -> str:
+def _get_compiler_identity(
+    compiler_path: str,
+    policy: Optional[ResourcePolicy] = None,
+) -> str:
+    policy = _resolve_resource_policy(policy)
     p = pathlib.Path(shutil.which(compiler_path) or compiler_path)
     real_path = str(p.resolve()) if p.exists() else compiler_path
     content_hash = "missing"
@@ -106,21 +217,24 @@ def _get_compiler_identity(compiler_path: str) -> str:
             stat = p.stat()
             content_hash = f"stat:{stat.st_size}:{stat.st_mtime_ns}"
     version = ""
-    try:
-        proc = subprocess.run(
-            [compiler_path, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        version = proc.stdout.strip()
-    except Exception:
-        version = "unknown"
+    with policy.reserve_compile():
+        try:
+            proc = subprocess.run(
+                [compiler_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            version = proc.stdout.strip()
+        except Exception:
+            version = "unknown"
     return f"path:{compiler_path}|real:{real_path}|hash:{content_hash}|ver:{version}"
 
 
 def _get_compiler_dependencies(
-    source: str, config: CppBuildConfig
+    source: str,
+    config: CppBuildConfig,
+    policy: Optional[ResourcePolicy] = None,
 ) -> Tuple[bool, Sequence[pathlib.Path]]:
     """Query compiler for actual dependencies using -M.
 
@@ -128,24 +242,26 @@ def _get_compiler_dependencies(
     If dependency extraction fails (e.g. syntax error or missing header),
     returns (False, []).
     """
+    policy = _resolve_resource_policy(policy)
     cmd = [config.compiler]
     cmd.extend(config.flags)
     for inc in config.include_dirs:
         cmd.append(f"-I{inc}")
     cmd.extend(["-M", "-x", "c++", "-"])
 
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=source,
-            capture_output=True,
-            text=True,
-            timeout=config.compile_timeout,
-        )
-        if proc.returncode != 0:
+    with policy.reserve_compile():
+        try:
+            proc = subprocess.run(
+                cmd,
+                input=source,
+                capture_output=True,
+                text=True,
+                timeout=config.compile_timeout,
+            )
+            if proc.returncode != 0:
+                return False, []
+        except Exception:
             return False, []
-    except Exception:
-        return False, []
 
     # Parse makefile dependency output
     raw = proc.stdout
@@ -241,7 +357,9 @@ def _compile_to_binary(
     source: str,
     output_bin: pathlib.Path,
     config: CppBuildConfig,
+    policy: Optional[ResourcePolicy] = None,
 ) -> None:
+    policy = _resolve_resource_policy(policy)
     output_bin.parent.mkdir(parents=True, exist_ok=True)
     temp_bin = output_bin.parent / f"{output_bin.name}.tmp.{os.getpid()}.{time.time_ns()}"
     src_file = output_bin.parent / f"{output_bin.name}.tmp.{os.getpid()}.{time.time_ns()}.cpp"
@@ -254,12 +372,13 @@ def _compile_to_binary(
 
     try:
         src_file.write_text(source, encoding="utf-8")
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=config.compile_timeout,
-        )
+        with policy.reserve_compile():
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=config.compile_timeout,
+            )
         if proc.returncode != 0:
             raise CompileError(
                 proc.returncode,
@@ -290,6 +409,7 @@ def _compile_to_binary(
 def get_or_compile_cpp(
     source: str,
     config: Optional[CppBuildConfig] = None,
+    policy: Optional[ResourcePolicy] = None,
 ) -> Iterator[Tuple[pathlib.Path, bool]]:
     """Own a build during a with-block; yield (binary_path, from_cache).
 
@@ -298,25 +418,26 @@ def get_or_compile_cpp(
     The returned binary is guaranteed available only within this context.
     """
     config = _resolve_build_config(config)
+    policy = _resolve_resource_policy(policy)
 
     can_cache = False
     header_paths = []
     if config.cache_dir is not None:
-        can_cache, header_paths = _get_compiler_dependencies(source, config)
+        can_cache, header_paths = _get_compiler_dependencies(source, config, policy=policy)
 
     if not can_cache:
         with tempfile.TemporaryDirectory(prefix="cpp_run_") as directory:
             binary = pathlib.Path(directory) / "app"
-            _compile_to_binary(source, binary, config)
+            _compile_to_binary(source, binary, config, policy=policy)
             yield binary, False
         return
 
-    compiler_id = _get_compiler_identity(config.compiler)
+    compiler_id = _get_compiler_identity(config.compiler, policy=policy)
     cache_key = _compute_cache_key(source, compiler_id, config, header_paths)
     if not cache_key:
         with tempfile.TemporaryDirectory(prefix="cpp_run_") as directory:
             binary = pathlib.Path(directory) / "app"
-            _compile_to_binary(source, binary, config)
+            _compile_to_binary(source, binary, config, policy=policy)
             yield binary, False
         return
 
@@ -331,7 +452,7 @@ def get_or_compile_cpp(
         with _acquire_cross_process_lock(lock_path, timeout=config.lock_timeout):
             from_cache = binary.exists()
             if not from_cache:
-                _compile_to_binary(source, binary, config)
+                _compile_to_binary(source, binary, config, policy=policy)
     # Release the compile lock before exposing an executable to the caller.
     yield binary, from_cache
 
@@ -340,6 +461,7 @@ def run_cpp(
     source: str,
     timeout: float = 5,
     config: Optional[CppBuildConfig] = None,
+    policy: Optional[ResourcePolicy] = None,
 ) -> subprocess.CompletedProcess[str]:
     """Compile C++20 source and run the resulting binary under a timeout.
 
@@ -348,11 +470,13 @@ def run_cpp(
     return behavior, CalledProcessError compatibility, and TimeoutExpired behavior.
     """
     config = _resolve_build_config(config)
+    policy = _resolve_resource_policy(policy)
 
-    with get_or_compile_cpp(source, config) as (bin_file, _):
-        return subprocess.run(
-            [str(bin_file)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+    with get_or_compile_cpp(source, config, policy=policy) as (bin_file, _):
+        with policy.reserve_exec():
+            return subprocess.run(
+                [str(bin_file)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
