@@ -10,6 +10,7 @@
 #include "tinyarmsim/loader.hpp"
 #include "tinyarmsim/interpreter.hpp"
 #include "tinyarmsim/firmware_control.hpp"
+#include "tinyarmsim/firmware_uart.hpp"
 #include "tinyarmsim/firmware_uart_output.hpp"
 #include "tinyarmsim/firmware_signal_guard.hpp"
 #include "tinyarmsim/mmio/soc_platform.hpp"
@@ -208,9 +209,14 @@ int main(int argc, char* argv[]) {
 
     std::optional<tinyarmsim::FirmwareSignalGuard> signal_guard;
     std::optional<tinyarmsim::FirmwareUartOutput> uart_output;
+    std::optional<tinyarmsim::FirmwareUartInput> uart_input;
     if (enable_firmware) {
         signal_guard.emplace();
-        uart_output.emplace();
+        const int uart_tx_fd = options.uart_fd >= 0 ? options.uart_fd : STDOUT_FILENO;
+        uart_output.emplace(uart_tx_fd);
+        if (options.uart_fd >= 0) {
+            uart_input.emplace(options.uart_fd);
+        }
         soc.uart->set_tx_consumer([&uart_output](uint8_t byte) {
             if (uart_output) {
                 (void)uart_output->enqueue(byte);
@@ -242,17 +248,23 @@ int main(int argc, char* argv[]) {
                 s += "],\"steps\":" + std::to_string(interpreter.get_stats().instruction_count) + "}";
                 return s;
             });
-            control.set_host_service([&uart_output, &signal_guard]() {
+            control.set_host_service([&uart_output, &uart_input, &signal_guard]() {
                 if (signal_guard && signal_guard->received_signal() != 0) {
                     throw std::runtime_error("Interrupted by signal " + std::to_string(signal_guard->received_signal()));
+                }
+                if (uart_input) {
+                    uart_input->poll_ingress();
                 }
                 if (uart_output) {
                     uart_output->service();
                 }
             });
-            exit_code = interpreter.run_until([&control, &signal_guard]() {
+            exit_code = interpreter.run_until([&control, &signal_guard, &uart_input, &soc]() {
                 if (signal_guard && signal_guard->received_signal() != 0) {
                     return true;
+                }
+                if (uart_input) {
+                    uart_input->drain_to_guest(*soc.uart);
                 }
                 return control.stop_requested();
             }, options.max_steps_explicit ? max_steps : 0);
@@ -264,9 +276,13 @@ int main(int argc, char* argv[]) {
                 fault_msg = "Firmware control closed without stop or transport failed";
             }
         } else if (enable_firmware) {
-            exit_code = interpreter.run_until([&uart_output, &signal_guard]() {
+            exit_code = interpreter.run_until([&uart_output, &uart_input, &signal_guard, &soc]() {
                 if (signal_guard && signal_guard->received_signal() != 0) {
                     return true;
+                }
+                if (uart_input) {
+                    uart_input->poll_ingress();
+                    uart_input->drain_to_guest(*soc.uart);
                 }
                 if (uart_output) {
                     uart_output->service();
