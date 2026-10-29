@@ -10,6 +10,8 @@
 #include "tinyarmsim/loader.hpp"
 #include "tinyarmsim/interpreter.hpp"
 #include "tinyarmsim/firmware_control.hpp"
+#include "tinyarmsim/firmware_uart_output.hpp"
+#include "tinyarmsim/firmware_signal_guard.hpp"
 #include "tinyarmsim/mmio/soc_platform.hpp"
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"
@@ -204,8 +206,23 @@ int main(int argc, char* argv[]) {
     bool passed = false;
     std::string fault_msg;
 
+    std::optional<tinyarmsim::FirmwareSignalGuard> signal_guard;
+    std::optional<tinyarmsim::FirmwareUartOutput> uart_output;
+    if (enable_firmware) {
+        signal_guard.emplace();
+        uart_output.emplace();
+        soc.uart->set_tx_consumer([&uart_output](uint8_t byte) {
+            if (uart_output) {
+                (void)uart_output->enqueue(byte);
+            }
+        });
+    }
+
     try {
-        if (enable_firmware && options.control_fd >= 0) {
+        if (options.max_steps_explicit && max_steps == 0) {
+            exit_code = 1;
+            fault_msg = "Maximum instruction count reached";
+        } else if (enable_firmware && options.control_fd >= 0) {
             tinyarmsim::FirmwareControl control(options.control_fd);
             control.set_instruction_counter([&interpreter]() {
                 return interpreter.get_stats().instruction_count;
@@ -225,12 +242,40 @@ int main(int argc, char* argv[]) {
                 s += "],\"steps\":" + std::to_string(interpreter.get_stats().instruction_count) + "}";
                 return s;
             });
-            exit_code = interpreter.run_until([&control]() {
+            control.set_host_service([&uart_output, &signal_guard]() {
+                if (signal_guard && signal_guard->received_signal() != 0) {
+                    throw std::runtime_error("Interrupted by signal " + std::to_string(signal_guard->received_signal()));
+                }
+                if (uart_output) {
+                    uart_output->service();
+                }
+            });
+            exit_code = interpreter.run_until([&control, &signal_guard]() {
+                if (signal_guard && signal_guard->received_signal() != 0) {
+                    return true;
+                }
                 return control.stop_requested();
             }, options.max_steps_explicit ? max_steps : 0);
-            if (control.closed_without_stop() || control.transport_failed()) {
+            if (signal_guard && signal_guard->received_signal() != 0) {
+                exit_code = 128 + signal_guard->received_signal();
+                fault_msg = "Interrupted by signal " + std::to_string(signal_guard->received_signal());
+            } else if (control.closed_without_stop() || control.transport_failed()) {
                 exit_code = 1;
                 fault_msg = "Firmware control closed without stop or transport failed";
+            }
+        } else if (enable_firmware) {
+            exit_code = interpreter.run_until([&uart_output, &signal_guard]() {
+                if (signal_guard && signal_guard->received_signal() != 0) {
+                    return true;
+                }
+                if (uart_output) {
+                    uart_output->service();
+                }
+                return false;
+            }, options.max_steps_explicit ? max_steps : 0);
+            if (signal_guard && signal_guard->received_signal() != 0) {
+                exit_code = 128 + signal_guard->received_signal();
+                fault_msg = "Interrupted by signal " + std::to_string(signal_guard->received_signal());
             }
         } else {
             exit_code = interpreter.run(max_steps);
@@ -242,6 +287,26 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) {
         fault_msg = e.what();
         passed = false;
+        if (signal_guard && signal_guard->received_signal() != 0) {
+            exit_code = 128 + signal_guard->received_signal();
+        }
+    }
+
+    if (uart_output) {
+        try {
+            uart_output->flush(std::chrono::milliseconds(200));
+        } catch (const std::exception& e) {
+            if (fault_msg.empty()) {
+                fault_msg = e.what();
+                passed = false;
+                if (exit_code == 0) exit_code = 1;
+            }
+        }
+        if (uart_output->failed()) {
+            passed = false;
+            if (exit_code == 0) exit_code = 1;
+            if (fault_msg.empty()) fault_msg = "firmware UART output failed";
+        }
     }
 
     const auto& stats = interpreter.get_stats();
@@ -260,7 +325,7 @@ int main(int argc, char* argv[]) {
         std::cerr << fault_msg << "\n";
     }
     cout_redirect.restore();
-    if (enable_firmware && !soc.uart->get_tx_output().empty()) {
+    if (enable_firmware && !uart_output && !soc.uart->get_tx_output().empty()) {
         std::cout << soc.uart->get_tx_output();
         if (!quiet && soc.uart->get_tx_output().back() != '\n') std::cout << '\n';
     }
