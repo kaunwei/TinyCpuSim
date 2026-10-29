@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import fcntl
 import hashlib
+import json
 import math
 import os
 import pathlib
@@ -89,6 +90,65 @@ DEFAULT_EXEC_MEMORY_MIB: int = 256
 DEFAULT_RESOURCE_TIMEOUT_SEC: float = 30.0
 
 
+
+@dataclasses.dataclass(frozen=True)
+class ReservationResult:
+    wait_sec: float = 0.0
+    reserved_memory_mib: int = 0
+    pool_enabled: bool = False
+    cpu_slots: int = 0
+    memory_mib: int = 0
+
+
+def _emit_stage_metric(
+    stage: str,
+    outcome: str,
+    duration_sec: float,
+    wait_sec: float,
+    cpu_slots: int,
+    memory_mib: int,
+    reserved_memory_mib: int,
+    pool_enabled: bool,
+    source_digest: Optional[str] = None,
+    flags: Optional[Sequence[str]] = None,
+    cache_hit: Optional[bool] = None,
+) -> None:
+    metrics_file = os.environ.get("FW_TEST_METRICS_FILE")
+    if not metrics_file or not metrics_file.strip():
+        return
+
+    record = {
+        "pid": os.getpid(),
+        "stage": stage,
+        "outcome": outcome,
+        "duration_sec": round(duration_sec, 6),
+        "wait_sec": round(wait_sec, 6),
+        "cpu_slots": cpu_slots if pool_enabled else 0,
+        "memory_mib": memory_mib if pool_enabled else 0,
+        "reserved_memory_mib": reserved_memory_mib if pool_enabled else 0,
+        "pool_enabled": pool_enabled,
+    }
+    if source_digest is not None:
+        record["source_digest"] = source_digest
+    if flags is not None:
+        record["flags"] = list(flags)
+    if cache_hit is not None:
+        record["cache_hit"] = cache_hit
+
+    line = json.dumps(record) + "\n"
+    try:
+        path = pathlib.Path(metrics_file.strip())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(line)
+                f.flush()
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+
 @dataclasses.dataclass(frozen=True)
 class ResourcePolicy:
     pool: Optional[ResourcePool] = None
@@ -97,26 +157,41 @@ class ResourcePolicy:
     timeout: float = DEFAULT_RESOURCE_TIMEOUT_SEC
 
     @contextlib.contextmanager
-    def reserve(self, cpu_slots: int, memory_mib: int) -> Iterator[None]:
+    def reserve(self, cpu_slots: int, memory_mib: int) -> Iterator[ReservationResult]:
+        t0 = time.monotonic()
         if self.pool is None:
-            yield
+            yield ReservationResult(
+                wait_sec=0.0,
+                reserved_memory_mib=0,
+                pool_enabled=False,
+                cpu_slots=0,
+                memory_mib=0,
+            )
         else:
             with self.pool.reserve(
                 cpu_slots=cpu_slots,
                 memory_mib=memory_mib,
                 timeout=self.timeout,
-            ):
-                yield
+            ) as budget:
+                wait_sec = time.monotonic() - t0
+                reserved_mem = budget.memory_mib if hasattr(budget, "memory_mib") else memory_mib
+                yield ReservationResult(
+                    wait_sec=wait_sec,
+                    reserved_memory_mib=reserved_mem,
+                    pool_enabled=True,
+                    cpu_slots=cpu_slots,
+                    memory_mib=memory_mib,
+                )
 
     @contextlib.contextmanager
-    def reserve_compile(self) -> Iterator[None]:
-        with self.reserve(cpu_slots=1, memory_mib=self.compile_memory_mib):
-            yield
+    def reserve_compile(self) -> Iterator[ReservationResult]:
+        with self.reserve(cpu_slots=1, memory_mib=self.compile_memory_mib) as res:
+            yield res
 
     @contextlib.contextmanager
-    def reserve_exec(self) -> Iterator[None]:
-        with self.reserve(cpu_slots=1, memory_mib=self.exec_memory_mib):
-            yield
+    def reserve_exec(self) -> Iterator[ReservationResult]:
+        with self.reserve(cpu_slots=1, memory_mib=self.exec_memory_mib) as res:
+            yield res
 
 
 def _parse_positive_int_env(name: str, default: int) -> int:
@@ -217,17 +292,41 @@ def _get_compiler_identity(
             stat = p.stat()
             content_hash = f"stat:{stat.st_size}:{stat.st_mtime_ns}"
     version = ""
-    with policy.reserve_compile():
-        try:
-            proc = subprocess.run(
-                [compiler_path, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            version = proc.stdout.strip()
-        except Exception:
-            version = "unknown"
+    outcome = "success"
+    duration = 0.0
+    res_info = ReservationResult()
+    try:
+        with policy.reserve_compile() as res:
+            res_info = res
+            t0 = time.monotonic()
+            try:
+                proc = subprocess.run(
+                    [compiler_path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                duration = time.monotonic() - t0
+                if proc.returncode == 0:
+                    version = proc.stdout.strip()
+                else:
+                    outcome = "failure"
+                    version = "unknown"
+            except Exception:
+                duration = time.monotonic() - t0
+                outcome = "error"
+                version = "unknown"
+    finally:
+        _emit_stage_metric(
+            stage="identity",
+            outcome=outcome,
+            duration_sec=duration,
+            wait_sec=res_info.wait_sec,
+            cpu_slots=res_info.cpu_slots,
+            memory_mib=res_info.memory_mib,
+            reserved_memory_mib=res_info.reserved_memory_mib,
+            pool_enabled=res_info.pool_enabled,
+        )
     return f"path:{compiler_path}|real:{real_path}|hash:{content_hash}|ver:{version}"
 
 
@@ -249,19 +348,45 @@ def _get_compiler_dependencies(
         cmd.append(f"-I{inc}")
     cmd.extend(["-M", "-x", "c++", "-"])
 
-    with policy.reserve_compile():
-        try:
-            proc = subprocess.run(
-                cmd,
-                input=source,
-                capture_output=True,
-                text=True,
-                timeout=config.compile_timeout,
-            )
-            if proc.returncode != 0:
-                return False, []
-        except Exception:
-            return False, []
+    res_info = ReservationResult()
+    duration = 0.0
+    outcome = "success"
+    failed = False
+    try:
+        with policy.reserve_compile() as res:
+            res_info = res
+            t0 = time.monotonic()
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    input=source,
+                    capture_output=True,
+                    text=True,
+                    timeout=config.compile_timeout,
+                )
+                duration = time.monotonic() - t0
+                if proc.returncode != 0:
+                    outcome = "failure"
+                    failed = True
+            except Exception:
+                duration = time.monotonic() - t0
+                outcome = "error"
+                failed = True
+    finally:
+        _emit_stage_metric(
+            stage="dependencies",
+            outcome=outcome,
+            duration_sec=duration,
+            wait_sec=res_info.wait_sec,
+            cpu_slots=res_info.cpu_slots,
+            memory_mib=res_info.memory_mib,
+            reserved_memory_mib=res_info.reserved_memory_mib,
+            pool_enabled=res_info.pool_enabled,
+            source_digest=hashlib.sha256(source.encode("utf-8")).hexdigest()[:16],
+            flags=config.flags,
+        )
+    if failed:
+        return False, []
 
     # Parse makefile dependency output
     raw = proc.stdout
@@ -370,28 +495,58 @@ def _compile_to_binary(
         cmd.append(f"-I{inc}")
     cmd.extend([str(src_file), "-o", str(temp_bin)])
 
+    res_info = ReservationResult()
+    duration = 0.0
+    outcome = "success"
+    err = None
     try:
         src_file.write_text(source, encoding="utf-8")
-        with policy.reserve_compile():
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=config.compile_timeout,
+        try:
+            with policy.reserve_compile() as res:
+                res_info = res
+                t0 = time.monotonic()
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=config.compile_timeout,
+                    )
+                    duration = time.monotonic() - t0
+                    if proc.returncode != 0:
+                        outcome = "failure"
+                        err = CompileError(
+                            proc.returncode,
+                            cmd,
+                            output=proc.stdout,
+                            stderr=proc.stderr,
+                        )
+                    else:
+                        os.replace(temp_bin, output_bin)
+                except subprocess.TimeoutExpired as e:
+                    duration = time.monotonic() - t0
+                    outcome = "timeout"
+                    err = e
+                except Exception as e:
+                    duration = time.monotonic() - t0
+                    outcome = "error"
+                    err = e
+        finally:
+            _emit_stage_metric(
+                stage="compile",
+                outcome=outcome,
+                duration_sec=duration,
+                wait_sec=res_info.wait_sec,
+                cpu_slots=res_info.cpu_slots,
+                memory_mib=res_info.memory_mib,
+                reserved_memory_mib=res_info.reserved_memory_mib,
+                pool_enabled=res_info.pool_enabled,
+                source_digest=hashlib.sha256(source.encode("utf-8")).hexdigest()[:16],
+                flags=config.flags,
+                cache_hit=False,
             )
-        if proc.returncode != 0:
-            raise CompileError(
-                proc.returncode,
-                cmd,
-                output=proc.stdout,
-                stderr=proc.stderr,
-            )
-        # Atomically publish to destination
-        os.replace(temp_bin, output_bin)
-    except subprocess.CalledProcessError as e:
-        if not isinstance(e, CompileError):
-            raise CompileError(e.returncode, e.cmd, output=e.output, stderr=e.stderr) from e
-        raise
+        if err is not None:
+            raise err
     finally:
         if src_file.exists():
             try:
@@ -453,6 +608,20 @@ def get_or_compile_cpp(
             from_cache = binary.exists()
             if not from_cache:
                 _compile_to_binary(source, binary, config, policy=policy)
+    else:
+        _emit_stage_metric(
+            stage="compile",
+            outcome="success",
+            duration_sec=0.0,
+            wait_sec=0.0,
+            cpu_slots=0,
+            memory_mib=0,
+            reserved_memory_mib=0,
+            pool_enabled=policy.pool is not None,
+            source_digest=hashlib.sha256(source.encode("utf-8")).hexdigest()[:16],
+            flags=config.flags,
+            cache_hit=True,
+        )
     # Release the compile lock before exposing an executable to the caller.
     yield binary, from_cache
 
@@ -472,11 +641,47 @@ def run_cpp(
     config = _resolve_build_config(config)
     policy = _resolve_resource_policy(policy)
 
-    with get_or_compile_cpp(source, config, policy=policy) as (bin_file, _):
-        with policy.reserve_exec():
-            return subprocess.run(
-                [str(bin_file)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+    res_info = ReservationResult()
+    duration = 0.0
+    outcome = "success"
+    err = None
+    proc = None
+    with get_or_compile_cpp(source, config, policy=policy) as (bin_file, from_cache):
+        try:
+            with policy.reserve_exec() as res:
+                res_info = res
+                t0 = time.monotonic()
+                try:
+                    proc = subprocess.run(
+                        [str(bin_file)],
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+                    duration = time.monotonic() - t0
+                    if proc.returncode != 0:
+                        outcome = "failure"
+                except subprocess.TimeoutExpired as e:
+                    duration = time.monotonic() - t0
+                    outcome = "timeout"
+                    err = e
+                except Exception as e:
+                    duration = time.monotonic() - t0
+                    outcome = "error"
+                    err = e
+        finally:
+            _emit_stage_metric(
+                stage="execute",
+                outcome=outcome,
+                duration_sec=duration,
+                wait_sec=res_info.wait_sec,
+                cpu_slots=res_info.cpu_slots,
+                memory_mib=res_info.memory_mib,
+                reserved_memory_mib=res_info.reserved_memory_mib,
+                pool_enabled=res_info.pool_enabled,
+                source_digest=hashlib.sha256(source.encode("utf-8")).hexdigest()[:16],
+                cache_hit=from_cache,
             )
+        if err is not None:
+            raise err
+        return proc

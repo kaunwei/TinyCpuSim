@@ -787,5 +787,105 @@ int main() {
             self.assertEqual(q1.get_nowait(), ("SUCCESS", 11))
             self.assertEqual(q2.get_nowait(), ("SUCCESS", 22))
 
+    def test_metrics_disabled_when_env_unset(self):
+        with tempfile.TemporaryDirectory() as td:
+            metrics_file = os.path.join(td, "non_existent.jsonl")
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("FW_TEST_METRICS_FILE", None)
+                proc = run_cpp("int main(){ return 42; }")
+                self.assertEqual(proc.returncode, 42)
+                self.assertFalse(os.path.exists(metrics_file))
+
+    def test_metrics_emitted_for_all_stages(self):
+        import json
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=2, memory_mib=2048))
+            metrics_file = os.path.join(td, "metrics.jsonl")
+            source = "#include <iostream>\nint main(){ std::cout << \"m_ok\"; return 0; }"
+            with mock.patch.dict(os.environ, {
+                "FW_TEST_RESOURCE_POOL": pool_dir,
+                "FW_CPP_CACHE_ROOT": cache_dir,
+                "FW_TEST_METRICS_FILE": metrics_file,
+            }):
+                p = run_cpp(source)
+                self.assertEqual(p.returncode, 0)
+                self.assertTrue(os.path.exists(metrics_file))
+
+                lines = pathlib.Path(metrics_file).read_text().splitlines()
+                records = [json.loads(l) for l in lines]
+                stages = [r["stage"] for r in records]
+                self.assertIn("identity", stages)
+                self.assertIn("dependencies", stages)
+                self.assertIn("compile", stages)
+                self.assertIn("execute", stages)
+
+                for r in records:
+                    self.assertIn("pid", r)
+                    self.assertIn("outcome", r)
+                    self.assertIn("duration_sec", r)
+                    self.assertIn("wait_sec", r)
+                    self.assertTrue(r["pool_enabled"])
+                    self.assertNotIn("m_ok", json.dumps(r), "raw source must not be logged")
+
+    def test_metrics_cold_warm_cache_hit_counts(self):
+        import json
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=2, memory_mib=2048))
+            metrics_file = os.path.join(td, "metrics.jsonl")
+            source = "int main(){ return 0; }"
+            with mock.patch.dict(os.environ, {
+                "FW_TEST_RESOURCE_POOL": pool_dir,
+                "FW_CPP_CACHE_ROOT": cache_dir,
+                "FW_TEST_METRICS_FILE": metrics_file,
+            }):
+                run_cpp(source)
+                run_cpp(source)
+
+                lines = pathlib.Path(metrics_file).read_text().splitlines()
+                records = [json.loads(l) for l in lines]
+                compile_records = [r for r in records if r["stage"] == "compile"]
+                self.assertEqual(len(compile_records), 2)
+                self.assertFalse(compile_records[0]["cache_hit"])
+                self.assertTrue(compile_records[1]["cache_hit"])
+
+    def test_metrics_multiprocess_safety(self):
+        import json
+        import multiprocessing as mp
+        from tests.fw_resource_support import ResourcePool, ResourceBudget
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as pool_dir, tempfile.TemporaryDirectory() as cache_dir:
+            pool = ResourcePool(pool_dir, budget=ResourceBudget(cpu_slots=2, memory_mib=2048))
+            metrics_file = os.path.join(td, "metrics.jsonl")
+            q1, q2 = mp.Queue(), mp.Queue()
+            s1 = "int main(){ return 1; }"
+            s2 = "int main(){ return 2; }"
+            def _sub(src, q):
+                os.environ["FW_TEST_RESOURCE_POOL"] = pool_dir
+                os.environ["FW_CPP_CACHE_ROOT"] = cache_dir
+                os.environ["FW_TEST_METRICS_FILE"] = metrics_file
+                try:
+                    res = run_cpp(src)
+                    q.put(("SUCCESS", res.returncode))
+                except Exception as e:
+                    q.put(("ERROR", type(e).__name__))
+            p1 = mp.Process(target=_sub, args=(s1, q1))
+            p2 = mp.Process(target=_sub, args=(s2, q2))
+            p1.start()
+            p2.start()
+            p1.join(timeout=10)
+            p2.join(timeout=10)
+            self.assertFalse(p1.is_alive())
+            self.assertFalse(p2.is_alive())
+
+            self.assertEqual(q1.get_nowait(), ("SUCCESS", 1))
+            self.assertEqual(q2.get_nowait(), ("SUCCESS", 2))
+
+            lines = pathlib.Path(metrics_file).read_text().splitlines()
+            self.assertGreater(len(lines), 4)
+            for line in lines:
+                data = json.loads(line)
+                self.assertIn("stage", data)
+
 if __name__ == "__main__":
     unittest.main()
