@@ -2527,9 +2527,17 @@ def mechanical_audit(args):
     guard_status, reason = git_audit(args)
     verify_exit = 0
     messages = []
+    verify_evidence = []
+
+    def run_with_evidence(command, stage="verify"):
+        code, output = run_verify(command, args.work_dir, args.port, args.verify_timeout)
+        verify_evidence.append({"stage": stage, "command": command, "exit_code": code,
+                                **bounded_verify_evidence(output)})
+        return code, output
+
     if guard_status:
         return {"status": guard_status, "error": reason, "verify_exit": verify_exit,
-                "messages": messages}
+                "messages": messages, "verify_evidence": verify_evidence}
 
     diagnostic = task_header_has_tag(args.title, r"\[DIAGNOSTIC\]")
     research = is_research_task(args.title)
@@ -2538,7 +2546,7 @@ def mechanical_audit(args):
     if diagnostic:
         messages.append(f"[WORKER_GUARD] 🔍 Executing Mechanical Audit ([DIAGNOSTIC]): {verify or 'None'}")
         if verify:
-            verify_exit, output = run_verify(verify, args.work_dir, args.port, args.verify_timeout)
+            verify_exit, output = run_with_evidence(verify)
             if re.search(r"error: cannot find|syntax error|compilation failed|build failed|undefined symbol",
                          output, re.I):
                 guard_status = 4
@@ -2597,14 +2605,14 @@ def mechanical_audit(args):
                                 messages.append(f"[WORKER_GUARD] 🔍 Verified pointer target: {file_name}#L{line_number} (Total lines: {total_lines})")
         if guard_status == 0 and verify and not re.match(r"^(REPORT_ONLY|none)$", verify, re.I):
             messages.append(f"[WORKER_GUARD] 🔍 Executing Custom Research VERIFY: {verify}")
-            verify_exit, _ = run_verify(verify, args.work_dir, args.port, args.verify_timeout)
+            verify_exit, _ = run_with_evidence(verify)
             if verify_exit:
                 guard_status = 6
                 reason = f"Mechanical Verification Failed: '{verify}' returned exit code {verify_exit} (Expected 0)."
     else:
         messages.append(f"[WORKER_GUARD] 🔍 Executing Mechanical Audit ([CODE]): {verify or 'None'}")
         if verify:
-            verify_exit, output = run_verify(verify, args.work_dir, args.port, args.verify_timeout)
+            verify_exit, output = run_with_evidence(verify)
             if verify_exit:
                 guard_status = 6
                 reason = f"Mechanical Verification Failed: '{verify}' returned exit code {verify_exit} (Expected 0)."
@@ -2613,12 +2621,12 @@ def mechanical_audit(args):
                 reason = "Empty Test Run Detected (Anti-Idle): VERIFY ran 0 tests. Possible test filter typo."
             elif (Path(args.work_dir) / "Package.swift").is_file():
                 messages.append("[WORKER_GUARD] 🔍 Executing Regression Check (swift test)...")
-                regression, _ = run_verify("swift test", args.work_dir, args.port, args.verify_timeout)
+                regression, _ = run_with_evidence("swift test", "regression")
                 if regression:
                     guard_status = 10
                     reason = "Regression Check Failed: Whole-suite regression tests failed."
     return {"status": guard_status, "error": reason, "verify_exit": verify_exit,
-            "messages": messages}
+            "messages": messages, "verify_evidence": verify_evidence}
 
 
 def report_archive_path(root, timestamp, name):
