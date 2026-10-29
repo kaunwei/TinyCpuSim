@@ -109,13 +109,16 @@ with open(log, "w", encoding="utf-8") as stream:
     except (BrokenPipeError, OSError):
         pass
     actions, over_budget, error_messages = 0, False, []
+    native_command_events, printed_exec_markers = 0, 0
     for line in process.stdout:
         stream.write(line)
         stream.flush()
         try:
             event = json.loads(line)
             item = event.get("item", {})
-            actions += event.get("type") == "item.completed" and item.get("type") == "command_execution"
+            native_command = event.get("type") == "item.completed" and item.get("type") == "command_execution"
+            actions += native_command
+            native_command_events += native_command
             if event.get("type") in ("error", "turn.failed"):
                 error = event.get("error")
                 message_text = event.get("message") or (error.get("message") if isinstance(error, dict) else error)
@@ -125,6 +128,7 @@ with open(log, "w", encoding="utf-8") as stream:
             pass
         if line.strip().startswith("[EXEC]"):
             actions += 1
+            printed_exec_markers += 1
         if actions > int(limit) and process.poll() is None:
             over_budget = True
             process.terminate()
@@ -247,6 +251,11 @@ if not isinstance(payload.get("outcome"), str) or payload["outcome"] not in allo
                "diagnostic": "AgY final JSON requires a supported outcome"}
 
 payload["actions_used"] = actions
+# These are source observations, not correlated unique executed commands.
+payload["action_sources"] = {"native_completed_command_events": native_command_events,
+                             "printed_exec_markers": printed_exec_markers,
+                             "counting_policy": "legacy_observations",
+                             "cross_source_identity": "unknown"}
 payload["cli_exit_code"] = code
 if outcome != "complete":
     payload["outcome"] = outcome
