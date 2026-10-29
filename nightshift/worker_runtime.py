@@ -1282,10 +1282,10 @@ def finalize_task_git(args):
         previous_head = subprocess.run(["git", "-C", args.work_dir, "rev-parse", "HEAD"],
                                        check=True, capture_output=True, text=True).stdout.strip()
         title = args.title
-        commit_type = ("fix" if "[CODE: FIX]" in title else
-                       "refactor" if "[CODE: REFACTOR]" in title else
-                       "docs" if "[RESEARCH]" in title else
-                       "test" if "[DIAGNOSTIC]" in title else "feat")
+        commit_type = ("fix" if task_header_has_tag(title, r"\[CODE:\s*FIX\]") else
+                       "refactor" if task_header_has_tag(title, r"\[CODE:\s*REFACTOR\]") else
+                       "docs" if is_research_task(title) else
+                       "test" if task_header_has_tag(title, r"\[DIAGNOSTIC\]") else "feat")
         commit = subprocess.run([
             "git", "-C", args.work_dir, "commit", "-m",
             getattr(args, "commit_message", "") or f"{commit_type}(worker): complete {args.task_id}", "-m",
@@ -1870,8 +1870,8 @@ def worker_daemon(root):
                                   capture_output=True, text=True, check=False)
             base = head.stdout.strip() if head.returncode == 0 else "HEAD~1"
             started = time.time()
-            is_research = bool(re.search(r"\[RESEARCH\]", f"{task} {constraints}", re.I))
-            is_diagnostic = bool(re.search(r"\[DIAGNOSTIC\]", f"{task} {constraints}", re.I))
+            is_research = is_research_task(task)
+            is_diagnostic = task_header_has_tag(task, r"\[DIAGNOSTIC\]")
             # Script owns report freshness and retirement, including before research.
             refresh_active_reports(root, work_dir)
             if root.resolve() != work_dir.resolve():
@@ -2362,16 +2362,15 @@ def git_audit(args):
     if dirty and not getattr(args, "allow_dirty", False):
         return 1, "Dirty working tree or untracked ghost files detected after task. " + ", ".join(dirty)
 
-    context = f"{args.title} {args.constraints}"
-    diagnostic = bool(re.search(r"\[DIAGNOSTIC\]", context, re.I))
-    research = bool(re.search(r"\[RESEARCH\]", context, re.I))
+    diagnostic = task_header_has_tag(args.title, r"\[DIAGNOSTIC\]")
+    research = is_research_task(args.title)
     if diagnostic and any(re.match(r"^(Sources|src|app|lib)/", name, re.I) for name in changed):
         return 4, "Diagnostic Violation: Modifying production code in [DIAGNOSTIC] is strictly forbidden. Only tests and .reports/ allowed."
 
     if not diagnostic and not research:
         tests = [name for name in changed if re.search(r"(^tests/|^Tests/|^test/|Test\.[a-z]+$|_test\.[a-z]+$)", name, re.I)]
         if tests:
-            unauthorized = (bool(re.search(r"\[CODE:\s*FIX\]", args.title, re.I))
+            unauthorized = (task_header_has_tag(args.title, r"\[CODE:\s*FIX\]")
                             or not re.search(r"tests/|Tests/|test", args.target, re.I))
             if unauthorized and not re.search(r"test refactor approved", args.constraints, re.I):
                 return 5, f"Test Immutability Violation: Modified test files without authorization in TARGET ({', '.join(tests)})."
@@ -2522,9 +2521,8 @@ def mechanical_audit(args):
         return {"status": guard_status, "error": reason, "verify_exit": verify_exit,
                 "messages": messages}
 
-    context = f"{args.title} {args.constraints}"
-    diagnostic = bool(re.search(r"\[DIAGNOSTIC\]", context, re.I))
-    research = bool(re.search(r"\[RESEARCH\]", context, re.I))
+    diagnostic = task_header_has_tag(args.title, r"\[DIAGNOSTIC\]")
+    research = is_research_task(args.title)
     verify = args.verify
 
     if diagnostic:
