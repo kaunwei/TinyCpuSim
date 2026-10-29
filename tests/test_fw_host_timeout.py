@@ -570,5 +570,158 @@ time.sleep(30)
                         pass
 
 
+@unittest.skipUnless(os.name == "posix" and Path("/proc").is_dir(), "Linux owned-process fixtures")
+class FirmwareCooperativeCancellationTest(unittest.TestCase):
+    def alive(self, pid):
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+        except FileNotFoundError:
+            return False
+
+    def cleanup_owned(self, paths):
+        import json
+        groups = set()
+        for path in paths:
+            if path.exists():
+                try:
+                    groups.update(json.loads(path.read_text())["groups"])
+                except (ValueError, KeyError):
+                    pass
+        for group in groups:
+            if group == os.getpgrp():
+                continue
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def assert_nonlive(self, pids):
+        deadline = time.monotonic() + 0.7
+        while any(self.alive(pid) for pid in pids) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(any(self.alive(pid) for pid in pids), f"owned PIDs still live: {pids}")
+
+    def exercise_nested(self, callback_exception):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outer_record, inner_record = root / "outer.json", root / "inner.json"
+            ready, cleaned = root / "ready", root / "cleaned"
+            repo = str(Path(__file__).resolve().parents[1])
+            inner = (
+                "import json,os,subprocess,sys,time;from pathlib import Path;"
+                "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']);"
+                + f"Path({str(inner_record)!r}).write_text(json.dumps({{'leader':os.getpid(),'child':child.pid,'groups':[os.getpgrp()]}}));"
+                + f"Path({str(ready)!r}).touch();time.sleep(30)"
+            )
+            outer = (
+                "import json,os,sys;from pathlib import Path\n"
+                + f"sys.path.insert(0,{repo!r})\n"
+                + "from scripts.firmware_test_harness import run_bounded\n"
+                + f"Path({str(outer_record)!r}).write_text(json.dumps({{'leader':os.getpid(),'groups':[os.getpgrp()]}}))\n"
+                + "print('NESTED_STDOUT',flush=True)\nprint('NESTED_STDERR',file=sys.stderr,flush=True)\n"
+                + "try:\n"
+                + f" run_bounded([sys.executable,'-c',{inner!r}],30)\n"
+                + "finally:\n"
+                + f" Path({str(cleaned)!r}).write_text('cooperatively cleaned')\n"
+                + " print('WRAPPER_CLEANUP_DONE',flush=True)\n"
+            )
+            sentinel = RuntimeError("original nested callback failure")
+            calls_after_ready = 0
+            def cancelled():
+                nonlocal calls_after_ready
+                if ready.exists():
+                    calls_after_ready += 1
+                    if callback_exception:
+                        raise sentinel
+                    return True
+                return False
+            started = time.monotonic()
+            try:
+                expected = RuntimeError if callback_exception else FirmwareCancellationError
+                with self.assertRaises(expected) as ctx:
+                    run_bounded([sys.executable, "-c", outer], 3, cancelled=cancelled)
+                error = ctx.exception
+                if callback_exception:
+                    self.assertIs(error, sentinel)
+                outer_pids = json.loads(outer_record.read_text())
+                inner_pids = json.loads(inner_record.read_text())
+                self.assertEqual(error.pid, outer_pids["leader"])
+                self.assertTrue(cleaned.exists(), "runtime SIGINT must allow wrapper finally before test cleanup")
+                self.assertEqual(cleaned.read_text(), "cooperatively cleaned")
+                self.assertEqual(error.stdout.count("NESTED_STDOUT\n"), 1)
+                self.assertEqual(error.stderr.count("NESTED_STDERR\n"), 1)
+                self.assertIn("WRAPPER_CLEANUP_DONE", error.stdout)
+                self.assertEqual(calls_after_ready, 1)
+                self.assert_nonlive([outer_pids["leader"], inner_pids["leader"], inner_pids["child"]])
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(outer_pids["leader"], 0)
+                elapsed = time.monotonic() - started
+                print("NESTED_COOPERATIVE", callback_exception, round(elapsed, 3))
+                self.assertLess(elapsed, 2.5)
+            finally:
+                # Observe and assert runtime cleanup BEFORE this failure-only safety net.
+                self.cleanup_owned([outer_record, inner_record])
+
+    def test_cooperative_nested_cancellation_cleans_inner_session(self):
+        self.exercise_nested(callback_exception=False)
+
+    def test_cooperative_nested_callback_exception_keeps_identity(self):
+        self.exercise_nested(callback_exception=True)
+
+    def exercise_stubborn(self, detached):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            record, ready = root / "pids.json", root / "ready"
+            child = (
+                "import json,os,signal,subprocess,sys,time;from pathlib import Path;"
+                "signal.signal(signal.SIGINT,signal.SIG_IGN);"
+                + f"desc=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],start_new_session={detached!r});"
+                + "print('STUBBORN_STDOUT',flush=True);print('STUBBORN_STDERR',file=sys.stderr,flush=True);"
+                + f"Path({str(record)!r}).write_text(json.dumps({{'leader':os.getpid(),'child':desc.pid,'groups':[os.getpgrp(),os.getpgid(desc.pid)]}}));"
+                + f"Path({str(ready)!r}).touch();time.sleep(30)"
+            )
+            calls_after_ready = 0
+            def cancelled():
+                nonlocal calls_after_ready
+                if ready.exists():
+                    calls_after_ready += 1
+                    return True
+                return False
+            started = time.monotonic()
+            try:
+                with self.assertRaises(FirmwareCancellationError) as ctx:
+                    run_bounded([sys.executable, "-c", child], 5, cancelled=cancelled)
+                elapsed = time.monotonic() - started
+                pids = json.loads(record.read_text())
+                error = ctx.exception
+                self.assertEqual(error.pid, pids["leader"])
+                self.assertEqual(error.stdout.count("STUBBORN_STDOUT\n"), 1)
+                self.assertEqual(error.stderr.count("STUBBORN_STDERR\n"), 1)
+                self.assertEqual(calls_after_ready, 1)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pids["leader"], 0)
+                if detached:
+                    self.assertTrue(self.alive(pids["child"]), "escaped fixture remains separately owned by test")
+                    self.assertGreaterEqual(elapsed, 2.8)
+                else:
+                    self.assert_nonlive([pids["child"]])
+                    self.assertGreaterEqual(elapsed, 0.95)
+                print("STUBBORN_ESCAPED", detached, round(elapsed, 3))
+                self.assertLess(elapsed, 4.5)
+            finally:
+                self.cleanup_owned([record])
+                if record.exists():
+                    pids = json.loads(record.read_text())
+                    self.assert_nonlive([pids["leader"], pids["child"]])
+
+    def test_sigint_ignoring_child_escalates_and_cleans_original_group(self):
+        self.exercise_stubborn(detached=False)
+
+    def test_escaped_pipe_holder_has_finite_drain_without_escaped_kill_claim(self):
+        self.exercise_stubborn(detached=True)
+
+
 if __name__ == "__main__":
     unittest.main()

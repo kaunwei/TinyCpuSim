@@ -52,6 +52,9 @@ def run_bounded(
     During-execution cancellation or callback exception triggers cleanup of
     the owned process group and reaps the child process.
     Callbacks consume the execution deadline without resetting it.
+    Cancellation interrupts the direct child with SIGINT for up to one second,
+    then kills the original group and uses the existing bounded drain. Nested
+    sessions require cooperative wrapper cleanup; arbitrary escapes are not killed.
     Callbacks must return promptly; this synchronous API cannot preempt a
     callback that never returns.
 
@@ -151,11 +154,31 @@ def run_bounded(
             return data.decode("utf-8", errors="replace")
         return str(data)
 
-    def _cleanup_and_drain() -> None:
+    def _cleanup_and_drain(*, cooperative: bool = False) -> None:
         nonlocal cleaned_up, latest_stdout, latest_stderr
         if cleaned_up:
             return
         cleaned_up = True
+        if cooperative:
+            # Interrupt the direct wrapper so its own harness can clean nested sessions.
+            try:
+                proc.send_signal(signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            try:
+                out, err = proc.communicate(timeout=1.0)
+                if out is not None:
+                    latest_stdout = _normalize_stream(out)
+                if err is not None:
+                    latest_stderr = _normalize_stream(err)
+            except subprocess.TimeoutExpired as exc:
+                if exc.output is not None:
+                    latest_stdout = _normalize_stream(exc.output)
+                if exc.stderr is not None:
+                    latest_stderr = _normalize_stream(exc.stderr)
+            except Exception:
+                pass
+        # Always clear the original owned group, even if its leader already exited.
         try:
             os.killpg(pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -253,7 +276,7 @@ def run_bounded(
             try:
                 is_cancelled = cancelled()
             except BaseException as cb_exc:
-                _cleanup_and_drain()
+                _cleanup_and_drain(cooperative=True)
                 for attr, val in (("stdout", latest_stdout), ("stderr", latest_stderr), ("pid", pid)):
                     try:
                         if not hasattr(cb_exc, attr):
@@ -272,7 +295,7 @@ def run_bounded(
                 )
 
             if is_cancelled:
-                _cleanup_and_drain()
+                _cleanup_and_drain(cooperative=True)
                 raise FirmwareCancellationError(
                     f"Process {pid} cancelled during execution",
                     stdout=latest_stdout,
