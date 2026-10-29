@@ -29,9 +29,11 @@ AGENT_EVENTS_FILE="${WORKER_AGENT_EVENTS_FILE:-$NIGHTSHIFT_DIR/.worker-agent-eve
 AGENT_EVENTS_CURSOR_FILE="${WORKER_AGENT_EVENTS_CURSOR_FILE:-$NIGHTSHIFT_DIR/.worker-agent-events.cursor.json}"
 AGENT_EVENTS_ACK_FILE="${WORKER_AGENT_EVENTS_ACK_FILE:-$NIGHTSHIFT_DIR/.worker-agent-events.acks.jsonl}"
 AGENT_DISPATCH_GATE_FILE="${AGENT_DISPATCH_GATE_FILE:-$NIGHTSHIFT_DIR/.worker-dispatch-gate.json}"
+# WORKER_INACTIVE_TIMEOUT accepts a finite range of 0..2147483647 seconds (0 disables).
+# Decimal string length is checked before numeric comparison so huge strings cannot reach shell arithmetic.
 INACTIVE_TIMEOUT="${WORKER_INACTIVE_TIMEOUT:-180}"
-if ! [[ "$INACTIVE_TIMEOUT" =~ ^[0-9]+$ ]]; then
-  echo "[SENTINEL_ERROR] Invalid WORKER_INACTIVE_TIMEOUT: '$INACTIVE_TIMEOUT'. Expected a nonnegative integer (0 disables)." >&2
+if ! [[ "$INACTIVE_TIMEOUT" =~ ^[0-9]+$ ]] || [ "${#INACTIVE_TIMEOUT}" -gt 10 ] || [ "$INACTIVE_TIMEOUT" -gt 2147483647 ]; then
+  echo "[SENTINEL_ERROR] Invalid WORKER_INACTIVE_TIMEOUT: '$INACTIVE_TIMEOUT'. Expected an integer in range 0..2147483647 (0 disables)." >&2
   exit 1
 fi
 

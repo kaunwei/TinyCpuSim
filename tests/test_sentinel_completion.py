@@ -34,7 +34,7 @@ class SentinelCompletionTests(unittest.TestCase):
         dead.wait()
         return dead.pid
 
-    def start(self, task='TASK-ONE', limit='3', env_overrides=None):
+    def start(self, task='TASK-ONE', limit='3', env_overrides=None, expect_sentinel=True):
         watcher_env = os.environ.copy()
         if env_overrides:
             watcher_env.update(env_overrides)
@@ -53,7 +53,8 @@ class SentinelCompletionTests(unittest.TestCase):
             ['bash', str(self.ns / 'watch_worker.sh'), limit, '0.02', task],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=watcher_env)
         self.addCleanup(self.stop)
-        self.assertIn('[SENTINEL]', self.process.stdout.readline())
+        if expect_sentinel:
+            self.assertIn('[SENTINEL]', self.process.stdout.readline())
         return self.process
 
     def stop(self):
@@ -294,3 +295,29 @@ class SentinelCompletionTests(unittest.TestCase):
         self.audit()
         self.status('IDLE')
         self.assert_completed()
+
+
+    def test_inactive_timeout_finite_range_rejects_huge_digits_before_comparison(self):
+        for value, valid in (("9" * 128, False), ("2147483648", False), ("0", True), ("2147483647", True)):
+            with self.subTest(value=value):
+                proc = self.start(
+                    limit='1' if valid else '0',
+                    env_overrides={'WORKER_INACTIVE_TIMEOUT': value},
+                    expect_sentinel=False,
+                )
+                try:
+                    out, err = proc.communicate(timeout=5)
+                    self.assertNotIn('integer expression expected', err)
+                    if valid:
+                        self.assertEqual(proc.returncode, 2, out + err)
+                        self.assertIn('[SENTINEL_TIMEOUT]', out)
+                        self.assertNotIn('[SENTINEL_ERROR]', err)
+                    else:
+                        self.assertEqual(proc.returncode, 1, out + err)
+                        self.assertEqual(err.count('[SENTINEL_ERROR]'), 1, err)
+                        self.assertIn('0..2147483647', err)
+                        self.assertNotIn('[SENTINEL]', out)
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.communicate(timeout=3)
