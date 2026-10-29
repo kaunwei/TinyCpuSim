@@ -12,7 +12,8 @@ REPORT_LIMIT = 1024
 
 
 def is_review(task):
-    return task.split("|", 1)[0].strip().startswith("SCRATCH-REVIEW-") and TAG in task
+    header = str(task or "").split("|", 1)[0]
+    return header.strip().startswith("SCRATCH-REVIEW-") and TAG in header
 
 
 def safe_runtime(runtime):

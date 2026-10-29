@@ -862,11 +862,26 @@ def read_agent_state(path):
     return state
 
 
+def task_header(title):
+    """Return task header before first pipe."""
+    return str(title or "").split("|", 1)[0]
+
+
+def task_header_has_tag(title, tag_pattern):
+    """Check if task header before first pipe matches tag_pattern."""
+    return bool(re.search(tag_pattern, task_header(title), re.I))
+
+
+def is_research_task(title):
+    """Check if task header contains [RESEARCH]."""
+    return task_header_has_tag(title, r"\[RESEARCH\]")
+
+
 def agent_supports_task(agent, title, constraints=""):
     """Apply an optional registration task-scope filter before agent routing."""
     if not agent.get("overrides", {}).get("research_only", False):
         return True
-    return scratch_review.is_review(title) or bool(re.search(r"\[RESEARCH\]", f"{title} {constraints}", re.I))
+    return scratch_review.is_review(title) or is_research_task(title)
 
 
 def execute_registered_agents(args, agents, state_path, rollback):
