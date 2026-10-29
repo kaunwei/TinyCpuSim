@@ -1564,10 +1564,28 @@ def execute_adapter_task(args):
                     status["status"], 1)
     if isinstance(result, dict):
         atomic_write(result_path, json.dumps(result, ensure_ascii=False) + "\n")
-    output.write_text(json.dumps({"status": status["status"],
-                                  "stopped": status.get("stopped"),
-                                  "result": result}, ensure_ascii=False),
-                      encoding="utf-8")
+    wrapper = {"status": status["status"], "stopped": status.get("stopped"), "result": result}
+    if getattr(args, "adapter_artifact_dir", ""):
+        try:
+            terminal_dir = adapter_output_dir / ".runtime-terminal"
+            terminal_dir.mkdir(mode=0o700, exist_ok=True)
+            terminal_dir.chmod(0o700)
+            durable_result = terminal_dir / "result.json"
+            manifest_path = terminal_dir / "manifest.json"
+            atomic_write(durable_result, json.dumps(result, ensure_ascii=False) + "\n")
+            durable_result.chmod(0o600)
+            manifest = {"schema_version": 1, "task_id": args.task_id, "attempt_id": attempt_id,
+                        "adapter": args.adapter, "registration_id": request["registration_id"],
+                        "adapter_terminal_status": status["status"], "runtime_exit_code": code,
+                        "terminal_result": durable_result.name}
+            atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False) + "\n")
+            manifest_path.chmod(0o600)
+            wrapper["terminal_artifacts"] = {"result": str(durable_result.resolve()),
+                                             "manifest": str(manifest_path.resolve())}
+        except OSError as error:
+            wrapper["terminal_artifact_error"] = {"phase": "terminal_persistence", "message": str(error)}
+            print(f"[WORKER] WARNING: terminal evidence persistence failed: {error}", file=sys.stderr)
+    output.write_text(json.dumps(wrapper, ensure_ascii=False), encoding="utf-8")
     return code
 
 
