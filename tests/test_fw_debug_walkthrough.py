@@ -5,10 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 from tests.fw_control_test_support import controlled_firmware
 
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_tool(args, *, cwd, timeout=10):
@@ -137,6 +139,52 @@ class FirmwareDebugWalkthroughTest(unittest.TestCase):
 
     def test_minimal_copied_firmware_debug_walkthrough_o2(self):
         self._walkthrough("-O2")
+
+
+
+    def test_reference_firmware_debug_walkthrough(self):
+        elf = _REPO_ROOT / "build" / "reference_app.elf"
+        nm = shutil.which("arm-none-eabi-nm") or shutil.which("nm")
+        if not elf.exists() or not nm:
+            raise unittest.SkipTest("reference_app.elf or nm missing")
+
+        nm_res = _run_tool([nm, str(elf)], cwd=_REPO_ROOT)
+        symbols = _symbols(nm_res.stdout)
+        self.assertIn("cb_heartbeat", symbols)
+        cb_heartbeat = symbols["cb_heartbeat"] & ~1
+
+        with controlled_firmware(
+            initial_commands=f"break 0x{cb_heartbeat:x}\ncontinue\n",
+            elf_path=elf,
+            max_steps=500000,
+            host_timeout=10,
+        ) as session:
+            self.assertEqual(session.receive(), {"event": "breakpoint_set", "pc": cb_heartbeat})
+            self.assertEqual(session.receive(), {"event": "continued"})
+            hit = session.receive()
+            self.assertEqual(hit, {"event": "breakpoint", "pc": cb_heartbeat})
+
+            session.send("regs\n")
+            regs_resp = session.receive()
+            self.assertEqual(regs_resp.get("event"), "regs")
+            self.assertEqual(regs_resp.get("pc"), cb_heartbeat)
+            steps_at_bp = regs_resp.get("steps")
+
+            session.send("step\nregs\n")
+            self.assertEqual(session.receive(), {"event": "stepped"})
+            stepped_regs = session.receive()
+            self.assertEqual(stepped_regs.get("event"), "regs")
+            self.assertEqual(stepped_regs.get("steps"), steps_at_bp + 1)
+
+            session.send("break clear\ncontinue\n")
+            self.assertEqual(session.receive(), {"event": "breakpoint_cleared"})
+            self.assertEqual(session.receive(), {"event": "continued"})
+
+            session.send("stop\n")
+            self.assertEqual(session.receive(), {"event": "stopped", "reason": "requested"})
+            stdout, stderr = session.communicate(timeout=2.0)
+            self.assertEqual(session.process.returncode, 0)
+            self.assertIn("REFERENCE_FIRMWARE_START", stdout)
 
 
 if __name__ == "__main__":
