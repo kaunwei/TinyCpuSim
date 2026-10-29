@@ -13,14 +13,18 @@ public:
     static constexpr uint32_t DEFAULT_BASE = 0x40000000;
     static constexpr uint32_t DEFAULT_SPAN = 0x1000;
     static constexpr uint64_t FRAME_BITS_8N1 = 10ULL; // 1 start + 8 data + 1 stop
+    static constexpr size_t kDefaultRxCapacity = 64;
 
-    explicit UartDevice(uint32_t base = DEFAULT_BASE, uint32_t span = DEFAULT_SPAN)
-        : base_(base), span_(span) {}
+    explicit UartDevice(uint32_t base = DEFAULT_BASE, uint32_t span = DEFAULT_SPAN, size_t rx_capacity = kDefaultRxCapacity)
+        : base_(base), span_(span), rx_capacity_(rx_capacity) {}
 
     [[nodiscard]] uint32_t base_address() const noexcept override { return base_; }
     [[nodiscard]] uint32_t address_span() const noexcept override { return span_; }
     [[nodiscard]] std::string device_name() const override { return "UART0"; }
     [[nodiscard]] uint32_t irq_line() const noexcept override { return 0; }
+
+    [[nodiscard]] size_t rx_capacity() const noexcept { return rx_capacity_; }
+    [[nodiscard]] size_t rx_size() const noexcept { return rx_fifo_.size(); }
 
     [[nodiscard]] uint32_t read(uint32_t offset, [[maybe_unused]] AccessSize size) override {
         if (offset == 0x00) {
@@ -69,9 +73,21 @@ public:
         pending_tx_char_ = 0;
     }
 
-    void inject_rx(uint8_t byte) { rx_fifo_.push_back(byte); }
+    [[nodiscard]] bool try_inject_rx(uint8_t byte) noexcept {
+        if (rx_fifo_.size() >= rx_capacity_) {
+            return false;
+        }
+        rx_fifo_.push_back(byte);
+        return true;
+    }
+
+    void inject_rx(uint8_t byte) { (void)try_inject_rx(byte); }
     void inject_rx(const std::string& str) {
-        for (char c : str) rx_fifo_.push_back(static_cast<uint8_t>(c));
+        for (char c : str) {
+            if (!try_inject_rx(static_cast<uint8_t>(c))) {
+                break;
+            }
+        }
     }
 
     [[nodiscard]] const std::string& get_tx_output() const noexcept { return tx_output_; }
@@ -101,6 +117,7 @@ private:
     uint32_t baud_{115200};
     uint32_t clkdiv_{0};
     char pending_tx_char_{0};
+    size_t rx_capacity_{kDefaultRxCapacity};
     std::deque<uint8_t> rx_fifo_;
     std::string tx_output_;
     std::function<void(uint8_t)> tx_consumer_;

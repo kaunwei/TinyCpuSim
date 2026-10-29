@@ -57,6 +57,29 @@ TEST(UartTest, RxStringInjectionAndStatus) {
     EXPECT_EQ(uart.read(0x00, mmio::AccessSize::Byte), 0u);
 }
 
+TEST(UartTest, TryInjectRxCapacityAndBackpressure) {
+    mmio::UartDevice uart(mmio::UartDevice::DEFAULT_BASE, mmio::UartDevice::DEFAULT_SPAN, 4);
+    EXPECT_EQ(uart.rx_capacity(), 4u);
+    EXPECT_EQ(uart.rx_size(), 0u);
+
+    EXPECT_TRUE(uart.try_inject_rx(static_cast<uint8_t>('1')));
+    EXPECT_TRUE(uart.try_inject_rx(static_cast<uint8_t>('2')));
+    EXPECT_TRUE(uart.try_inject_rx(static_cast<uint8_t>('3')));
+    EXPECT_TRUE(uart.try_inject_rx(static_cast<uint8_t>('4')));
+    EXPECT_EQ(uart.rx_size(), 4u);
+
+    // Fifo full: rejection without drop or overwrite
+    EXPECT_FALSE(uart.try_inject_rx(static_cast<uint8_t>('5')));
+    EXPECT_EQ(uart.rx_size(), 4u);
+
+    // Reading frees capacity
+    EXPECT_EQ(uart.read(0x00, mmio::AccessSize::Byte), static_cast<uint32_t>('1'));
+    EXPECT_EQ(uart.rx_size(), 3u);
+    EXPECT_TRUE(uart.try_inject_rx(static_cast<uint8_t>('5')));
+    EXPECT_EQ(uart.rx_size(), 4u);
+    EXPECT_FALSE(uart.try_inject_rx(static_cast<uint8_t>('6')));
+}
+
 TEST(TimerTest, DownCountAndAutoReload) {
     mmio::TimerDevice timer;
     EXPECT_EQ(timer.base_address(), mmio::TimerDevice::DEFAULT_BASE);
