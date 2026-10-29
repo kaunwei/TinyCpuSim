@@ -3,7 +3,7 @@
 import os
 import signal
 import subprocess
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 
 class FirmwareTimeoutError(TimeoutError):
@@ -22,13 +22,44 @@ class FirmwareTimeoutError(TimeoutError):
         self.pid = pid
 
 
-def run_bounded(command: List[str], timeout: float) -> subprocess.CompletedProcess[str]:
+class FirmwareCancellationError(Exception):
+    """Raised when a bounded process execution is cancelled."""
+
+    def __init__(
+        self,
+        message: str,
+        stdout: str = "",
+        stderr: str = "",
+        pid: Optional[int] = None,
+    ) -> None:
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+        self.pid = pid
+
+
+def run_bounded(
+    command: List[str],
+    timeout: float,
+    *,
+    cancelled: Optional[Callable[[], bool]] = None,
+) -> subprocess.CompletedProcess[str]:
     """Execute a command bounded by timeout within its own process group.
+
+    Note: Preflight check only. This slice checks cancellation before launch;
+    no polling or cleanup rewrite is implemented in this slice.
 
     Launches process group with start_new_session=True.
     On deadline, kills the process group, reaps the child process, and raises
     FirmwareTimeoutError containing captured stdout, stderr, and pid.
     """
+    if cancelled is not None and cancelled():
+        raise FirmwareCancellationError(
+            "Execution cancelled before process launch",
+            stdout="",
+            stderr="",
+            pid=None,
+        )
     proc = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,

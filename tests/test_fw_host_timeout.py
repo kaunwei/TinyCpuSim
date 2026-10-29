@@ -9,7 +9,11 @@ import time
 import unittest
 from pathlib import Path
 
-from scripts.firmware_test_harness import FirmwareTimeoutError, run_bounded
+from scripts.firmware_test_harness import (
+    FirmwareCancellationError,
+    FirmwareTimeoutError,
+    run_bounded,
+)
 
 
 class FirmwareHostTimeoutTest(unittest.TestCase):
@@ -244,6 +248,58 @@ except KeyboardInterrupt:
         combined_output = res.stdout + res.stderr
         self.assertIn("Simulation execution exceeded max step limit (1)", combined_output)
         self.assertNotIn("No ELF input", combined_output)
+
+    def test_run_bounded_preflight_cancelled_true_raises_typed_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            marker = Path(tmpdir) / "marker.txt"
+            cmd = [
+                sys.executable,
+                "-c",
+                f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')",
+            ]
+            with self.assertRaises(FirmwareCancellationError) as ctx:
+                run_bounded(cmd, timeout=2.0, cancelled=lambda: True)
+
+            err = ctx.exception
+            self.assertEqual(err.stdout, "")
+            self.assertEqual(err.stderr, "")
+            self.assertIsNone(err.pid)
+            self.assertFalse(marker.exists(), "Command must not have run when cancelled before launch")
+
+    def test_run_bounded_preflight_cancelled_exception_propagates_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            marker = Path(tmpdir) / "marker.txt"
+            cmd = [
+                sys.executable,
+                "-c",
+                f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')",
+            ]
+            sentinel_exc = RuntimeError("sentinel cancellation failure")
+
+            def raising_cb() -> bool:
+                raise sentinel_exc
+
+            with self.assertRaises(RuntimeError) as ctx:
+                run_bounded(cmd, timeout=2.0, cancelled=raising_cb)
+
+            self.assertIs(ctx.exception, sentinel_exc)
+            self.assertFalse(marker.exists(), "Command must not have run when callback raised before launch")
+
+    def test_run_bounded_preflight_cancelled_false_executes_normally(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            marker = Path(tmpdir) / "marker.txt"
+            cmd = [
+                sys.executable,
+                "-c",
+                f"import sys; from pathlib import Path; Path({str(marker)!r}).write_text('ran'); "
+                "sys.stdout.write('out_test\\n'); sys.stderr.write('err_test\\n'); sys.exit(7)",
+            ]
+            res = run_bounded(cmd, timeout=2.0, cancelled=lambda: False)
+
+            self.assertEqual(res.returncode, 7)
+            self.assertEqual(res.stdout, "out_test\n")
+            self.assertEqual(res.stderr, "err_test\n")
+            self.assertTrue(marker.exists(), "Command must execute when cancelled callback returns False")
 
 
 if __name__ == "__main__":
