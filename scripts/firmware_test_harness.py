@@ -262,19 +262,19 @@ def run_bounded(
                             pass
                 raise
 
-            if is_cancelled:
+            if time.monotonic() >= deadline:
                 _cleanup_and_drain()
-                raise FirmwareCancellationError(
-                    f"Process {pid} cancelled during execution",
+                raise FirmwareTimeoutError(
+                    f"Process {pid} timed out after {timeout} seconds",
                     stdout=latest_stdout,
                     stderr=latest_stderr,
                     pid=pid,
                 )
 
-            if time.monotonic() >= deadline:
+            if is_cancelled:
                 _cleanup_and_drain()
-                raise FirmwareTimeoutError(
-                    f"Process {pid} timed out after {timeout} seconds",
+                raise FirmwareCancellationError(
+                    f"Process {pid} cancelled during execution",
                     stdout=latest_stdout,
                     stderr=latest_stderr,
                     pid=pid,

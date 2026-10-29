@@ -493,5 +493,43 @@ time.sleep(30)
         self.assertGreaterEqual(elapsed, 0.20, f"Elapsed time {elapsed}s exited too early")
 
 
+    def test_postlaunch_callback_true_after_deadline_reports_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready = Path(tmpdir) / "ready"
+            code = (
+                "import os,sys,time;from pathlib import Path;"
+                "print('DEADLINE_STDOUT',flush=True);"
+                "print('DEADLINE_STDERR',file=sys.stderr,flush=True);"
+                "Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(5)"
+            )
+            calls = []
+            def cancelled() -> bool:
+                calls.append(time.monotonic())
+                if ready.exists():
+                    time.sleep(0.30)
+                    return True
+                return False
+            started = time.monotonic()
+            try:
+                with self.assertRaises(FirmwareTimeoutError) as ctx:
+                    run_bounded([sys.executable, "-c", code, str(ready)],
+                                timeout=0.15, cancelled=cancelled)
+                error = ctx.exception
+                pid = int(ready.read_text())
+                self.assertEqual(error.pid, pid)
+                self.assertEqual(error.stdout.count('DEADLINE_STDOUT\n'), 1)
+                self.assertEqual(error.stderr.count('DEADLINE_STDERR\n'), 1)
+                self.assertGreaterEqual(len(calls), 2)
+                self.assertLess(time.monotonic() - started, 1.5)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid, 0)
+            finally:
+                if ready.exists():
+                    try:
+                        os.killpg(int(ready.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+
 if __name__ == "__main__":
     unittest.main()
