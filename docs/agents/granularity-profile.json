@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "default_granularity": "Level 1 (Coarse)",
+  "default_granularity": "Level 2 (Meso)",
   "modules": {
     "src/calc": {
       "recommended_level": "Level 1 (Coarse)",
@@ -8,6 +8,20 @@
       "success_rate": "100%",
       "total_tasks": 1,
       "notes": "Handles arithmetic and error boundary tests cleanly in 1 attempt (Confidence: 1.0)"
+    },
+    "include/tinyarmsim/mmio": {
+      "recommended_level": "Level 3 (Micro)",
+      "last_score": 5,
+      "success_rate": "100%",
+      "total_tasks": 6,
+      "notes": "Delivered MMIODevice, NVIC, UART, Timer, I2C, SPI, CRC32, CustomDevice, and Turbo Clock/OVR state machines with 100% test pass when dispatched with combined build+test+commit step"
+    },
+    "firmware": {
+      "recommended_level": "Level 3 (Micro)",
+      "last_score": 5,
+      "success_rate": "100%",
+      "total_tasks": 2,
+      "notes": "Built CMSIS-style BSP, Turbo Clock polling drivers, and e2e clocked firmware test with 100% CTest pass (Attempts: 1, Confidence: HIGH)"
     }
   }
 }

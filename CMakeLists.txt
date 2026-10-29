@@ -339,6 +339,10 @@ if (ENABLE_BAREMETAL_FIRMWARE)
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_scheduler.py" -v)
     add_test(NAME fw_uart_pty_test
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_uart_pty.py" -v)
+    add_test(NAME fw_watchdog_test
+        COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_watchdog.py" -v)
+    add_test(NAME fw_launcher_test
+        COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_launcher.py" -v)
 endif()
 add_executable(baremetal_firmware_test tests/baremetal_firmware_test.cpp)
 target_link_libraries(baremetal_firmware_test PRIVATE tinyarmsim_core gtest_main)

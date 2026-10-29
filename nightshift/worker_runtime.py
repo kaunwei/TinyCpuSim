@@ -606,13 +606,17 @@ def load_agent_registry(config_file):
         agent = profile.get("agent")
         if not isinstance(worker, dict):
             raise ValueError(f"agent {name} worker config must be an object")
-        worker_unknown = set(worker) - {"task_timeout_seconds"}
+        worker_unknown = set(worker) - {"task_timeout_seconds", "research_step_budget"}
         if worker_unknown:
             raise ValueError(f"agent {name} worker config has unknown fields: {', '.join(sorted(worker_unknown))}")
         timeout = worker.get("task_timeout_seconds")
         if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
                                     or not math.isfinite(timeout) or timeout <= 0):
             raise ValueError(f"agent {name} worker.task_timeout_seconds must be a positive number")
+        research_budget = worker.get("research_step_budget")
+        if research_budget is not None and (isinstance(research_budget, bool) or not isinstance(research_budget, int)
+                                            or research_budget <= 0):
+            raise ValueError(f"agent {name} worker.research_step_budget must be a positive integer")
         if not isinstance(agent, dict):
             raise ValueError(f"agent {name} requires an agent config object")
         agent_unknown = set(agent) - {"adapter", "command", "args", "env", "config"}
@@ -936,6 +940,15 @@ def execute_registered_agents(args, agents, state_path, rollback):
         attempt.adapter_command = sys.executable
         attempt.adapter_args = [str(Path(__file__).resolve().parent / "adapters" / f"{agent['adapter']}.py")]
         attempt.timeout = agent.get("worker", {}).get("task_timeout_seconds", args.timeout)
+        is_research = is_research_task(getattr(args, 'title', ''))
+        if is_research:
+            configured_research_budget = agent.get("worker", {}).get("research_step_budget")
+            if configured_research_budget:
+                attempt.step_budget = configured_research_budget
+            elif getattr(args, "research_step_budget", 0):
+                attempt.step_budget = getattr(args, "research_step_budget")
+            elif "RESEARCH_STEP_BUDGET" in os.environ:
+                attempt.step_budget = int(os.environ["RESEARCH_STEP_BUDGET"])
         attempt.model = agent.get("model", "")
         attempt.extra_args = agent.get("args", [])
         attempt.agent_env = agent.get("env", {})
@@ -1056,7 +1069,12 @@ def poll_next(args):
             file_count += max(1, sum(1 for item in path.rglob("*") if item.is_file())) if path.is_dir() else 1
         file_count = max(1, file_count)
         fields[14] = str(file_count)
-        fields[15] = str(args.step_base + file_count * args.step_per_file)
+        is_research = is_research_task(raw)
+        if is_research:
+            research_budget = getattr(args, "research_step_budget", 0) or int(os.environ.get("RESEARCH_STEP_BUDGET", "100"))
+            fields[15] = str(research_budget)
+        else:
+            fields[15] = str(args.step_base + file_count * args.step_per_file)
     return fields
 
 
@@ -1597,6 +1615,10 @@ def build_task_prompt(task, task_id, level, target, verify, forbidden, constrain
     contract_text = contract.read_text(encoding="utf-8") if contract.is_file() else ""
     authority = (f"LAUNCHER CONTRACT ({contract}):\n{contract_text}"
                  if contract_text else f"Read launcher contract: {contract}")
+    is_research = is_research_task(task)
+    budget_rule = (f"- Budget: {max_steps} actions for research report; reserve 3 for closeout. Per-invocation timeout."
+                   if is_research else
+                   f"- Budget: {max_steps} actions ({step_base}+{target_file_count}*{step_per_file}); reserve 3 for verify/closeout. Per-invocation timeout. Emit `[EXEC] <action>` when required; no fabricated markers, bundled actions, or budget evasion.")
     return f"""Execute one NightShift ticket unattended. The ticket and launcher contract govern.
 
 TASK_ID: {task_id} | LEVEL: {level or '1'}
@@ -1607,7 +1629,7 @@ START
 - Report-first: runtime filters active `.reports/<slug>/SUMMARY.md` against source revisions. Read only relevant active reports and `03-micro.md` before exploring code; reuse verified `path#Lline` and investigate only gaps. Never use `.archive/` or `.invalid/`. If you prove a report stale, you MAY move its directory to `.reports/.invalid/<slug>`; only the runtime deletes it after audited success or restores it after rollback if still valid. Do not delete/archive reports yourself or move unrelated files. Reports never override current code or the ticket.
 
 RULES
-- Budget: {max_steps} actions ({step_base}+{target_file_count}×{step_per_file}); reserve 3 for verify/closeout. Per-invocation timeout. Emit `[EXEC] <action>` when required; no fabricated markers, bundled actions, or budget evasion.
+{budget_rule}
 - Writes only in TARGET ({target or 'declared paths'}), except moving a proven-stale report into `.reports/.invalid/`. Honor FORBIDDEN_SHORTCUTS/CONSTRAINTS; wider code scope requires [SCOPE_BLOCKED] with `path#Lline`.
 - Deletion caps: L3 40 lines, L2 150, L1 TARGET only. [CODE: FIX] must not change tests; [CODE: REFACTOR] must not reduce assertions. [DIAGNOSTIC] may add only a compile-clean repro test; [RESEARCH] reads source and writes reports only.
 - Never weaken tests, hide errors, fake behavior, mask races with sleeps, use sudo/host package managers, or destructively reset. Do not edit {progress_file}; runtime owns `progress.log`/`tasks.done` (leave unstaged).
@@ -1700,6 +1722,7 @@ def worker_daemon(root):
     timeout = int(timeout_value) if timeout_value.is_integer() else timeout_value
     step_base = int(config.get("STEP_BASE", "12"))
     step_per_file = int(config.get("STEP_PER_FILE", "5"))
+    research_step_budget = int(config.get("RESEARCH_STEP_BUDGET", "100"))
     poll_interval = float(config.get("POLL_INTERVAL", "5"))
     worker_port = config.get("WORKER_PORT", "3001")
     work_dir = root
@@ -1713,7 +1736,8 @@ def worker_daemon(root):
         active_os = detected_os
     platform_name = ("macOS (Darwin)" if active_os in ("mac", "darwin") else
                      "Linux (Ubuntu)" if active_os == "ubuntu" else f"Linux ({active_os})")
-    step_args = {"step_base": step_base, "step_per_file": step_per_file}
+    step_args = {"step_base": step_base, "step_per_file": step_per_file,
+                 "research_step_budget": research_step_budget}
 
     for name, default in (("CI", "1"), ("PAGER", "cat"), ("NO_COLOR", "1"),
                           ("DEBIAN_FRONTEND", "noninteractive"), ("TERM", "dumb"),
@@ -1906,7 +1930,8 @@ def worker_daemon(root):
                 refresh_active_reports(work_dir, work_dir)
             print(f"\n{'=' * 78}\n[{stamp()}] >>> [Task {current} of {total} (In Progress) | Completed: {done_count}/{total} ({fields[6]}%)]")
             print(f">>> Progress: {bar}\n>>> Task: {task}")
-            print(f">>> Step Budget: {max_steps} steps (Base: {step_base} + {target_file_count} files * {step_per_file})\n{'=' * 78}")
+            budget_msg = f"{max_steps} steps (Research budget)" if is_research else f"{max_steps} steps (Base: {step_base} + {target_file_count} files * {step_per_file})"
+            print(f">>> Step Budget: {budget_msg}\n{'=' * 78}")
             update_status("RUNNING", task, current=current, total=total,
                           remaining=max(0, remaining - 1), percentage=percent, bar=bar)
             prompt = build_task_prompt(task, task_id, level, target, verify, forbidden,
@@ -1923,7 +1948,7 @@ def worker_daemon(root):
                     prompt_file=str(prompt_path), output_file=str(output_path),
                     result_file=str(result_path),
                     timeout=timeout, model="", effort="",
-                    step_budget=max_steps, worker_port=worker_port, target=target,
+                    step_budget=max_steps, research_step_budget=research_step_budget, worker_port=worker_port, target=target,
                     task_id=task_id, title=task, level=level, verify=verify,
                     base=base, progress_file=str(progress_file),
                     ghost_state_path=str(ghost_state_path),
@@ -2161,8 +2186,13 @@ def worker_daemon(root):
                 elif outcome in ("step_budget", "closeout_failed"):
                     reason = ("Adapter action budget exhausted" if outcome == "step_budget"
                               else "Restricted ghost closeout failed or attempted implementation")
-                    print(f"[{stamp_now}] [HARD FAILURE] {task_id}: {reason}")
-                    record_task_score("hard_failure", reason)
+                    is_research_budget_exhaustion = (is_research and outcome == "step_budget")
+                    if is_research_budget_exhaustion:
+                        print(f"[{stamp_now}] [NO_FAULT] {task_id}: {reason} (research task)")
+                        record_task_score("no_fault", reason)
+                    else:
+                        print(f"[{stamp_now}] [HARD FAILURE] {task_id}: {reason}")
+                        record_task_score("hard_failure", reason)
                     archive = recover_current_attempt()
                     if archive is None:
                         if run_once:
@@ -2183,9 +2213,12 @@ def worker_daemon(root):
                         atomic_write(Path(archive) / "DIAGNOSTIC.md", diag_content)
                     short_diag = f" | Diagnostic: {diagnostic_text[:120]}" if diagnostic_text else ""
                     archive_note = f"\n  Archive: {Path(archive).name}/DIAGNOSTIC.md" if archive else ""
+                    score_str = f"; score now {read_score_state(score_state_path)['score']}/5" if not is_research_budget_exhaustion else " (score unchanged)"
+                    lead_tag = "[NO_FAULT]" if is_research_budget_exhaustion else "[HARD_FAILURE]"
+                    action_tag = "[NEED_DECOMPOSITION]" if outcome == "step_budget" else "[PLANNER_REQUIRED]"
                     prepend_progress(progress_file,
-                                     f"[HARD_FAILURE] {task_id}: {reason}{short_diag}; score now {read_score_state(score_state_path)['score']}/5{archive_note}\n"
-                                     f"{'[NEED_DECOMPOSITION]' if outcome == 'step_budget' else '[PLANNER_REQUIRED]'} {task_id}: "
+                                     f"{lead_tag} {task_id}: {reason}{short_diag}{score_str}{archive_note}\n"
+                                     f"{action_tag} {task_id}: "
                                      "Review the failed-task snapshot and return a bounded ticket through tasks.txt; daemon remains alive.")
                     append_line(done_file, f"[{stamp_now}] [FAILED] {task} [{outcome.upper()}]")
                     update_status("BLOCKED", f"{task} ({outcome.upper()})", duration, current,
@@ -3060,6 +3093,7 @@ def main(argv=None):
     task_cli.add_argument("--result-file", default="")
     task_cli.add_argument("--timeout", type=float, default=1800)
     task_cli.add_argument("--step-budget", type=int, default=17)
+    task_cli.add_argument("--research-step-budget", type=int, default=100)
     task_cli.add_argument("--worker-port", default="3001")
     task_cli.add_argument("--target", default="")
     task_cli.add_argument("--task-id", default="TASK-UNKNOWN")
@@ -3139,8 +3173,10 @@ def main(argv=None):
     poll.add_argument("--work-dir", required=True)
     poll.add_argument("--step-base", type=int, default=12)
     poll.add_argument("--step-per-file", type=int, default=5)
+    poll.add_argument("--research-step-budget", type=int, default=100)
     daemon = commands.add_parser("daemon")
     daemon.add_argument("--root", required=True)
+    daemon.add_argument("--research-step-budget", type=int, default=100)
     args = parser.parse_args(argv)
     if args.command == "score-read":
         state = (read_agent_score_state(args.state, args.agent_id) if args.agent_id

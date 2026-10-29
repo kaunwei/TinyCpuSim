@@ -307,3 +307,123 @@ def run_bounded(
     except BaseException:
         _cleanup_and_drain()
         raise
+
+
+def run_service_watchdog(
+    sim_binary: str,
+    elf_path: str,
+    *,
+    target_service_predicate: Callable[[str], bool],
+    step_budget: int = 500000,
+    timeout_sec: float = 10.0,
+    heartbeat_token: str = "[HB]",
+    extra_args: Optional[List[str]] = None,
+) -> subprocess.CompletedProcess[str]:
+    """Execute firmware with target-service progress watchdog.
+
+    Monitors stdout for target_service_predicate. Heartbeat alone does NOT satisfy progress.
+    Requests controlled stop upon predicate satisfaction.
+    """
+    import socket
+    ctrl_guest, ctrl_host = socket.socketpair()
+    ctrl_host.settimeout(2.0)
+
+    cmd = [
+        str(sim_binary),
+        "--firmware",
+        "--control-fd",
+        str(ctrl_guest.fileno()),
+        "--max-steps",
+        str(step_budget),
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+    cmd.append(str(elf_path))
+
+    proc = subprocess.Popen(
+        cmd,
+        pass_fds=[ctrl_guest.fileno()],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        start_new_session=True,
+    )
+    ctrl_guest.close()
+    ctrl_file = ctrl_host.makefile("r", encoding="utf-8")
+
+    captured_stdout = ""
+    captured_stderr = ""
+    deadline = time.monotonic() + timeout_sec
+    predicate_satisfied = False
+
+    try:
+        import fcntl
+        fcntl.fcntl(proc.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
+        while time.monotonic() < deadline:
+            try:
+                raw_chunk = os.read(proc.stdout.fileno(), 4096)
+                if raw_chunk:
+                    captured_stdout += raw_chunk.decode("utf-8", errors="replace")
+            except (BlockingIOError, InterruptedError):
+                pass
+
+            if target_service_predicate(captured_stdout):
+                predicate_satisfied = True
+                try:
+                    ctrl_host.sendall(b"stop\n")
+                    ctrl_file.readline()
+                except Exception:
+                    pass
+                break
+
+            if proc.poll() is not None:
+                break
+
+            time.sleep(0.02)
+
+        if not predicate_satisfied:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            raw_out, raw_err = proc.communicate(timeout=2.0)
+            captured_stdout += (raw_out or b"").decode("utf-8", errors="replace")
+            captured_stderr += (raw_err or b"").decode("utf-8", errors="replace")
+            raise FirmwareTimeoutError(
+                f"Target service predicate not satisfied within {timeout_sec}s or step budget {step_budget}. "
+                f"Heartbeats observed: {captured_stdout.count(heartbeat_token)}",
+                stdout=captured_stdout,
+                stderr=captured_stderr,
+                pid=proc.pid,
+            )
+
+        try:
+            raw_out, raw_err = proc.communicate(timeout=3.0)
+            captured_stdout += (raw_out or b"").decode("utf-8", errors="replace")
+            captured_stderr += (raw_err or b"").decode("utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            raw_out, raw_err = proc.communicate()
+            captured_stdout += (raw_out or b"").decode("utf-8", errors="replace")
+            captured_stderr += (raw_err or b"").decode("utf-8", errors="replace")
+
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=proc.returncode,
+            stdout=captured_stdout,
+            stderr=captured_stderr,
+        )
+    finally:
+        ctrl_file.close()
+        ctrl_host.close()
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+

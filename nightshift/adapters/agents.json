@@ -1,0 +1,40 @@
+{
+  "codex-main": {
+    "default": true,
+    "worker": {
+      "task_timeout_seconds": 1800,
+      "research_step_budget": 100
+    },
+    "agent": {
+      "adapter": "codex",
+      "command": "codex",
+      "args": [],
+      "env": {},
+      "config": {
+        "model": "gpt-6-luna",
+        "effort": "low",
+        "approval_mode": "auto",
+        "sandbox": "workspace-write",
+        "ephemeral": "1"
+      }
+    }
+  },
+  "agy-backup": {
+    "default": false,
+    "worker": {
+      "task_timeout_seconds": 1800,
+      "research_step_budget": 100
+    },
+    "agent": {
+      "adapter": "agy",
+      "command": "agy",
+      "args": [],
+      "env": {},
+      "config": {
+        "model": "gemini-3.8-flash-low",
+        "effort": "low",
+        "mode": "accept-edits"
+      }
+    }
+  }
+}

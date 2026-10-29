@@ -59,6 +59,7 @@ show_help() {
     echo "  ./run.sh sweep                      # Run dynamic parameter sweep on hardware knobs"
     echo ""
     echo "Catalogs & Utilities:"
+    echo "  ./run.sh fw                         # Launch firmware environment (build, test, --pty, --debug)"
     echo "  ./run.sh knobs                      # List all tunable hardware parameters & units"
     echo "  ./run.sh elfs                       # List all built-in benchmark ELF workloads"
     echo "  ./run.sh setup                      # Install required system & Python dependencies"
@@ -81,10 +82,11 @@ show_menu() {
     echo "  [C] Config:   Configure Active Simulation, Hardware Knobs, Presets, Save/Load"
     echo "  [V] View:     View Full Active Microarchitecture Dashboard"
     echo "  [S] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs"
+    echo "  [F] FW:       Run Firmware Environment (PTY Terminal, Scheduler, Watchdog)"
     echo "  [H] Help:     View Complete Command & Usage Manual"
     echo "  [0] Exit"
     echo "============================================================"
-    read -r -p "Enter choice [1-5, E, C, V, S, H, 0]: " choice
+    read -r -p "Enter choice [1-5, E, C, V, S, F, H, 0]: " choice
     case "${choice}" in
         1) "${PROJECT_ROOT}/scripts/01_build.sh" ;;
         2) "${PROJECT_ROOT}/scripts/02_run_tests.sh" ;;
@@ -95,6 +97,7 @@ show_menu() {
         c|C|config) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" ;;
         v|V|view|show) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" show ;;
         s|S|sweep) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep ;;
+        f|F|fw|firmware) "${PROJECT_ROOT}/scripts/run_firmware.sh" ;;
         h|H|help) show_help ;;
         0|q|Q) echo "Goodbye!"; exit 0 ;;
         *) echo "Invalid option."; exit 1 ;;
@@ -145,6 +148,9 @@ else
             ;;
         elfs|list-elfs)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" --list-elfs
+            ;;
+        f|fw|firmware)
+            "${PROJECT_ROOT}/scripts/run_firmware.sh" "$@"
             ;;
         setup|deps|install-deps)
             "${PROJECT_ROOT}/scripts/install_deps.sh" "$@"
