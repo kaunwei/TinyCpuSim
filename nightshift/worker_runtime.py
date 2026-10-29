@@ -1300,6 +1300,16 @@ def finalize_task_git(args):
     return 0
 
 
+def bounded_verify_evidence(output):
+    """Bound persisted combined-output evidence; subprocess capture is unchanged."""
+    limit = 16384
+    encoded = output.encode("utf-8")
+    return {"verify_output": encoded[-limit:].decode("utf-8", errors="ignore"),
+            "verify_output_truncated": len(encoded) > limit,
+            "verify_output_limit_bytes": limit,
+            "stream_mode": "stdout_stderr_combined"}
+
+
 def finalize_structured_adapter_result(args, result):
     outcome = result.get("outcome")
     if outcome == "no_change":
@@ -1336,7 +1346,7 @@ def finalize_structured_adapter_result(args, result):
         if verify_code:
             reason = f"Verification failed ({verify_code}): {args.verify}; refusing script-owned commit."
             result["runtime_error"] = {"phase": "verification", "message": reason,
-                                       "code": verify_code}
+                                       "code": verify_code, **bounded_verify_evidence(verify_output)}
             print(f"[WORKER] {reason}", file=sys.stderr)
             return 1
     audit_args = argparse.Namespace(
