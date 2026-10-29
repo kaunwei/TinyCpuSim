@@ -187,9 +187,28 @@ public:
             return val;
         };
 
+        auto resolve_op2 = [this](const DecodedInstruction& i) noexcept -> uint32_t {
+            if (i.is_imm) return i.imm;
+            uint32_t val = state_.get_reg(i.rm);
+            if (i.shift_amount == 0) return val;
+            switch (i.shift_type) {
+                case ShiftType::LSL: return i.shift_amount < 32 ? (val << i.shift_amount) : 0;
+                case ShiftType::LSR: return i.shift_amount < 32 ? (val >> i.shift_amount) : 0;
+                case ShiftType::ASR: {
+                    int32_t sval = static_cast<int32_t>(val);
+                    return static_cast<uint32_t>(i.shift_amount < 32 ? (sval >> i.shift_amount) : (sval < 0 ? -1 : 0));
+                }
+                case ShiftType::ROR: {
+                    uint8_t r = i.shift_amount % 32;
+                    return (val >> r) | (val << (32 - r));
+                }
+                default: return val;
+            }
+        };
+
         switch (instr.op) {
             case Opcode::MOV: {
-                uint32_t val = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t val = resolve_op2(instr);
                 write_reg(instr.rd, val);
                 if (effective_set_flags) {
                     state_.set_nz_flags(val);
@@ -199,7 +218,7 @@ public:
             }
 
             case Opcode::MVN: {
-                uint32_t val = ~(instr.is_imm ? instr.imm : state_.get_reg(instr.rm));
+                uint32_t val = ~resolve_op2(instr);
                 write_reg(instr.rd, val);
                 if (effective_set_flags) {
                     state_.set_nz_flags(val);
@@ -222,7 +241,7 @@ public:
 
             case Opcode::ADD: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint64_t result = static_cast<uint64_t>(op1) + static_cast<uint64_t>(op2);
                 uint32_t res32 = static_cast<uint32_t>(result);
 
@@ -240,7 +259,7 @@ public:
 
             case Opcode::ADC: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint32_t carry_in = state_.get_flag_c() ? 1u : 0u;
                 uint64_t result = static_cast<uint64_t>(op1) + static_cast<uint64_t>(op2) + carry_in;
                 uint32_t res32 = static_cast<uint32_t>(result);
@@ -260,7 +279,7 @@ public:
             case Opcode::SUB:
             case Opcode::CMP: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint64_t result = static_cast<uint64_t>(op1) - static_cast<uint64_t>(op2);
                 uint32_t res32 = static_cast<uint32_t>(result);
 
@@ -280,7 +299,7 @@ public:
 
             case Opcode::SBC: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint32_t borrow = state_.get_flag_c() ? 0u : 1u;
                 uint64_t result = static_cast<uint64_t>(op1) - static_cast<uint64_t>(op2) - borrow;
                 uint32_t res32 = static_cast<uint32_t>(result);
@@ -299,7 +318,7 @@ public:
 
             case Opcode::RSB: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint64_t result = static_cast<uint64_t>(op2) - static_cast<uint64_t>(op1);
                 uint32_t res32 = static_cast<uint32_t>(result);
 
@@ -341,7 +360,7 @@ public:
             case Opcode::AND:
             case Opcode::TST: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint32_t res = op1 & op2;
                 if (instr.op != Opcode::TST) {
                     write_reg(instr.rd, res);
@@ -355,7 +374,7 @@ public:
 
             case Opcode::ORR: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint32_t res = op1 | op2;
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
@@ -368,7 +387,7 @@ public:
             case Opcode::EOR:
             case Opcode::TEQ: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint32_t res = op1 ^ op2;
                 if (instr.op != Opcode::TEQ) {
                     write_reg(instr.rd, res);
@@ -382,7 +401,7 @@ public:
 
             case Opcode::BIC: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint32_t res = op1 & (~op2);
                 write_reg(instr.rd, res);
                 if (effective_set_flags) {
@@ -394,7 +413,7 @@ public:
 
             case Opcode::CMN: {
                 uint32_t op1 = state_.get_reg(instr.rn);
-                uint32_t op2 = instr.is_imm ? instr.imm : state_.get_reg(instr.rm);
+                uint32_t op2 = resolve_op2(instr);
                 uint64_t result = static_cast<uint64_t>(op1) + static_cast<uint64_t>(op2);
                 uint32_t res32 = static_cast<uint32_t>(result);
 

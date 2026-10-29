@@ -572,6 +572,11 @@ private:
             instr.rn = rn;
             instr.rm = rm;
             instr.set_flags = set_flags;
+            uint8_t imm3 = static_cast<uint8_t>((w2 >> 12) & 0x7);
+            uint8_t imm2 = static_cast<uint8_t>((w2 >> 6) & 0x3);
+            uint8_t stype = static_cast<uint8_t>((w2 >> 4) & 0x3);
+            instr.shift_type = static_cast<ShiftType>(stype);
+            instr.shift_amount = static_cast<uint8_t>((imm3 << 2) | imm2);
 
             switch (op4) {
                 case 0b0000: instr.op = Opcode::AND; break;

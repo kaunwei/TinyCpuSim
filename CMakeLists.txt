@@ -297,6 +297,48 @@ if (ENABLE_BAREMETAL_FIRMWARE)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/natural_firmware_test.py"
             "$<TARGET_FILE:tinycpusim>" "${ARM_NONE_EABI_GCC}"
             "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    set(SCHEDULER_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/scheduler_acceptance.elf")
+    set(SCHEDULER_ACCEPTANCE_DEBUG_ELF "${CMAKE_CURRENT_BINARY_DIR}/scheduler_acceptance_debug.elf")
+    add_custom_command(
+        OUTPUT "${SCHEDULER_ACCEPTANCE_ELF}"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/timer.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/scheduler.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/scheduler_acceptance.c"
+            -o "${SCHEDULER_ACCEPTANCE_ELF}"
+        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
+            firmware/bsp/uart.c firmware/bsp/timer.c firmware/bsp/scheduler.c firmware/bsp/scheduler.h
+            firmware/apps/scheduler_acceptance.c
+        VERBATIM
+        COMMENT "Compiling scheduler acceptance ELF")
+
+    add_custom_command(
+        OUTPUT "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/timer.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/scheduler.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/scheduler_acceptance.c"
+            -o "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}"
+        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
+            firmware/bsp/uart.c firmware/bsp/timer.c firmware/bsp/scheduler.c firmware/bsp/scheduler.h
+            firmware/apps/scheduler_acceptance.c
+        VERBATIM
+        COMMENT "Compiling scheduler acceptance debug ELF")
+
+    add_custom_target(scheduler_acceptance_elf DEPENDS "${SCHEDULER_ACCEPTANCE_ELF}" "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}")
+    add_dependencies(tinycpusim scheduler_acceptance_elf)
+
+    add_test(NAME fw_scheduler_test
+        COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_scheduler.py" -v)
+    add_test(NAME fw_uart_pty_test
+        COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_fw_uart_pty.py" -v)
 endif()
 add_executable(baremetal_firmware_test tests/baremetal_firmware_test.cpp)
 target_link_libraries(baremetal_firmware_test PRIVATE tinyarmsim_core gtest_main)

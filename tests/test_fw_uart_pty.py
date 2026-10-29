@@ -7,13 +7,16 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
-from tests.test_fw_uart_live import _create_echo_elf
-
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from tests.test_fw_uart_live import _create_echo_elf
 
 
 class TestFirmwareUartPty(unittest.TestCase):
