@@ -36,6 +36,7 @@ class SentinelCompletionTests(unittest.TestCase):
 
     def start(self, task='TASK-ONE', limit='3', env_overrides=None, expect_sentinel=True):
         watcher_env = os.environ.copy()
+        watcher_env['WORKER_INACTIVE_REPEAT'] = '0'
         if env_overrides:
             watcher_env.update(env_overrides)
         for name, filename in {
@@ -222,6 +223,7 @@ class SentinelCompletionTests(unittest.TestCase):
 
     def test_invalid_inactive_timeout_exits_promptly_nonzero(self):
         watcher_env = os.environ.copy()
+        watcher_env['WORKER_INACTIVE_REPEAT'] = '0'
         watcher_env['WORKER_INACTIVE_TIMEOUT'] = 'invalid'
         for name, filename in {
             'TASKS_FILE': 'tasks.txt', 'TASKS_DONE_FILE': 'tasks.done',
@@ -321,3 +323,99 @@ class SentinelCompletionTests(unittest.TestCase):
                     if proc.poll() is None:
                         proc.kill()
                     proc.communicate(timeout=3)
+
+
+    def repeat_stream(self, interval='1'):
+        import queue
+        import threading
+        stream = queue.Queue()
+        self.start(limit='0', env_overrides={
+            'WORKER_INACTIVE_TIMEOUT': interval, 'WORKER_INACTIVE_REPEAT': '1'})
+        def read():
+            for line in self.process.stdout:
+                stream.put((time.monotonic(), line))
+            stream.put((time.monotonic(), '<EOF>'))
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        def finish():
+            if self.process.poll() is None:
+                self.process.terminate()
+            self.process.wait(timeout=5)
+            reader.join(timeout=5)
+            self.assertFalse(reader.is_alive())
+        self.addCleanup(finish)
+        return stream
+
+    def next_inactive(self, stream, timeout=5):
+        received, line = stream.get(timeout=timeout)
+        self.assertIn('[SENTINEL_INACTIVE]', line)
+        self.assertIsNone(self.process.poll(), 'repeat reminder must preserve observer')
+        self.assertNotIn('[SENTINEL_COMPLETED]', line)
+        self.assertNotIn('[SENTINEL_FAILED]', line)
+        return received
+
+    def test_repeat_inactivity_keeps_observer_and_delayed_completion(self):
+        stream = self.repeat_stream()
+        times = [self.next_inactive(stream) for _ in range(3)]
+        gaps = [b-a for a,b in zip(times, times[1:])]
+        print('REPEAT_IDLE_GAPS', gaps)
+        for gap in gaps:
+            self.assertGreaterEqual(gap, 0.75)
+            self.assertLess(gap, 1.8)
+        self.status('RUNNING', 'TASK-ONE')
+        self.done()
+        time.sleep(0.15)
+        self.audit()
+        self.assertIsNone(self.process.poll(), 'same-task owner must delay completion')
+        self.status('IDLE')
+        _, line = stream.get(timeout=5)
+        self.assertIn('[SENTINEL_COMPLETED]', line)
+        self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode, 0)
+
+    def test_repeat_inactivity_resets_for_main_and_other_active_owner(self):
+        import queue
+        stream = self.repeat_stream(interval='2')
+        self.next_inactive(stream)
+        self.status('RUNNING', 'TASK-ONE')
+        with self.assertRaises(queue.Empty):
+            stream.get(timeout=2.3)
+        other = self.ns / 'worker.helper.status'
+        other.write_text(json.dumps({'state': 'VERIFYING', 'current_task': 'TASK-ONE', 'pid': os.getpid()}))
+        self.status('IDLE')
+        with self.assertRaises(queue.Empty):
+            stream.get(timeout=2.3)
+        other.write_text(json.dumps({'state': 'IDLE', 'current_task': '', 'pid': os.getpid()}))
+        idle_start = time.monotonic()
+        reminder = self.next_inactive(stream)
+        print('RESET_IDLE_DELAY', reminder-idle_start)
+        self.assertGreaterEqual(reminder-idle_start, 0.8)
+        self.done()
+        self.audit()
+        _, line = stream.get(timeout=5)
+        self.assertIn('[SENTINEL_COMPLETED]', line)
+        self.process.wait(timeout=5)
+        self.assertEqual(self.process.returncode, 0)
+
+    def test_repeat_mode_rejects_invalid_setting_before_start(self):
+        proc = self.start(limit='0', expect_sentinel=False,
+                          env_overrides={'WORKER_INACTIVE_REPEAT': '2'})
+        try:
+            out, err = proc.communicate(timeout=2)
+            self.assertEqual(proc.returncode, 1, out+err)
+            self.assertIn('Invalid WORKER_INACTIVE_REPEAT', err)
+            self.assertNotIn('[SENTINEL]', out)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate(timeout=3)
+
+    def test_repeat_relay_contract_is_persistent_in_planner_and_explore(self):
+        planner = (ROOT / '.agents/skills/nightshift/planner/SKILL.md').read_text()
+        explore = (ROOT / '.agents/skills/nightshift/explore/SKILL.md').read_text()
+        for required in ('WORKER_INACTIVE_REPEAT=1 bash nightshift/watch_worker.sh',
+                         '[SENTINEL_INACTIVE]', 'send_message', 'same watcher process',
+                         'user-facing inactivity reminder', 'observer fault'):
+            self.assertIn(required, planner)
+        self.assertIn('WORKER_INACTIVE_REPEAT=1 bash nightshift/watch_worker.sh', explore)
+        self.assertIn('repeated inactivity relay', explore)

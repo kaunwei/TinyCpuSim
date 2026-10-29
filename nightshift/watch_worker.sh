@@ -37,9 +37,17 @@ if ! [[ "$INACTIVE_TIMEOUT" =~ ^[0-9]+$ ]] || [ "${#INACTIVE_TIMEOUT}" -gt 10 ] 
   exit 1
 fi
 
+# Repeat mode keeps this observer alive; legacy consumers retain exit 5 by default.
+INACTIVE_REPEAT="${WORKER_INACTIVE_REPEAT:-0}"
+if ! [[ "$INACTIVE_REPEAT" =~ ^[01]$ ]]; then
+  echo "[SENTINEL_ERROR] Invalid WORKER_INACTIVE_REPEAT: '$INACTIVE_REPEAT'. Expected 0 or 1." >&2
+  exit 1
+fi
+
 SECONDS=0
 START_TIME=$SECONDS
 LAST_ACTIVE_SECONDS=$SECONDS
+LAST_INACTIVE_NOTICE_SECONDS=$SECONDS
 LAST_DONE_BYTES=0
 BASELINE_AUDITS=$(mktemp "${TMPDIR:-/tmp}/nightshift-audit-baseline.XXXXXX") || exit 1
 trap 'rm -f "$BASELINE_AUDITS"' EXIT
@@ -265,6 +273,7 @@ while true; do
   done
   if [ "$ANY_AGENT_ACTIVE" -eq 1 ]; then
     LAST_ACTIVE_SECONDS=$SECONDS
+    LAST_INACTIVE_NOTICE_SECONDS=$SECONDS
   fi
 
   for task_id in $PENDING_DONE_TASKS; do
@@ -349,8 +358,11 @@ while true; do
 
   INACTIVE_SECONDS=$(( SECONDS - LAST_ACTIVE_SECONDS ))
   if [ "$INACTIVE_TIMEOUT" -gt 0 ] && [ "$INACTIVE_SECONDS" -ge "$INACTIVE_TIMEOUT" ] && [ "$ANY_AGENT_ACTIVE" -eq 0 ]; then
-    echo "[SENTINEL_INACTIVE] No agent active on worker for ${INACTIVE_SECONDS}s (State: ${STATE}, Remaining: ${REMAINING_TASKS}${EXPECTED_TASK_ID:+, Task: ${EXPECTED_TASK_ID}})."
-    exit 5
+    if [ "$INACTIVE_REPEAT" -eq 0 ] || [ "$(( SECONDS - LAST_INACTIVE_NOTICE_SECONDS ))" -ge "$INACTIVE_TIMEOUT" ]; then
+      echo "[SENTINEL_INACTIVE] No agent active on worker for ${INACTIVE_SECONDS}s (State: ${STATE}, Remaining: ${REMAINING_TASKS}${EXPECTED_TASK_ID:+, Task: ${EXPECTED_TASK_ID}})."
+      LAST_INACTIVE_NOTICE_SECONDS=$SECONDS
+      if [ "$INACTIVE_REPEAT" -eq 0 ]; then exit 5; fi
+    fi
   fi
 
   sleep "$POLL_INTERVAL"
