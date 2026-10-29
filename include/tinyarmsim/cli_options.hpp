@@ -14,6 +14,8 @@ struct CliOptions {
     bool enable_all_perf = false, enable_topdown = false, quiet = false;
     int control_fd = -1;
     int uart_fd = -1;
+    bool enable_uart_pty = false;
+    std::string pty_file;
     bool max_steps_explicit = false;
     uint64_t max_steps = 1000000000;
     uarch::SliceConfig slice_cfg;
@@ -184,6 +186,16 @@ inline CliParseResult parse_cli_options(const std::vector<std::string>& args) {
                 }
             } else {
                 result.diagnostic = "Error: --uart-fd requires a nonnegative integer argument.\n";
+                return result;
+            }
+        } else if (arg == "--uart-pty") {
+            options.enable_uart_pty = true;
+        } else if (arg == "--pty-file") {
+            if (i + 1 < args.size()) {
+                options.pty_file = args[++i];
+                options.enable_uart_pty = true;
+            } else {
+                result.diagnostic = "Error: --pty-file requires a file path argument.\n";
                 return result;
             }
         } else if (arg == "--elf") {

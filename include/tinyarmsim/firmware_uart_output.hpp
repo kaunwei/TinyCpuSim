@@ -85,7 +85,8 @@ public:
                 total_written += write_pending(kMaxServiceBytes - total_written);
             } catch (const std::system_error& error) {
                 if (error.code().value() == EINTR) continue;
-                if (error.code().value() == EAGAIN || error.code().value() == EWOULDBLOCK) {
+                if (error.code().value() == EAGAIN || error.code().value() == EWOULDBLOCK ||
+                    error.code().value() == EIO) {
                     return total_written;
                 }
                 throw;
@@ -127,7 +128,7 @@ public:
                 if (code == EINTR) {
                     continue;
                 }
-                if (code != EAGAIN && code != EWOULDBLOCK) {
+                if (code != EAGAIN && code != EWOULDBLOCK && code != EIO) {
                     latch_fatal_error(error.code());
                 }
 

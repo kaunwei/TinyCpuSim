@@ -8,9 +8,14 @@
 #include <algorithm>
 #include <cerrno>
 #include <fcntl.h>
+#include <fstream>
+#include <pty.h>
 #include <stdexcept>
+#include <string>
 #include <system_error>
+#include <termios.h>
 #include <unistd.h>
+#include <utility>
 #include "tinyarmsim/mmio/uart.hpp"
 
 namespace tinyarmsim {
@@ -60,6 +65,7 @@ public:
             } else if (res < 0) {
                 if (errno == EINTR) continue;
                 if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                if (errno == EIO || errno == EPIPE) break;
                 connected_ = false;
                 return false;
             } else {
@@ -79,7 +85,7 @@ public:
             eof_ = true;
             return 0;
         }
-        if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK || errno == EIO) {
             return 0;
         }
         connected_ = false;
@@ -177,7 +183,7 @@ public:
             }
             if (bytes < 0) {
                 if (errno == EINTR) continue;
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EIO) {
                     break;
                 }
                 throw std::system_error(errno, std::generic_category(), "read firmware UART input");
@@ -221,6 +227,86 @@ private:
     std::size_t head_{0};
     std::size_t size_{0};
     std::array<uint8_t, kCapacity> ring_{};
+};
+
+class PtyDevice {
+public:
+    explicit PtyDevice(std::string pty_file = "") : pty_file_(std::move(pty_file)) {
+        char slave_name[256] = {0};
+        struct termios tio{};
+        cfmakeraw(&tio);
+        int slave_fd = -1;
+        if (::openpty(&master_fd_, &slave_fd, slave_name, &tio, nullptr) != 0) {
+            throw std::system_error(errno, std::generic_category(), "openpty failed");
+        }
+        slave_path_ = slave_name;
+
+        // Immediately close the initial slave descriptor; external clients connect via slave_path_.
+        if (slave_fd != -1) {
+            (void)::close(slave_fd);
+        }
+
+        int flags = ::fcntl(master_fd_, F_GETFL);
+        if (flags == -1) {
+            close();
+            throw std::system_error(errno, std::generic_category(), "fcntl F_GETFL failed on PTY master");
+        }
+        if (::fcntl(master_fd_, F_SETFL, flags | O_NONBLOCK) == -1) {
+            close();
+            throw std::system_error(errno, std::generic_category(), "fcntl F_SETFL failed on PTY master");
+        }
+
+        if (!pty_file_.empty()) {
+            std::ofstream ofs(pty_file_);
+            if (ofs.is_open()) {
+                ofs << slave_path_ << "\n";
+            }
+        }
+    }
+
+    ~PtyDevice() noexcept {
+        close();
+    }
+
+    PtyDevice(const PtyDevice&) = delete;
+    PtyDevice& operator=(const PtyDevice&) = delete;
+
+    PtyDevice(PtyDevice&& other) noexcept
+        : master_fd_(other.master_fd_),
+          slave_path_(std::move(other.slave_path_)),
+          pty_file_(std::move(other.pty_file_)) {
+        other.master_fd_ = -1;
+    }
+
+    PtyDevice& operator=(PtyDevice&& other) noexcept {
+        if (this != &other) {
+            close();
+            master_fd_ = other.master_fd_;
+            slave_path_ = std::move(other.slave_path_);
+            pty_file_ = std::move(other.pty_file_);
+            other.master_fd_ = -1;
+        }
+        return *this;
+    }
+
+    [[nodiscard]] int master_fd() const noexcept { return master_fd_; }
+    [[nodiscard]] const std::string& slave_path() const noexcept { return slave_path_; }
+
+    void close() noexcept {
+        if (master_fd_ != -1) {
+            (void)::close(master_fd_);
+            master_fd_ = -1;
+        }
+        if (!pty_file_.empty()) {
+            (void)::unlink(pty_file_.c_str());
+            pty_file_.clear();
+        }
+    }
+
+private:
+    int master_fd_{-1};
+    std::string slave_path_;
+    std::string pty_file_;
 };
 
 } // namespace tinyarmsim

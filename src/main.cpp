@@ -207,6 +207,15 @@ int main(int argc, char* argv[]) {
     bool passed = false;
     std::string fault_msg;
 
+    std::optional<tinyarmsim::PtyDevice> pty_device;
+    if (enable_firmware && options.enable_uart_pty) {
+        pty_device.emplace(options.pty_file);
+        options.uart_fd = pty_device->master_fd();
+        if (!options.quiet) {
+            std::cerr << "[tinyarmsim] PTY slave: " << pty_device->slave_path() << "\n";
+        }
+    }
+
     std::optional<tinyarmsim::FirmwareSignalGuard> signal_guard;
     std::optional<tinyarmsim::FirmwareUartOutput> uart_output;
     std::optional<tinyarmsim::FirmwareUartInput> uart_input;

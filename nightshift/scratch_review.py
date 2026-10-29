@@ -91,7 +91,7 @@ def read_small(path, limit=8192):
 def task_line(task_id):
     return (f"{task_id} | LEVEL: 1 | TARGET: nightshift/.scratch/attempts, "
             f"nightshift/.scratch/failed_tasks, {REPORT} | ACTION: {TAG} Review obsolete artifacts; "
-            "delete only proven safe entries under the maintenance prompt | VERIFY: none")
+            "delete only proven safe entries under the maintenance prompt | VERIFY: true")
 
 
 def check(runtime, tasks, insert, write, now=None):
