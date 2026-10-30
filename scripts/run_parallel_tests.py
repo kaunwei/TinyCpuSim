@@ -90,6 +90,11 @@ def run_single_config(
 
     cmd = custom_cmd if custom_cmd is not None else resolve_config_command(config, scratch_dir)
     env = os.environ.copy()
+    _repo_root_str = str(pathlib.Path(__file__).resolve().parent.parent)
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{_repo_root_str}:{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = _repo_root_str
     env["PARALLEL_CONFIG_NAME"] = config
     env["PARALLEL_CONFIG_SCRATCH"] = str(scratch_dir)
 
