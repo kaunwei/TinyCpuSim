@@ -602,4 +602,7 @@ struct UArchStats {
     }
 };
 
+std::string format_counter_delta(uint64_t current, uint64_t previous);
+
 } // namespace tinyarmsim::uarch
+
