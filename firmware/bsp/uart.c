@@ -27,3 +27,22 @@ int uart_getc_nonblocking(char *out_c) {
     }
     return 1;
 }
+
+int uart_putc_from_isr(char c) {
+    if (!(UART0->STATUS & UART_STATUS_TX_READY)) {
+        return 0;
+    }
+    UART0->DATA = (uint32_t)c;
+    return 1;
+}
+
+int uart_puts_from_isr(const char* s) {
+    int count = 0;
+    while (*s) {
+        if (!uart_putc_from_isr(*s++)) {
+            break;
+        }
+        count++;
+    }
+    return count;
+}
