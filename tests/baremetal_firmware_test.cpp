@@ -23,6 +23,11 @@
 #include "tinyarmsim/mmio/soc_platform.hpp"
 #include "tinyarmsim/loader.hpp"
 
+extern "C" {
+#include "../firmware/bsp/workqueue.h"
+#include "../firmware/bsp/workqueue.c"
+}
+
 using namespace tinyarmsim;
 
 TEST(BaremetalFirmwareTest, FullPeripheralSystemExecution) {
@@ -470,6 +475,140 @@ TEST(BaremetalFirmwareTest, UninterruptedItBlockConsumesMixedWidthSlots) {
         EXPECT_EQ(state.get_reg(0), zero ? 1u : 2u);
         EXPECT_EQ(state.get_it_state(), 0u);
     }
+}
+
+TEST(BaremetalFirmwareTest, WorkqueueRingBufferFifoAndDropUnderLoad) {
+    fw_workqueue_t wq;
+    fw_workqueue_init(&wq);
+    EXPECT_EQ(wq.count, 0u);
+    EXPECT_EQ(wq.drops, 0u);
+    EXPECT_FALSE(fw_workqueue_has_pending(&wq));
+
+    uint32_t executions[20] = {0};
+    const auto dummy_work = [](void* ctx) {
+        auto* slot = static_cast<uint32_t*>(ctx);
+        if (slot) {
+            *slot += 1;
+        }
+    };
+
+    // Fill workqueue to capacity (16 items)
+    for (uint32_t i = 0; i < FW_WORKQUEUE_CAPACITY; ++i) {
+        EXPECT_EQ(fw_workqueue_schedule_from_isr(&wq, dummy_work, &executions[i]), 0);
+    }
+    EXPECT_EQ(wq.count, static_cast<uint32_t>(FW_WORKQUEUE_CAPACITY));
+    EXPECT_TRUE(fw_workqueue_has_pending(&wq));
+
+    // Overload: 17th item should fail non-blocking with -2 and increment drops
+    EXPECT_EQ(fw_workqueue_schedule_from_isr(&wq, dummy_work, &executions[16]), -2);
+    EXPECT_EQ(wq.drops, 1u);
+    EXPECT_EQ(wq.count, static_cast<uint32_t>(FW_WORKQUEUE_CAPACITY));
+
+    // Bottom half drains all 16 items
+    uint32_t drained = fw_workqueue_drain(&wq);
+    EXPECT_EQ(drained, static_cast<uint32_t>(FW_WORKQUEUE_CAPACITY));
+    EXPECT_EQ(wq.count, 0u);
+    EXPECT_FALSE(fw_workqueue_has_pending(&wq));
+    for (uint32_t i = 0; i < FW_WORKQUEUE_CAPACITY; ++i) {
+        EXPECT_EQ(executions[i], 1u);
+    }
+    EXPECT_EQ(executions[16], 0u);
+}
+
+TEST(BaremetalFirmwareTest, LeanIsrTopHalfDeferredWorkqueueDispatch) {
+    MemoryBus bus(64 * 1024 * 1024);
+    ArchitecturalState state;
+    IsaInterpreter interp(state, bus);
+
+    auto uart = std::make_unique<mmio::UartDevice>();
+    auto timer = std::make_unique<mmio::TimerDevice>();
+    auto nvic = std::make_unique<mmio::NVICDevice>();
+
+    mmio::UartDevice* uart_ptr = uart.get();
+    mmio::TimerDevice* timer_ptr = timer.get();
+    mmio::NVICDevice* nvic_ptr = nvic.get();
+
+    bus.register_device(std::move(uart));
+    bus.register_device(std::move(timer));
+    bus.register_device(std::move(nvic));
+    interp.attach_nvic(nvic_ptr);
+
+    // Turbo clock divider for UART
+    uart_ptr->write(0x10, 1, mmio::AccessSize::Word);
+
+    // Setup NVIC Vector Table at 0x1000 for Timer0 (IRQ 1 -> 0x1044)
+    nvic_ptr->set_vtor(0x1000);
+    bus.write32(0x1044, 0x2000 | 1);
+    nvic_ptr->write(0x100, (1u << 1), mmio::AccessSize::Word);
+
+    // Top-Half Timer ISR at 0x2000:
+    // Clears INTCLR, performs non-blocking UART output, schedules workqueue item in RAM, and exits immediately.
+    bus.write16(0x2000, 0x4809);
+    bus.write16(0x2002, 0x2101);
+    bus.write16(0x2004, 0x6001);
+    bus.write16(0x2006, 0xF04F);
+    bus.write16(0x2008, 0x4080);
+    bus.write16(0x200A, 0x6842);
+    bus.write16(0x200C, 0x2301);
+    bus.write16(0x200E, 0x421A);
+    bus.write16(0x2010, 0xD001);
+    bus.write16(0x2012, 0x2354);
+    bus.write16(0x2014, 0x6003);
+    bus.write16(0x2016, 0x4805);
+    bus.write16(0x2018, 0x6801);
+    bus.write16(0x201A, 0x3101);
+    bus.write16(0x201C, 0x6001);
+    bus.write16(0x201E, 0x4804);
+    bus.write16(0x2020, 0x6801);
+    bus.write16(0x2022, 0x3101);
+    bus.write16(0x2024, 0x6001);
+    bus.write16(0x2026, 0x4770);
+    bus.write32(0x2028, 0x4000100C);
+    bus.write32(0x202C, 0x00003008);
+    bus.write32(0x2030, 0x00003000);
+
+    // Main background program at 0x0100 (Bottom Half):
+    bus.write16(0x0100, 0x4C08);
+    bus.write16(0x0102, 0x4D09);
+    bus.write16(0x0104, 0xF04F);
+    bus.write16(0x0106, 0x4680);
+    bus.write16(0x0108, 0x6820);
+    bus.write16(0x010A, 0x2800);
+    bus.write16(0x010C, 0xD0FC);
+    bus.write16(0x010E, 0x3801);
+    bus.write16(0x0110, 0x6020);
+    bus.write16(0x0112, 0x6829);
+    bus.write16(0x0114, 0x3101);
+    bus.write16(0x0116, 0x6029);
+    bus.write16(0x0118, 0x2242);
+    bus.write16(0x011A, 0x6032);
+    bus.write16(0x011C, 0x2902);
+    bus.write16(0x011E, 0xDBF3);
+    bus.write16(0x0120, 0x2000);
+    bus.write16(0x0122, 0xDF00);
+    bus.write32(0x0124, 0x00003000);
+    bus.write32(0x0128, 0x00003004);
+
+    state.set_reg(13, 0x10000);
+    state.set_pc(0x0100);
+    bus.write32(0x00003000, 0u);
+    bus.write32(0x00003004, 0u);
+    bus.write32(0x00003008, 0u);
+
+    timer_ptr->write(0x00, 50, mmio::AccessSize::Word);
+    timer_ptr->write(0x18, 1, mmio::AccessSize::Word);
+    timer_ptr->write(0x08, 0x07, mmio::AccessSize::Word);
+
+    EXPECT_EQ(interp.run(2000), 0u);
+
+    EXPECT_GE(bus.read32(0x00003008), 2u);
+    EXPECT_GE(bus.read32(0x00003004), 2u);
+    EXPECT_EQ(state.get_reg(0), 0u);
+
+    std::string tx = uart_ptr->get_tx_output();
+    EXPECT_FALSE(tx.empty());
+    EXPECT_NE(tx.find('T'), std::string::npos);
+    EXPECT_NE(tx.find('B'), std::string::npos);
 }
 
 #ifdef BAREMETAL_ACCEPTANCE_ELF
