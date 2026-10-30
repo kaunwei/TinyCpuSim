@@ -1,34 +1,47 @@
 # TinyCpuSim
 
-[![Build & Test](https://img.shields.io/badge/tests-233%2F233%20passed-brightgreen.svg)]()
+[![Build & Test](https://img.shields.io/badge/tests-317%2F317%20passed-brightgreen.svg)]()
 [![Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
 [![ISA](https://img.shields.io/badge/ISA-ARMv7--M%20%2F%20Thumb--2-orange.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
 **TinyCpuSim** is a high-performance, cycle-accurate Out-of-Order (OoO) superscalar CPU simulator and functional ISA emulator for ARMv7-M (Thumb-2) written in modern C++20.
 
-TinyCpuSim provides an end-to-end microarchitectural exploration platform featuring an advanced dynamic Out-of-Order (RS/PRF/ROB) superscalar execution engine, non-blocking multi-level cache hierarchy with MESI multi-core coherence, Intel/ARM Top-Down microarchitecture analysis (TMAM), 40+ cycle-accurate hardware performance counters, dynamic Region of Interest (ROI) profiling via `m5ops`, and automated golden accuracy calibration against **gem5**.
+The project is structured into two complementary layers:
+- **CPU Microarchitecture Layer (Primary Focus)**: An end-to-end cycle-accurate Out-of-Order (RS/PRF/ROB) execution engine, non-blocking multi-level cache hierarchy with MESI multi-core coherence, Intel/ARM Top-Down microarchitecture analysis (TMAM), 40+ hardware performance counters, dynamic Region of Interest (ROI) profiling via `m5ops`, and automated golden accuracy calibration against **gem5**.
+- **Baremetal Firmware & Peripheral Layer**: A Cortex-M3 baremetal execution environment with peripheral MMIO emulation (UART, Timer, NVIC, GPIO, DMA, I2C, SPI), host PTY terminal bridging, an interactive multi-project workflow manager, and full real-time communication support.
 
 ---
 
 ## Table of Contents
 
-- [Key Architectural Features](#key-architectural-features)
 - [System Requirements & Prerequisites](#system-requirements--prerequisites)
 - [Quickstart & Unified Interface (`run.sh`)](#quickstart--unified-interface-runsh)
-- [Configuration Lifecycle Management (`config.py`)](#configuration-lifecycle-management-configpy)
-- [Microarchitectural Experiment Engine (`experiment.py`)](#microarchitectural-experiment-engine-experimentpy)
-- [Sequential 5-Step Workflow Guide](#sequential-5-step-workflow-guide)
-  - [Step 1: Building Simulator & Tests (`01_build.sh`)](#step-1-building-simulator--tests-01_buildsh)
-  - [Step 2: Full Unit & Regression Tests (`02_run_tests.sh`)](#step-2-full-unit--regression-tests-02_run_testssh)
-  - [Step 3: Component Microbenchmarks (`03_run_ubench.sh`)](#step-3-component-microbenchmarks-03_run_ubenchsh)
-  - [Step 4: Full CPU Simulation (`04_run_simulation.sh`)](#step-4-full-cpu-simulation-04_run_simulationsh)
-  - [Step 5: gem5 Golden Reference Accuracy Comparison (`05_compare_gem5.sh`)](#step-5-gem5-golden-reference-accuracy-comparison-05_compare_gem5sh)
-- [Hardware Performance Counters & TMAM Breakdown](#hardware-performance-counters--tmam-breakdown)
+- **[Part I: CPU Microarchitecture & Simulation (Core Engine)](#part-i-cpu-microarchitecture--simulation)**
+  - [Key Architectural Features](#key-architectural-features)
+  - [Configuration Lifecycle Management (`config.py`)](#configuration-lifecycle-management-configpy)
+  - [Microarchitectural Experiment Engine (`experiment.py`)](#microarchitectural-experiment-engine-experimentpy)
+  - [Sequential 5-Step Workflow Guide](#sequential-5-step-workflow-guide)
+    - [Step 1: Building Simulator & Tests (`01_build.sh`)](#step-1-building-simulator--tests-01_buildsh)
+    - [Step 2: Full Unit & Regression Tests (`02_run_tests.sh`)](#step-2-full-unit--regression-tests-02_run_testssh)
+    - [Step 3: Component Microbenchmarks (`03_run_ubench.sh`)](#step-3-component-microbenchmarks-03_run_ubenchsh)
+    - [Step 4: Full CPU Simulation (`04_run_simulation.sh`)](#step-4-full-cpu-simulation-04_run_simulationsh)
+    - [Step 5: gem5 Golden Reference Accuracy Comparison (`05_compare_gem5.sh`)](#step-5-gem5-golden-reference-accuracy-comparison-05_compare_gem5sh)
+  - [Hardware Performance Counters & TMAM Breakdown](#hardware-performance-counters--tmam-breakdown)
+- **[Part II: Baremetal Firmware & Peripheral Environment](#part-ii-baremetal-firmware--peripheral-environment)**
+  - [Overview & MMIO Peripheral Support](#overview--mmio-peripheral-support)
+  - [Running Firmware (`run.sh fw`)](#running-firmware-runsh-fw)
+  - [Interactive Project Selection & PTY Mode](#interactive-project-selection--pty-mode)
+  - [Building & Creating Firmware Projects](#building--creating-firmware-projects)
+  - [Detailed Firmware Documentation (`firmware/README.md`)](#detailed-firmware-documentation)
 - [Project Directory Structure](#project-directory-structure)
 - [License](#license)
 
 ---
+
+# Part I: CPU Microarchitecture & Simulation
+
+TinyCpuSim's primary mission is cycle-accurate out-of-order microarchitectural research, hardware parameter exploration, and gem5 golden correlation.
 
 ## Key Architectural Features
 
@@ -108,6 +121,7 @@ Architecture Exploration:
   [C] Config:   Configure Active Simulation, Hardware Knobs, Presets, Save/Load
   [V] View:     View Full Active Microarchitecture Dashboard
   [S] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs
+  [F] FW:       Run Firmware Environment (PTY Terminal, Scheduler, Watchdog)
   [H] Help:     View Complete Command & Usage Manual
   [0] Exit
 ============================================================
@@ -118,7 +132,7 @@ Architecture Exploration:
 ```bash
 # Workflow Steps
 ./run.sh build                      # [Step 1] Build simulator (Release mode)
-./run.sh test                       # [Step 2] Run 233 unit & regression tests (parallel ctest)
+./run.sh test                       # [Step 2] Run 317 unit & regression tests (parallel ctest)
 ./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks (<1% Δ)
 ./run.sh sim [elf] [config]         # [Step 4] Run simulation (zero-args reads current.cfg)
 ./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (100% PASS)
@@ -132,6 +146,13 @@ Architecture Exploration:
 ./run.sh show                       # Display full active microarchitecture dashboard
 ./run.sh list                       # List all presets and snapshots in default/ and save/
 ./run.sh sweep                      # Run dynamic parameter sweep on hardware knobs
+
+# Baremetal Firmware Environment
+./run.sh fw                         # Launch interactive firmware project selector menu
+./run.sh fw [project]               # Directly run firmware project (e.g. uart_echo)
+./run.sh fw [project] --pty         # Run firmware with host PTY device & connection commands
+./run.sh fw build                   # Build all firmware projects & acceptance ELFs
+./run.sh fw list                    # List all available firmware projects
 
 # Catalogs & Utilities
 ./run.sh knobs                      # List all tunable hardware parameters & units
@@ -279,7 +300,7 @@ Automatically detects system CPU cores, configures CMake in Release mode, and bu
 ```bash
 ./scripts/02_run_tests.sh
 ```
-Runs all 233 unit and regression tests in parallel (`ctest -j`) with a 100% pass guarantee.
+Runs all 317 unit and regression tests in parallel (`ctest -j`) with a 100% pass guarantee.
 
 ---
 
@@ -384,6 +405,78 @@ Aggregate Throughput (IPC):0.801 inst/cycle (uOp IPC: 1.548)
 
 ---
 
+# Part II: Baremetal Firmware & Peripheral Environment
+
+In addition to cycle-accurate CPU microarchitecture research, TinyCpuSim provides an authentic embedded hardware simulation environment for baremetal ARM Cortex-M3 (Thumb-2) firmware development, operating system scheduling, and peripheral driver evaluation.
+
+## Overview & MMIO Peripheral Support
+
+TinyCpuSim emulates standard microcontroller peripheral memory-mapped I/O (MMIO):
+- **UART0 (`0x40000000`)**: Full-duplex serial communication with RX/TX FIFOs, overrun detection, and baud/clock divider control.
+- **TIMER0 (`0x40001000`)**: 32-bit periodic countdown timer with interrupt generation.
+- **NVIC (`0xE000E000`)**: Nested Vectored Interrupt Controller with prioritization and masking.
+- **Peripherals**: GPIO (`0x40005000`), DMA (`0x40006000`), I2C (`0x40002000`), SPI (`0x40003000`), CRC-32 accelerator (`0x40004000`).
+
+## Running Firmware (`run.sh fw`)
+
+The top-level workflow manager [`run.sh fw`](run.sh) provides a seamless interface to select, build, and execute firmware:
+
+```bash
+# Launch interactive firmware project selector menu
+./run.sh fw
+
+# Directly run a specific project (auto-builds if needed)
+./run.sh fw uart_echo
+
+# Run with host PTY device & print connection commands (picocom, screen)
+./run.sh fw uart_echo --pty
+
+# List all available firmware projects
+./run.sh fw list
+
+# Build all firmware projects & test ELFs
+./run.sh fw build
+```
+
+## Interactive Project Selection & PTY Mode
+
+TinyCpuSim offers two ways to interact with firmware serial consoles:
+
+1. **Direct Terminal Interaction (Default)**:
+   Running `./run.sh fw <project>` attaches bidirectional UART I/O directly to your current terminal. Whatever you type is forwarded to guest UART RX in real time, and guest UART TX is displayed in the terminal.
+2. **Host PTY Mode (`--pty`)**:
+   Running `./run.sh fw <project> --pty` binds the guest UART to a host pseudo-terminal (`/dev/pts/X`) and displays the exact connection command for external serial terminal programs:
+   ```text
+   ============================================================
+     Firmware UART Terminal Ready
+     PTY Device: /dev/pts/8
+     To connect from another terminal:
+       picocom -b 115200 /dev/pts/8
+       screen /dev/pts/8
+   ============================================================
+   ```
+
+## Building & Creating Firmware Projects
+
+All firmware projects reside in [`firmware/projects/`](firmware/projects/):
+- **Shared Board Support Package (BSP)**: Projects reuse common startup routines, vector tables, and memory maps from [`firmware/bsp/`](firmware/bsp/) (`startup.s`, `linker.ld`, `platform.h`). Projects **do not** need to copy or duplicate these files.
+- **Application Code**: Each project directory only needs its own application code (`main.c`) and a concise `Makefile`.
+- **Custom Project Banner (`banner.txt`)**: You can place a `banner.txt` file in your project folder. The launcher automatically displays this custom description whenever your project is run.
+
+### Interactive 3-Round UART Echo Demo (`uart_echo`)
+A reference interactive project is provided in [`firmware/projects/uart_echo/`](firmware/projects/uart_echo/):
+- Connects to UART, prompts the user for 3 rounds of input.
+- Real-time character echo with backspace editing.
+- Completes 3 rounds and automatically halts the simulator via `svc #0`.
+
+## Detailed Firmware Documentation
+
+For comprehensive firmware documentation—including memory map addresses, register definitions, BSP API guides, task scheduler internals, and a step-by-step guide to writing your own firmware driver—see:
+
+👉 **[Firmware Subsystem & Developer Guide (`firmware/README.md`)](firmware/README.md)**
+
+---
+
 ## Project Directory Structure
 
 ```text
@@ -396,21 +489,28 @@ TinySim/
 │   ├── all_params_template.cfg # Template of all configuration knobs
 │   ├── default/              # Baseline presets (default.cfg, multicore_4core.cfg, etc.)
 │   └── save/                 # Custom saved snapshot configs
+├── firmware/                 # Cortex-M3 baremetal firmware environment
+│   ├── README.md             # Detailed firmware & peripheral developer guide
+│   ├── bsp/                  # Shared BSP (linker.ld, startup.s, uart, timer, shell)
+│   ├── projects/             # User firmware projects (e.g. uart_echo)
+│   └── apps/                 # Built-in acceptance test applications
 ├── include/tinyarmsim/       # Public C++ headers
 │   ├── isa/                  # ISA decoder, instruction definitions, register state
 │   ├── memory/               # Memory bus, non-blocking caches, MESI coherence
+│   ├── mmio/                 # Peripheral MMIO models (UART, Timer, NVIC, etc.)
 │   └── uarch/                # OoO pipeline: BPU, Frontend, PRF, Issue, Exec, LSU, ROB, TMAM
 ├── src/                      # Source implementations
 │   ├── main.cpp              # CLI driver with --uarch, --all-perf, and options
-│   ├── isa/                  # ISA simulation & disassembler
-│   ├── memory/               # Memory bus & cache controller
+│   ├── core/                 # Instruction execution & simulator state
 │   └── uarch/                # Cycle-accurate OoO pipeline stages
 ├── scripts/                  # Workflow scripts & multi-process Python tools
 │   ├── 01_build.sh           # Step 1: 1-click build script
-│   ├── 02_run_tests.sh       # Step 2: Full test suite runner (233 tests, parallel ctest)
+│   ├── 02_run_tests.sh       # Step 2: Full test suite runner (317 tests, parallel ctest)
 │   ├── 03_run_ubench.sh      # Step 3: Component microbenchmark runner
 │   ├── 04_run_simulation.sh  # Step 4: Full-system simulation runner
 │   ├── 05_compare_gem5.sh    # Step 5: gem5 golden comparison tool
+│   ├── run_firmware.sh       # Unified firmware project runner & manager
+│   ├── uart_terminal.py      # Interactive UART terminal & PTY bridge
 │   ├── config.py             # Configuration lifecycle manager & TUI
 │   ├── experiment.py         # Microarchitectural experiment engine & comparison
 │   ├── sweep_parameters.py   # Multi-process parameter sweep engine
@@ -423,7 +523,7 @@ TinySim/
 └── tests/                    # Tests and benchmarks
     ├── fixtures/             # Bare-metal ELF binaries & assembly sources
     ├── golden/gem5/          # gem5 reference statistics logs
-    └── unit & ubench tests   # 233 CTest GoogleTest cases
+    └── unit & ubench tests   # 317 CTest GoogleTest cases
 ```
 
 ---
