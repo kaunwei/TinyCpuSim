@@ -113,4 +113,7 @@ private:
     bool primask_{false};
 };
 
+enum class ConditionCode : uint8_t;
+const char* condition_code_to_string(ConditionCode cond) noexcept;
+
 } // namespace tinyarmsim

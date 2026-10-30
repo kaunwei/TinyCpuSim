@@ -24,6 +24,7 @@ target_include_directories(tinyarmsim_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
 
 add_library(tinyarmsim_core_static STATIC
     src/core/common.cpp
+    src/core/state.cpp
 )
 target_include_directories(tinyarmsim_core_static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(tinyarmsim_core_static PUBLIC tinyarmsim_core)
@@ -65,7 +66,7 @@ gtest_discover_tests(smoke_test)
 
 # State and Memory Test
 add_executable(state_and_memory_test tests/state_and_memory_test.cpp)
-target_link_libraries(state_and_memory_test PRIVATE tinyarmsim_core gtest_main)
+target_link_libraries(state_and_memory_test PRIVATE tinyarmsim_core_static gtest_main)
 gtest_discover_tests(state_and_memory_test)
 
 # Basic Data Processing Test
