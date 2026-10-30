@@ -18,16 +18,22 @@ endif()
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# Core Library
+# Core Library (Interface & Static)
 add_library(tinyarmsim_core INTERFACE)
 target_include_directories(tinyarmsim_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+add_library(tinyarmsim_core_static STATIC
+    src/core/common.cpp
+)
+target_include_directories(tinyarmsim_core_static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(tinyarmsim_core_static PUBLIC tinyarmsim_core)
+
 # Main Executable CLIs
 add_executable(tinycpusim src/main.cpp)
-target_link_libraries(tinycpusim PRIVATE tinyarmsim_core)
+target_link_libraries(tinycpusim PRIVATE tinyarmsim_core_static)
 
 add_executable(tinyarmsim src/main.cpp)
-target_link_libraries(tinyarmsim PRIVATE tinyarmsim_core)
+target_link_libraries(tinyarmsim PRIVATE tinyarmsim_core_static)
 
 # GoogleTest via FetchContent
 include(FetchContent)
@@ -53,7 +59,7 @@ endif()
 
 # Smoke Test
 add_executable(smoke_test tests/smoke_test.cpp)
-target_link_libraries(smoke_test PRIVATE tinyarmsim_core gtest_main)
+target_link_libraries(smoke_test PRIVATE tinyarmsim_core_static gtest_main)
 include(GoogleTest)
 gtest_discover_tests(smoke_test)
 
