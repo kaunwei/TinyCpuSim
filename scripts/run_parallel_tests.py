@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Isolated parallel configuration test runner with bounded concurrency.
 
 Uses ResourcePool to limit concurrent CPU slots and memory usage across
@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 try:
     from tests.fw_resource_support import ResourceBudget, ResourcePool
@@ -27,17 +27,17 @@ except ImportError:
         from fw_resource_support import ResourceBudget, ResourcePool  # type: ignore
     except ImportError:
         _root = str(pathlib.Path(__file__).resolve().parent.parent)
-        _parent = str(pathlib.Path(__file__).resolve().parent.parent / "tests")
-        for _p in (_root, _parent):
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
         from tests.fw_resource_support import ResourceBudget, ResourcePool
 
 
+DEFAULT_PYTHON: str = "/usr/bin/python3"
 DEFAULT_CONFIGS = ["debug", "release", "guest-o0", "guest-o2"]
 DEFAULT_JOBS = 8
 DEFAULT_MEMORY_MB = 8192
 DEFAULT_TIMEOUT_SEC = 120.0
+DEFAULT_CONFIG_BUDGET = ResourceBudget(cpu_slots=1, memory_mib=512)
 
 
 @dataclass
@@ -47,6 +47,7 @@ class ConfigResult:
     elapsed_seconds: float
     stdout: str
     stderr: str
+    max_rss_kib: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -61,18 +62,28 @@ class RunnerSummary:
 
 
 def resolve_config_command(config: str, scratch_dir: pathlib.Path) -> List[str]:
-    """Return command vector for the given configuration."""
+    """Return command vector for the given configuration using canonical python."""
+    py = DEFAULT_PYTHON if os.path.exists(DEFAULT_PYTHON) else sys.executable
     if config == "debug":
-        return [sys.executable, "-m", "unittest", "tests.test_fw_config", "tests.test_fw_template"]
+        return [py, "-m", "unittest", "tests.test_fw_config", "tests.test_fw_template"]
     elif config == "release":
-        return [sys.executable, "-m", "unittest", "tests.test_fw_build_matrix"]
+        return [py, "-m", "unittest", "tests.test_fw_build_matrix"]
     elif config == "guest-o0":
-        return [sys.executable, "-m", "unittest", "tests.test_fw_quiet"]
+        return [py, "-m", "unittest", "tests.test_fw_quiet"]
     elif config == "guest-o2":
-        return [sys.executable, "-m", "unittest", "tests.test_fw_scheduler"]
+        return [py, "-m", "unittest", "tests.test_fw_scheduler"]
     else:
-        # Generic fallback: test echo
-        return [sys.executable, "-c", f"print('Config {config} executed in {scratch_dir}')"]
+        return [py, "-c", f"print('Config {config} executed in {scratch_dir}')"]
+
+
+def _terminate_process_group(pgid: int) -> None:
+    """Terminate process group with SIGTERM followed by SIGKILL."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except OSError:
+            return
+        time.sleep(0.2)
 
 
 def run_single_config(
@@ -80,8 +91,7 @@ def run_single_config(
     scratch_root: pathlib.Path,
     pool: Optional[ResourcePool] = None,
     timeout: float = DEFAULT_TIMEOUT_SEC,
-    cpu_cost: int = 1,
-    memory_cost_mb: int = 512,
+    budget: ResourceBudget = DEFAULT_CONFIG_BUDGET,
     custom_cmd: Optional[List[str]] = None,
 ) -> ConfigResult:
     """Execute a single configuration within isolated directory and pool budget."""
@@ -103,6 +113,7 @@ def run_single_config(
     stderr_data = ""
     exit_code = -1
     err_msg: Optional[str] = None
+    max_rss: Optional[int] = None
 
     def execute_proc() -> int:
         nonlocal stdout_data, stderr_data
@@ -121,14 +132,9 @@ def run_single_config(
             stderr_data = err
             return proc.returncode
         except subprocess.TimeoutExpired:
-            if hasattr(os, "killpg"):
+            if hasattr(os, "killpg") and hasattr(os, "getpgid"):
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except OSError:
-                    pass
-                time.sleep(0.5)
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    _terminate_process_group(os.getpgid(proc.pid))
                 except OSError:
                     pass
             else:
@@ -140,7 +146,7 @@ def run_single_config(
 
     try:
         if pool is not None:
-            with pool.reserve(cpu_slots=cpu_cost, memory_mib=memory_cost_mb, timeout=timeout):
+            with pool.reserve(cpu_slots=budget.cpu_slots, memory_mib=budget.memory_mib, timeout=timeout):
                 exit_code = execute_proc()
         else:
             exit_code = execute_proc()
@@ -150,12 +156,21 @@ def run_single_config(
         stderr_data += f"\n[EXECUTION ERROR] {exc}"
 
     elapsed = time.monotonic() - start_time
+    # Capture peak memory RSS if available via /proc or resource
+    try:
+        import resource
+        rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        max_rss = rusage.ru_maxrss
+    except Exception:
+        max_rss = None
+
     return ConfigResult(
         config=config,
         exit_code=exit_code,
         elapsed_seconds=round(elapsed, 3),
         stdout=stdout_data,
         stderr=stderr_data,
+        max_rss_kib=max_rss,
         error=err_msg,
     )
 
@@ -167,6 +182,7 @@ def run_parallel_suite(
     scratch_root: Optional[pathlib.Path] = None,
     timeout: float = DEFAULT_TIMEOUT_SEC,
     sequential: bool = False,
+    budget: ResourceBudget = DEFAULT_CONFIG_BUDGET,
     custom_cmd: Optional[List[str]] = None,
 ) -> RunnerSummary:
     """Run all specified configurations concurrently or sequentially."""
@@ -190,6 +206,7 @@ def run_parallel_suite(
                 scratch_root=scratch_root,
                 pool=pool,
                 timeout=timeout,
+                budget=budget,
                 custom_cmd=custom_cmd,
             )
             results.append(res)
@@ -202,8 +219,7 @@ def run_parallel_suite(
                     scratch_root,
                     pool,
                     timeout,
-                    1,
-                    512,
+                    budget,
                     custom_cmd,
                 ): cfg
                 for cfg in configs
@@ -212,7 +228,6 @@ def run_parallel_suite(
                 results.append(future.result())
 
     wall_time = round(time.monotonic() - start_wall, 3)
-    # Sort results by config name for deterministic ordering
     results.sort(key=lambda r: r.config)
     passed = sum(1 for r in results if r.exit_code == 0)
     failed = len(results) - passed
@@ -264,7 +279,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Parallel Test Summary: {summary.passed_configs}/{summary.total_configs} passed in {summary.wall_time_seconds}s (sequential={summary.sequential})")
         for res in summary.results:
             status = "PASS" if res.exit_code == 0 else f"FAIL(exit={res.exit_code})"
-            print(f"  [{status}] {res.config} ({res.elapsed_seconds}s)")
+            rss_info = f", rss={res.max_rss_kib}KiB" if res.max_rss_kib else ""
+            print(f"  [{status}] {res.config} ({res.elapsed_seconds}s{rss_info})")
 
     return 0 if summary.failed_configs == 0 else 1
 

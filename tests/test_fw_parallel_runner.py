@@ -10,6 +10,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.run_parallel_tests import (
+    DEFAULT_CONFIG_BUDGET,
     ConfigResult,
     RunnerSummary,
     main,
@@ -32,6 +33,7 @@ class TestFwParallelRunner(unittest.TestCase):
         cmd = resolve_config_command("debug", self.scratch_root)
         self.assertIsInstance(cmd, list)
         self.assertIn("unittest", cmd)
+        self.assertEqual(cmd[0], "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable)
 
         custom_cmd = resolve_config_command("custom_unknown", self.scratch_root)
         self.assertIn("-c", custom_cmd)
@@ -41,12 +43,14 @@ class TestFwParallelRunner(unittest.TestCase):
             directory=self.scratch_root / "pool",
             budget=ResourceBudget(cpu_slots=2, memory_mib=1024),
         )
-        custom_cmd = [sys.executable, "-c", "import sys; print('HELLO'); sys.exit(0)"]
+        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+        custom_cmd = [py, "-c", "import sys; print('HELLO'); sys.exit(0)"]
         res = run_single_config(
             config="test_cfg",
             scratch_root=self.scratch_root,
             pool=pool,
             timeout=10.0,
+            budget=DEFAULT_CONFIG_BUDGET,
             custom_cmd=custom_cmd,
         )
         self.assertEqual(res.exit_code, 0)
@@ -54,24 +58,28 @@ class TestFwParallelRunner(unittest.TestCase):
         self.assertGreaterEqual(res.elapsed_seconds, 0.0)
 
     def test_run_single_config_failure_propagation(self) -> None:
-        custom_cmd = [sys.executable, "-c", "import sys; sys.stderr.write('ERR'); sys.exit(42)"]
+        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+        custom_cmd = [py, "-c", "import sys; sys.stderr.write('ERR'); sys.exit(42)"]
         res = run_single_config(
             config="fail_cfg",
             scratch_root=self.scratch_root,
             pool=None,
             timeout=10.0,
+            budget=DEFAULT_CONFIG_BUDGET,
             custom_cmd=custom_cmd,
         )
         self.assertEqual(res.exit_code, 42)
         self.assertIn("ERR", res.stderr)
 
     def test_run_single_config_timeout_handling(self) -> None:
-        custom_cmd = [sys.executable, "-c", "import time; time.sleep(5)"]
+        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+        custom_cmd = [py, "-c", "import time; time.sleep(5)"]
         res = run_single_config(
             config="timeout_cfg",
             scratch_root=self.scratch_root,
             pool=None,
             timeout=0.5,
+            budget=DEFAULT_CONFIG_BUDGET,
             custom_cmd=custom_cmd,
         )
         self.assertEqual(res.exit_code, 124)
@@ -79,7 +87,8 @@ class TestFwParallelRunner(unittest.TestCase):
 
     def test_run_parallel_suite_concurrent_execution(self) -> None:
         configs = ["c1", "c2", "c3"]
-        custom_cmd = [sys.executable, "-c", "import time; time.sleep(0.1); print('DONE')"]
+        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+        custom_cmd = [py, "-c", "import time; time.sleep(0.1); print('DONE')"]
         summary = run_parallel_suite(
             configs=configs,
             jobs=3,
@@ -87,6 +96,7 @@ class TestFwParallelRunner(unittest.TestCase):
             scratch_root=self.scratch_root,
             timeout=10.0,
             sequential=False,
+            budget=DEFAULT_CONFIG_BUDGET,
             custom_cmd=custom_cmd,
         )
         self.assertEqual(summary.total_configs, 3)
@@ -99,7 +109,8 @@ class TestFwParallelRunner(unittest.TestCase):
 
     def test_run_parallel_suite_sequential_mode(self) -> None:
         configs = ["seq1", "seq2"]
-        custom_cmd = [sys.executable, "-c", "print('SEQ')"]
+        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+        custom_cmd = [py, "-c", "print('SEQ')"]
         summary = run_parallel_suite(
             configs=configs,
             jobs=1,
@@ -107,6 +118,7 @@ class TestFwParallelRunner(unittest.TestCase):
             scratch_root=self.scratch_root,
             timeout=10.0,
             sequential=True,
+            budget=DEFAULT_CONFIG_BUDGET,
             custom_cmd=custom_cmd,
         )
         self.assertTrue(summary.sequential)
