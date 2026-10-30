@@ -97,11 +97,15 @@ todo/
 .worker-tree/
 .preview/
 .reports/
+.reports
+.scratch/
+.handoff/
+handoff/
+docs/experiments/
 AGENTS.md
 GEMINI.md
 
 # NightShift 24h Unattended Worker Artifacts
-.reports
 .trials/
 
 # NightShift runtime artifacts (stored under nightshift/)
