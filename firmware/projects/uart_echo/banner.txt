@@ -1,0 +1,7 @@
+============================================================
+  Project: UART Echo Interactive Demo
+  Mode:    Interactive Terminal (3 Rounds Echo)
+  Info:    Connect via PTY terminal or interactive session.
+           Type 3 lines of messages; firmware echoes each
+           line back and terminates cleanly.
+============================================================
