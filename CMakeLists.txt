@@ -25,6 +25,7 @@ target_include_directories(tinyarmsim_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
 add_library(tinyarmsim_core_static STATIC
     src/core/common.cpp
     src/core/state.cpp
+    src/core/faults.cpp
 )
 target_include_directories(tinyarmsim_core_static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(tinyarmsim_core_static PUBLIC tinyarmsim_core)

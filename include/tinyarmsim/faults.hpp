@@ -62,3 +62,7 @@ private:
 };
 
 } // namespace tinyarmsim
+
+namespace tinyarmsim {
+const char* fault_type_to_string(FaultType type) noexcept;
+} // namespace tinyarmsim
