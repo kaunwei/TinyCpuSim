@@ -33,6 +33,8 @@ public:
     IsaInterpreter(ArchitecturalState& state, MemoryBus& bus) noexcept
         : state_(state), bus_(bus) {}
 
+    void set_external_clock(bool enabled) noexcept { external_clock_ = enabled; }
+
     void set_profiler(uarch::TopDownProfiler* profiler) noexcept {
         profiler_ = profiler;
     }
@@ -799,7 +801,7 @@ public:
 
     void step() {
         if (nvic_ && nvic_->poll_and_try_enter_exception(state_, bus_)) {
-            bus_.tick(1);
+            if (!external_clock_) bus_.tick(1);
             return;
         }
 
@@ -828,7 +830,7 @@ public:
             const DecodedInstruction& instr = opcode_cache_.get_16(first_halfword);
             execute(instr);
         }
-        bus_.tick(1);
+        if (!external_clock_) bus_.tick(1);
 
         if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) { return; }
 
@@ -909,7 +911,7 @@ private:
             ? 0 : static_cast<uint8_t>((incoming_it_state & 0xE0u) | ((low << 1) & 0x1Fu)));
         state_.advance_pc(width);
         log_trace("[condition false]");
-        bus_.tick(1);
+        if (!external_clock_) bus_.tick(1);
         if (mmio::NVICDevice::try_exit_exception(state_, bus_, nvic_)) return;
         check_and_trigger_slice();
     }
@@ -963,6 +965,7 @@ private:
         }
     }
 
+    bool external_clock_ = false;
     ArchitecturalState& state_;
     MemoryBus& bus_;
     SimulationStats stats_{};

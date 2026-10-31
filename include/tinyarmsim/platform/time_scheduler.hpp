@@ -38,6 +38,7 @@ public:
     template<class Step> RunResult run(uint64_t deadline, uint64_t quantum, Step step) {
         if (quantum == 0) throw std::invalid_argument("zero quantum");
         if (deadline < now_) throw std::invalid_argument("past deadline");
+        if (failed_ && deadline > now_) throw std::runtime_error("scheduler stopped after callback failure");
         uint64_t progress = 0;
         auto dispatch = [&] {
             size_t dispatched = 0;
@@ -54,7 +55,8 @@ public:
             const auto result = step();
             if (result != StepResult::Progress)
                 return {progress, result == StepResult::Halt ? StopReason::Halt : StopReason::Fault};
-            dispatch();
+            try { dispatch(); }
+            catch (...) { failed_ = true; throw; }
             ++now_;
             phase_started_ = false;
             ++progress;
@@ -80,5 +82,6 @@ private:
     bool phase_started_ = false;
     EventPhase phase_ = EventPhase::Device;
     uint64_t now_ = 0;
+    bool failed_ = false;
 };
 }

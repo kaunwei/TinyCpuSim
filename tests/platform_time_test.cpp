@@ -165,3 +165,102 @@ TEST(PlatformTime, PreservesRemainingEventsWhenStepScheduledCallbackThrows) {
     EXPECT_EQ(order, (std::vector<int>{1, 2}));
     EXPECT_THROW(scheduler.schedule(0, EventPhase::Device, [] {}), std::invalid_argument);
 }
+
+#include "tinyarmsim/platform/timer_adapter.hpp"
+#include "tinyarmsim/platform/proxy_device.hpp"
+
+TEST(PlatformTime, RealTimerAdvancesOnceAndPublishesIrqAcrossQuanta) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        MemoryBus bus(65536);
+        CpuInstance cpu("cpu", bus);
+        auto timer = std::make_unique<mmio::TimerDevice>();
+        auto* device = timer.get();
+        bus.register_device(std::move(timer));
+        bus.register_device(std::make_unique<ProxyMMIODevice>(*device, 0x40002000, 0x1000));
+        for (uint32_t pc = 0x100; pc < 0x120; pc += 2) bus.write16(pc, 0x46c0);
+        bus.write32(0x1044, 0x2001);
+        bus.write16(0x2000, 0x2463);
+        cpu.state.set_pc(0x100);
+        cpu.state.set_reg(13, 0x8000);
+        cpu.nvic.set_vtor(0x1000);
+        cpu.nvic.write(0x100, 2, mmio::AccessSize::Word);
+        bus.write32(0x40002000, 3);
+        bus.write32(0x40001008, 5);
+        cpu.interpreter.set_external_clock(true);
+        TimeScheduler scheduler;
+        TimerAdapter adapter(scheduler, *device, cpu.nvic);
+        EXPECT_EQ(scheduler.run_interpreter(2, quantum, cpu.interpreter).progress, 2u);
+        EXPECT_EQ(bus.read32(0x40002004), 1u);
+        EXPECT_EQ(bus.read32(0x40001010), 0u);
+        EXPECT_EQ(scheduler.run_interpreter(5, quantum, cpu.interpreter).progress, 3u);
+        EXPECT_EQ(bus.read32(0x40001004), 0u);
+        EXPECT_EQ(bus.read32(0x40002014), 1u);
+        EXPECT_EQ(cpu.state.get_reg(4), 99u);
+    }
+}
+
+TEST(PlatformTime, CallbackFailureCannotReplayCommittedStep) {
+    using namespace tinyarmsim::platform;
+    TimeScheduler scheduler;
+    unsigned steps = 0;
+    EXPECT_THROW(scheduler.run(1, 1, [&] {
+        ++steps;
+        scheduler.schedule(0, EventPhase::Device, [] { throw std::runtime_error("failed"); });
+        return StepResult::Progress;
+    }), std::runtime_error);
+    EXPECT_THROW(scheduler.run(1, 1, [&] { ++steps; return StepResult::Progress; }), std::runtime_error);
+    EXPECT_EQ(steps, 1u);
+}
+
+TEST(PlatformTime, ExternalClockCoversSkippedItAndExceptionEntry) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    MemoryBus bus(65536);
+    CpuInstance cpu("cpu", bus);
+    auto timer = std::make_unique<mmio::TimerDevice>();
+    auto* device = timer.get();
+    bus.register_device(std::move(timer));
+    bus.write16(0x100, 0x2001);
+    bus.write16(0x102, 0x46c0);
+    bus.write32(0x1044, 0x2001);
+    cpu.state.set_pc(0x100);
+    cpu.state.set_reg(13, 0x8000);
+    cpu.state.set_it_state(0x08); // EQ, false with reset flags
+    cpu.nvic.set_vtor(0x1000);
+    cpu.nvic.write(0x100, 2, mmio::AccessSize::Word);
+    bus.write32(0x40001000, 10);
+    bus.write32(0x40001008, 1);
+    cpu.interpreter.set_external_clock(true);
+    TimeScheduler scheduler;
+    TimerAdapter adapter(scheduler, *device, cpu.nvic);
+    EXPECT_EQ(scheduler.run_interpreter(1, 1, cpu.interpreter).progress, 1u);
+    EXPECT_EQ(cpu.state.get_reg(0), 0u);
+    EXPECT_EQ(bus.read32(0x40001004), 9u);
+    cpu.nvic.set_pending(1);
+    EXPECT_EQ(scheduler.run_interpreter(2, 1, cpu.interpreter).progress, 1u);
+    EXPECT_EQ(cpu.state.get_pc(), 0x2000u);
+    EXPECT_EQ(bus.read32(0x40001004), 8u);
+}
+
+TEST(PlatformTime, TimerClockRetainsFractionalTicks) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    MemoryBus bus(65536);
+    CpuInstance cpu("cpu", bus);
+    auto timer = std::make_unique<mmio::TimerDevice>();
+    auto* device = timer.get();
+    bus.register_device(std::move(timer));
+    for (uint32_t pc = 0x100; pc < 0x110; pc += 2) bus.write16(pc, 0x46c0);
+    cpu.state.set_pc(0x100);
+    bus.write32(0x40001000, 10);
+    bus.write32(0x40001008, 1);
+    cpu.interpreter.set_external_clock(true);
+    TimeScheduler scheduler;
+    TimerAdapter adapter(scheduler, *device, cpu.nvic, 2, 3);
+    EXPECT_EQ(scheduler.run_interpreter(2, 64, cpu.interpreter).progress, 2u);
+    EXPECT_EQ(bus.read32(0x40001004), 9u);
+    EXPECT_EQ(scheduler.run_interpreter(3, 500, cpu.interpreter).progress, 1u);
+    EXPECT_EQ(bus.read32(0x40001004), 8u);
+}
