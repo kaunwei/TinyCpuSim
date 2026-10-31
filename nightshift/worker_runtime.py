@@ -947,8 +947,8 @@ def execute_registered_agents(args, agents, state_path, rollback):
                 attempt.step_budget = configured_research_budget
             elif getattr(args, "research_step_budget", 0):
                 attempt.step_budget = getattr(args, "research_step_budget")
-            elif "RESEARCH_STEP_BUDGET" in os.environ:
-                attempt.step_budget = int(os.environ["RESEARCH_STEP_BUDGET"])
+            else:
+                attempt.step_budget = int(os.environ.get("RESEARCH_STEP_BUDGET", "100"))
         attempt.model = agent.get("model", "")
         attempt.extra_args = agent.get("args", [])
         attempt.agent_env = agent.get("env", {})
