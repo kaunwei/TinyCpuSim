@@ -554,3 +554,7 @@ add_custom_target(sdk_package ALL
 
 
 
+
+add_executable(platform_time_test tests/platform_time_test.cpp)
+target_link_libraries(platform_time_test PRIVATE tinyarmsim_core_static gtest_main)
+gtest_discover_tests(platform_time_test)
