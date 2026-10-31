@@ -170,6 +170,11 @@ add_executable(test_peripherals tests/unit/test_peripherals.cpp)
 target_link_libraries(test_peripherals PRIVATE tinyarmsim_core_static gtest_main)
 gtest_discover_tests(test_peripherals TEST_PREFIX "test_peripherals.")
 
+# Unit Test Mailbox Scratchpad Device
+add_executable(test_mailbox_scratchpad tests/unit/test_mailbox_scratchpad.cpp)
+target_link_libraries(test_mailbox_scratchpad PRIVATE tinyarmsim_core_static gtest_main)
+gtest_discover_tests(test_mailbox_scratchpad TEST_PREFIX "test_mailbox_scratchpad.")
+
 # uArch Cache Test
 add_executable(cache_test tests/uarch/cache_test.cpp)
 target_link_libraries(cache_test PRIVATE tinyarmsim_core_static gtest_main)
