@@ -75,10 +75,11 @@ if [ -f "CMakeCache.txt" ]; then
 fi
 
 NUM_CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
-echo "Configuring CMake (C++17, Release, Parallelism: ${NUM_CORES} cores)..."
+JOBS=${JOBS:-${NUM_CORES}}
+echo "Configuring CMake (C++17, Release, Parallelism: ${JOBS} cores)..."
 
 "${CMAKE_BIN}" "${GENERATOR_ARGS[@]}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER="${CXX_BIN}" -DCMAKE_C_COMPILER="${CC_BIN}" ..
-"${CMAKE_BIN}" --build . -j"${NUM_CORES}"
+"${CMAKE_BIN}" --build . -j"${JOBS}"
 
 echo ""
 echo "============================================================"

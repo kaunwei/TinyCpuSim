@@ -37,15 +37,28 @@ fi
 cd "${BUILD_DIR}"
 
 NUM_CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
-HALF_CORES=$(( (${NUM_CORES} + 1) / 2 ))
-JOBS=${JOBS:-${HALF_CORES}}
+JOBS=${JOBS:-${NUM_CORES}}
+
+EXTRA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --platform|-p)
+            EXTRA_ARGS+=("-L" "$2")
+            shift 2
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
 
 echo "============================================================"
 echo " [Step 2/5] Running Full Regression Suite (Parallel: ${JOBS} workers)"
 echo "============================================================"
 echo " CTest Path: ${CTEST_BIN}"
 
-"${CTEST_BIN}" -j"${JOBS}" --output-on-failure "$@"
+"${CTEST_BIN}" -j"${JOBS}" --output-on-failure "${EXTRA_ARGS[@]}"
 
 echo ""
 echo "============================================================"
