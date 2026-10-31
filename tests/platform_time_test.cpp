@@ -451,3 +451,107 @@ TEST(PlatformTime, AdapterCanBeDestroyedAfterScheduler) {
     }
     adapter.reset();
 }
+
+#include "../platforms/02_basic_mcu/topology.hpp"
+
+TEST(PlatformTime, McuTimerAndIdleWaitUseActualProgress) {
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu;
+        auto& bus = mcu.bus();
+        bus.write16(0x100, 0x46c0);
+        bus.write16(0x102, 0xbf30);
+        mcu.cpu().state.set_pc(0x100);
+        bus.write32(BasicMcuPlatform::TIMER_BASE, 3);
+        bus.write32(BasicMcuPlatform::TIMER_BASE + 8, 1);
+        auto result = mcu.run_until(10, quantum);
+        EXPECT_EQ(result.reason, StopReason::Wait);
+        EXPECT_EQ(result.progress, 2u);
+        EXPECT_EQ(mcu.time(), 3u);
+        EXPECT_EQ(bus.read32(BasicMcuPlatform::TIMER_BASE + 4), 0u);
+        EXPECT_EQ(bus.read32(BasicMcuPlatform::TIMER_BASE + 0x10), 1u);
+    }
+}
+
+TEST(PlatformTime, McuTimerWakesWfiAndAliasesAdvanceOnce) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu;
+        auto& bus = mcu.bus();
+        auto* timer = bus.get_device_at<mmio::TimerDevice>(BasicMcuPlatform::TIMER_BASE);
+        bus.register_device(std::make_unique<ProxyMMIODevice>(*timer, 0x40003000, 0x1000));
+        bus.write16(0x100, 0xbf30);
+        bus.write16(0x102, 0x202a);
+        mcu.cpu().state.set_pc(0x100);
+        mcu.cpu().state.set_primask(true);
+        mcu.cpu().nvic.write(0x100, 2, mmio::AccessSize::Word);
+        bus.write32(0x40003000, 3);
+        bus.write32(BasicMcuPlatform::TIMER_BASE + 8, 5);
+        auto before = mcu.run_until(2, quantum);
+        EXPECT_EQ(before.progress, 1u);
+        EXPECT_EQ(bus.read32(0x40003004), 1u);
+        auto after = mcu.run_until(4, quantum);
+        EXPECT_EQ(after.progress, 1u);
+        EXPECT_EQ(mcu.cpu().state.get_reg(0), 42u);
+        EXPECT_TRUE(mcu.cpu().nvic.is_pending(1));
+    }
+}
+
+TEST(PlatformTime, McuClockedDevicesProgressDuringWait) {
+    using namespace tinyarmsim::platform;
+    BasicMcuPlatform mcu;
+    auto& bus = mcu.bus();
+    bus.write16(0x100, 0xbf30);
+    mcu.cpu().state.set_pc(0x100);
+    bus.write32(BasicMcuPlatform::UART_BASE + 0x10, 1);
+    bus.write32(BasicMcuPlatform::UART_BASE, 'A');
+    bus.write32(BasicMcuPlatform::GPIO_BASE + 0x18, 3);
+    auto* gpio = bus.get_device_at<tinyarmsim::mmio::GpioDevice>(BasicMcuPlatform::GPIO_BASE);
+    gpio->inject_external_input(1);
+    auto result = mcu.run_until(20, 8);
+    EXPECT_EQ(result.reason, StopReason::Wait);
+    EXPECT_EQ(result.progress, 1u);
+    EXPECT_EQ(mcu.time(), 10u);
+    EXPECT_EQ(bus.read32(BasicMcuPlatform::GPIO_BASE + 4), 1u);
+    EXPECT_EQ(bus.get_device_at<tinyarmsim::mmio::UartDevice>(BasicMcuPlatform::UART_BASE)->get_tx_output(), "A");
+}
+
+TEST(PlatformTime, McuPendingMaskedIrqAndRelativeRun) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu;
+        mcu.bus().write16(0x100, 0xbf30);
+        mcu.bus().write16(0x102, 0x202a);
+        mcu.cpu().state.set_pc(0x100);
+        mcu.cpu().state.set_primask(true);
+        mcu.cpu().nvic.write(0x100, 2, mmio::AccessSize::Word);
+        mcu.cpu().nvic.set_pending(1);
+        EXPECT_EQ(mcu.run(2, quantum), 2u);
+        EXPECT_EQ(mcu.time(), 2u);
+        EXPECT_EQ(mcu.cpu().state.get_reg(0), 42u);
+        EXPECT_TRUE(mcu.cpu().nvic.is_pending(1));
+    }
+}
+
+TEST(PlatformTime, McuTimerInterruptsExecutingCpu) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu;
+        auto& bus = mcu.bus();
+        for (uint32_t pc = 0x100; pc < 0x110; pc += 2) bus.write16(pc, 0x46c0);
+        bus.write32(0x1044, 0x2001);
+        bus.write16(0x2000, 0x2463);
+        mcu.cpu().state.set_pc(0x100);
+        mcu.cpu().state.set_reg(13, 0x8000);
+        mcu.cpu().nvic.set_vtor(0x1000);
+        mcu.cpu().nvic.write(0x100, 2, mmio::AccessSize::Word);
+        bus.write32(BasicMcuPlatform::TIMER_BASE, 3);
+        bus.write32(BasicMcuPlatform::TIMER_BASE + 8, 5);
+        EXPECT_EQ(mcu.run_until(5, quantum).progress, 5u);
+        EXPECT_EQ(mcu.cpu().state.get_reg(4), 99u);
+        EXPECT_EQ(bus.read32(BasicMcuPlatform::TIMER_BASE + 0x10), 1u);
+    }
+}
