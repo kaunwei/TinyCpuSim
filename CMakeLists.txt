@@ -450,4 +450,45 @@ add_executable(test_accelerator_subsystem tests/unit/test_accelerator_subsystem.
 target_link_libraries(test_accelerator_subsystem PRIVATE tinyarmsim_core_static gtest_main)
 gtest_discover_tests(test_accelerator_subsystem TEST_PREFIX "test_accelerator_subsystem.")
 
+# Virtual Platform Integration Test & Topology DSL
+if (ARM_NONE_EABI_GCC)
+    set(CONV_HOST_ELF "${CMAKE_CURRENT_BINARY_DIR}/conv_host.elf")
+    set(CONV_ACCEL_ELF "${CMAKE_CURRENT_BINARY_DIR}/conv_accelerator.elf")
+    add_custom_command(
+        OUTPUT "${CONV_HOST_ELF}"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/projects/conv_host/main.c"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            -o "${CONV_HOST_ELF}"
+        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld firmware/bsp/mailbox.h
+            firmware/projects/conv_host/main.c
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${CONV_ACCEL_ELF}"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/projects/conv_accelerator/main.c"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            -o "${CONV_ACCEL_ELF}"
+        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld firmware/bsp/mailbox.h
+            firmware/projects/conv_accelerator/main.c
+        VERBATIM)
+    add_custom_target(conv_firmware_elves DEPENDS "${CONV_HOST_ELF}" "${CONV_ACCEL_ELF}")
+
+    add_executable(virtual_platform_test tests/virtual_platform_test.cpp)
+    target_link_libraries(virtual_platform_test PRIVATE tinyarmsim_core_static gtest_main)
+    target_include_directories(virtual_platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_dependencies(virtual_platform_test conv_firmware_elves)
+    target_compile_definitions(virtual_platform_test PRIVATE
+        CONV_HOST_ELF="${CONV_HOST_ELF}"
+        CONV_ACCEL_ELF="${CONV_ACCEL_ELF}")
+    gtest_discover_tests(virtual_platform_test TEST_PREFIX "virtual_platform_test.")
+endif()
+
+
 

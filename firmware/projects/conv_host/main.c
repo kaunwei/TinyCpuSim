@@ -3,7 +3,7 @@
 #include "mailbox.h"
 
 static volatile uint32_t g_conv_done = 0;
-static volatile uint32_t* const g_test_result = (volatile uint32_t*)0x20007FFC;
+static volatile uint32_t* const g_test_result = (volatile uint32_t*)0x0002FFFC;
 
 void Mailbox_IRQHandler(void) {
     MAILBOX_INTCLR = 1;
