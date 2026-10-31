@@ -509,14 +509,46 @@ endif()
 ]=])
 
 add_custom_target(sdk_package ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/platform"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/memory"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/uarch"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/lib"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/cmake"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
+    # Unified Facade Header
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/tinyarmsim.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/"
+    # Platform APIs
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/platform/virtual_platform.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/platform/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/platform/proxy_device.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/platform/"
+    # Memory APIs
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/memory/memory_bus.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/memory/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/memory/loader.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/memory/"
+    # Device APIs
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/device.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/uart.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/timer.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/gpio.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/dma.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/spi.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/i2c.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/dev/crc32.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/dev/"
+    # CPU Core Interface Headers
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/cpu/common.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/cpu/instruction.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/cpu/state.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/cpu/interpreter.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/cpu/faults.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/cpu/nvic.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/cpu/"
+    # uArch Config Header
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/include/tinyarmsim/uarch/config.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/tinyarmsim/uarch/"
+    # Static Library & CMake Config
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:tinyarmsim_core_static>" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/lib/libtinyarmsim_core_static.a"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/TinyCpuSimConfig.cmake" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/cmake/TinyCpuSimConfig.cmake"
     DEPENDS tinyarmsim_core_static
-    COMMENT "Packaging TinyCpuSim SDK into sdk/"
+    COMMENT "Packaging TinyCpuSim SDK (Public Interface Only) into sdk/"
 )
 
 
