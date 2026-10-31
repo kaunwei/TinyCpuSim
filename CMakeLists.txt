@@ -179,7 +179,7 @@ gtest_discover_tests(test_peripherals TEST_PREFIX "test_peripherals.")
 # Unit Test Mailbox Scratchpad Device
 add_executable(test_mailbox_scratchpad tests/unit/test_mailbox_scratchpad.cpp)
 target_link_libraries(test_mailbox_scratchpad PRIVATE tinyarmsim_core_static gtest_main)
-gtest_discover_tests(test_mailbox_scratchpad TEST_PREFIX "test_mailbox_scratchpad.")
+gtest_discover_tests(test_mailbox_scratchpad TEST_PREFIX "test_mailbox_scratchpad." PROPERTIES LABELS "accel")
 
 # uArch Cache Test
 add_executable(cache_test tests/uarch/cache_test.cpp)
@@ -449,7 +449,7 @@ gtest_discover_tests(test_virtual_platform_orchestrator TEST_PREFIX "test_virtua
 # Unit Test Accelerator Subsystem
 add_executable(test_accelerator_subsystem tests/unit/test_accelerator_subsystem.cpp)
 target_link_libraries(test_accelerator_subsystem PRIVATE tinyarmsim_core_static gtest_main)
-gtest_discover_tests(test_accelerator_subsystem TEST_PREFIX "test_accelerator_subsystem.")
+gtest_discover_tests(test_accelerator_subsystem TEST_PREFIX "test_accelerator_subsystem." PROPERTIES LABELS "accel")
 
 # Virtual Platform Integration Test & Topology DSL
 if (ARM_NONE_EABI_GCC)
@@ -488,11 +488,13 @@ if (ARM_NONE_EABI_GCC)
     target_compile_definitions(virtual_platform_test PRIVATE
         CONV_HOST_ELF="${CONV_HOST_ELF}"
         CONV_ACCEL_ELF="${CONV_ACCEL_ELF}")
-    gtest_discover_tests(virtual_platform_test TEST_PREFIX "virtual_platform_test.")
+    gtest_discover_tests(virtual_platform_test TEST_PREFIX "virtual_platform_test." PROPERTIES LABELS "accel")
 endif()
 
 add_subdirectory(platforms/01_basic_perf)
 add_subdirectory(platforms/02_basic_mcu)
+add_subdirectory(platforms/03_coprocessor_accel)
+
 
 
 

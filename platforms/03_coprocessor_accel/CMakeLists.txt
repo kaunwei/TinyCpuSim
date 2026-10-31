@@ -1,0 +1,5 @@
+add_executable(platform_03_accel_demo demo/main.cpp)
+target_link_libraries(platform_03_accel_demo PRIVATE tinyarmsim_core_static)
+target_include_directories(platform_03_accel_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+add_test(NAME platform_03_accel_demo_test COMMAND platform_03_accel_demo)
+set_tests_properties(platform_03_accel_demo_test PROPERTIES LABELS "accel")
