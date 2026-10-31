@@ -1,0 +1,5 @@
+add_executable(platform_02_mcu_demo demo/main.cpp)
+target_link_libraries(platform_02_mcu_demo PRIVATE tinyarmsim_core_static)
+target_include_directories(platform_02_mcu_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+add_test(NAME platform_02_mcu_demo_test COMMAND platform_02_mcu_demo)
+set_tests_properties(platform_02_mcu_demo_test PROPERTIES LABELS "mcu")

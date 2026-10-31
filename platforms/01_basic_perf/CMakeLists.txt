@@ -1,0 +1,5 @@
+add_executable(platform_01_perf_demo demo/main.cpp)
+target_link_libraries(platform_01_perf_demo PRIVATE tinyarmsim_core_static)
+target_include_directories(platform_01_perf_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+add_test(NAME platform_01_perf_demo_test COMMAND platform_01_perf_demo)
+set_tests_properties(platform_01_perf_demo_test PROPERTIES LABELS "perf")

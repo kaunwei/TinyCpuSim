@@ -491,5 +491,8 @@ if (ARM_NONE_EABI_GCC)
     gtest_discover_tests(virtual_platform_test TEST_PREFIX "virtual_platform_test.")
 endif()
 
+add_subdirectory(platforms/01_basic_perf)
+add_subdirectory(platforms/02_basic_mcu)
+
 
 
