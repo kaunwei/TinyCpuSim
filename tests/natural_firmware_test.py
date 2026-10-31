@@ -122,7 +122,7 @@ class NaturalFirmwareTest(unittest.TestCase):
             str(self.root / "platforms/common/bsp/linker.ld"),
             str(self.root / "platforms/common/bsp/startup.s"),
             "-I", str(self.root / "platforms/common/bsp"),
-            "-I", str(self.root / "platforms/02_basic_mcu/bsp"),
+            "-I", str(self.root / "platforms/common/bsp"),
             *map(str, extra_sources),
             str(source),
             "-o",

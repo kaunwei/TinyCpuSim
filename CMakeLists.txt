@@ -296,7 +296,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(BAREMETAL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/isa_boot_acceptance.elf")
     add_custom_command(
         OUTPUT "${BAREMETAL_ACCEPTANCE_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/isa_boot_acceptance.c"
@@ -322,7 +322,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(SCHEDULER_ACCEPTANCE_DEBUG_ELF "${CMAKE_CURRENT_BINARY_DIR}/scheduler_acceptance_debug.elf")
     add_custom_command(
         OUTPUT "${SCHEDULER_ACCEPTANCE_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
@@ -338,7 +338,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
 
     add_custom_command(
         OUTPUT "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
@@ -358,7 +358,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(SHELL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/shell_acceptance.elf")
     add_custom_command(
         OUTPUT "${SHELL_ACCEPTANCE_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
@@ -378,7 +378,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(REFERENCE_APP_DEBUG_ELF "${CMAKE_CURRENT_BINARY_DIR}/reference_app_debug.elf")
     add_custom_command(
         OUTPUT "${REFERENCE_APP_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
@@ -396,7 +396,7 @@ if (ENABLE_BAREMETAL_FIRMWARE)
 
     add_custom_command(
         OUTPUT "${REFERENCE_APP_DEBUG_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
@@ -457,7 +457,7 @@ if (ARM_NONE_EABI_GCC)
     set(CONV_ACCEL_ELF "${CMAKE_CURRENT_BINARY_DIR}/conv_accelerator.elf")
     add_custom_command(
         OUTPUT "${CONV_HOST_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/03_coprocessor_accel/firmware/conv_host/main.c"
@@ -469,7 +469,7 @@ if (ARM_NONE_EABI_GCC)
         VERBATIM)
     add_custom_command(
         OUTPUT "${CONV_ACCEL_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/platforms/03_coprocessor_accel/firmware/conv_accelerator/main.c"

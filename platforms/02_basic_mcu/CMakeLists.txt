@@ -6,14 +6,14 @@ if (ARM_NONE_EABI_GCC)
     add_custom_command(
         OUTPUT "${MCU_UART_ECHO_ELF}"
         COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O2 -ffreestanding -nostdlib -Wall -Wextra
-            -T "${CMAKE_CURRENT_SOURCE_DIR}/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/bsp/uart.c"
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/uart.c"
             "${CMAKE_CURRENT_SOURCE_DIR}/firmware/uart_echo/main.c"
-            -I "${CMAKE_CURRENT_SOURCE_DIR}/bsp"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp"
             -I "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
             -o "${MCU_UART_ECHO_ELF}"
-        DEPENDS bsp/startup.s bsp/linker.ld bsp/uart.c bsp/uart.h firmware/uart_echo/main.c
+        DEPENDS ../common/bsp/startup.s ../common/bsp/linker.ld ../common/bsp/uart.c ../common/bsp/uart.h firmware/uart_echo/main.c
         VERBATIM)
 
     add_custom_target(mcu_platform_elves DEPENDS "${MCU_UART_ECHO_ELF}")

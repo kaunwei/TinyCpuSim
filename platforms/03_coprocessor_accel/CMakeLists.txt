@@ -7,25 +7,25 @@ if (ARM_NONE_EABI_GCC)
     add_custom_command(
         OUTPUT "${ACCEL_CONV_HOST_ELF}"
         COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra
-            -T "${CMAKE_CURRENT_SOURCE_DIR}/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/bsp/startup.s"
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/firmware/conv_host/main.c"
-            -I "${CMAKE_CURRENT_SOURCE_DIR}/bsp"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp"
             -I "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
             -o "${ACCEL_CONV_HOST_ELF}"
-        DEPENDS bsp/startup.s bsp/linker.ld bsp/mailbox.h firmware/conv_host/main.c
+        DEPENDS ../common/bsp/startup.s ../common/bsp/linker.ld ../common/bsp/mailbox.h firmware/conv_host/main.c
         VERBATIM)
 
     add_custom_command(
         OUTPUT "${ACCEL_CONV_ACCEL_ELF}"
         COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra
-            -T "${CMAKE_CURRENT_SOURCE_DIR}/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/bsp/startup.s"
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp/startup.s"
             "${CMAKE_CURRENT_SOURCE_DIR}/firmware/conv_accelerator/main.c"
-            -I "${CMAKE_CURRENT_SOURCE_DIR}/bsp"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/../common/bsp"
             -I "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
             -o "${ACCEL_CONV_ACCEL_ELF}"
-        DEPENDS bsp/startup.s bsp/linker.ld bsp/mailbox.h firmware/conv_accelerator/main.c
+        DEPENDS ../common/bsp/startup.s ../common/bsp/linker.ld ../common/bsp/mailbox.h firmware/conv_accelerator/main.c
         VERBATIM)
 
     add_custom_target(accel_platform_elves DEPENDS "${ACCEL_CONV_HOST_ELF}" "${ACCEL_CONV_ACCEL_ELF}")
