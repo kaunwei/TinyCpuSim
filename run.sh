@@ -1,12 +1,12 @@
 #!/bin/bash
-# TinyCpuSim Unified Top-Level Interactive Launcher & Workflow Manager
+# TinyCpuSim Unified Top-Level Interactive Platform Launcher & Workflow Manager
 set -e
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build"
 CONFIGS_DIR="${PROJECT_ROOT}/configs"
 FIXTURES_DIR="${PROJECT_ROOT}/tests/fixtures"
 
-# Resolve default installation path for Python, avoiding env/PATH where possible
 find_default_python() {
     for candidate in \
         "/usr/bin/python3" \
@@ -29,75 +29,183 @@ PYTHON_BIN=$(find_default_python)
 
 print_banner() {
     echo "============================================================"
-    echo "       TinyCpuSim - ARM Out-of-Order CPU Simulator          "
+    echo "       TinyCpuSim - Modular Virtual Platform Manager        "
     echo "============================================================"
-}
-
-run_interactive_exp() {
-    "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" "$@"
 }
 
 show_help() {
     print_banner
-    echo "TinyCpuSim Unified Command Line & Menu Interface Manual"
+    echo "TinyCpuSim Modular Platform Launcher & CLI Manual"
     echo "============================================================"
-    echo "5-Step Sequential Demo Workflow:"
-    echo "  ./run.sh build                      # [Step 1] Build simulator (Release mode)"
-    echo "  ./run.sh test                       # [Step 2] Run unit & regression tests (parallel ctest)"
-    echo "  ./run.sh ubench [bpu|exec|rob|cache|all] # [Step 3] Run component microbenchmarks (<1% Δ)"
-    echo "  ./run.sh sim [elf] [config]         # [Step 4] Run simulation (zero-args reads current.cfg)"
-    echo "  ./run.sh gem5 [--all]               # [Step 5] Compare accuracy vs gem5 golden (100% PASS)"
+    echo "2-Step Interactive Mode:"
+    echo "  ./run.sh                            # Launches Step 1 (Platform Selection)"
     echo ""
-    echo "Architecture Exploration & Config Management:"
-    echo "  ./run.sh exp                        # Run experiment on active config (configs/current.cfg) vs baseline"
-    echo "  ./run.sh exp [elf]                  # Run experiment on target ELF using active config"
-    echo "  ./run.sh exp --set k=v              # Run experiment with hardware overrides (e.g. ooo=false)"
-    echo "  ./run.sh config                     # Launch interactive configuration manager TUI"
-    echo "  ./run.sh edit                       # Direct vi editing of active configs/current.cfg"
-    echo "  ./run.sh show                       # Display full active microarchitecture dashboard"
-    echo "  ./run.sh list                       # List all presets and snapshots in default/ and save/"
-    echo "  ./run.sh sweep                      # Run dynamic parameter sweep on hardware knobs"
+    echo "Platform Direct CLI Invocations:"
+    echo "  ./run.sh perf [ubench|gem5|exp|sweep|demo|test]"
+    echo "  ./run.sh mcu [pty|test|demo|fw]"
+    echo "  ./run.sh accel [demo|test|cosim]"
+    echo "  ./run.sh all [build|test]"
     echo ""
-    echo "Catalogs & Utilities:"
-    echo "  ./run.sh fw                         # Launch firmware environment (build, test, --pty, --debug)"
-    echo "  ./run.sh knobs                      # List all tunable hardware parameters & units"
-    echo "  ./run.sh elfs                       # List all built-in benchmark ELF workloads"
-    echo "  ./run.sh setup                      # Install required system & Python dependencies"
-    echo "  ./run.sh clean                      # Clean build artifacts"
+    echo "Global Shortcuts & Utilities:"
+    echo "  ./run.sh build                      # Build all targets in parallel"
+    echo "  ./run.sh test                       # Run full test suite across all 8 cores"
+    echo "  ./run.sh ubench [suite]             # Microarchitectural counters vs gem5"
+    echo "  ./run.sh gem5 [--all]               # gem5 golden comparison"
+    echo "  ./run.sh sim [elf] [cfg]            # Run CPU simulation"
+    echo "  ./run.sh exp                        # Run microarchitecture experiment"
+    echo "  ./run.sh config                     # Hardware configuration manager"
+    echo "  ./run.sh fw                         # Baremetal firmware runner"
+    echo "  ./run.sh clean                      # Clean build directory"
     echo "  ./run.sh help                       # Display this help manual"
     echo "============================================================"
 }
 
-show_menu() {
+# Platform 1 Action Handler
+handle_perf_action() {
+    local action="${1:-menu}"
+    if [ "${action}" = "menu" ]; then
+        echo "Platform: [01_basic_perf] CPU Microarchitecture & Correlation"
+        echo "  [1] uBench:  Run Component Microbenchmarks (<1% Δ vs gem5)"
+        echo "  [2] gem5:    Compare Accuracy vs gem5 Golden Reference"
+        echo "  [3] Exp:     Run Experiment on Active Config vs Baseline"
+        echo "  [4] Sweep:   Run Hardware Parameter Sweep"
+        echo "  [5] Sim:     Run CPU Simulation (configs/current.cfg)"
+        echo "  [6] Demo:    Run 01_basic_perf Demo Binary"
+        echo "  [7] Test:    Run Platform Perf Tests (-L perf)"
+        echo "  [0] Back"
+        read -r -p "Enter choice [1-7, 0]: " act_choice
+        case "${act_choice}" in
+            1) "${PROJECT_ROOT}/scripts/03_run_ubench.sh" ;;
+            2) "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" --all ;;
+            3) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" ;;
+            4) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep ;;
+            5) "${PROJECT_ROOT}/scripts/04_run_simulation.sh" ;;
+            6) "${BUILD_DIR}/platforms/01_basic_perf/platform_01_perf_demo" ;;
+            7) "${PROJECT_ROOT}/scripts/02_run_tests.sh" --platform perf ;;
+            0) show_platform_menu ;;
+            *) echo "Invalid choice."; exit 1 ;;
+        esac
+    else
+        case "${action}" in
+            ubench) "${PROJECT_ROOT}/scripts/03_run_ubench.sh" "${@:2}" ;;
+            gem5) "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" "${@:2}" ;;
+            exp|experiment) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" "${@:2}" ;;
+            sweep) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep "${@:2}" ;;
+            sim|simulate) "${PROJECT_ROOT}/scripts/04_run_simulation.sh" "${@:2}" ;;
+            demo) "${BUILD_DIR}/platforms/01_basic_perf/platform_01_perf_demo" ;;
+            test|tests) "${PROJECT_ROOT}/scripts/02_run_tests.sh" --platform perf ;;
+            *) echo "Unknown perf action: ${action}"; exit 1 ;;
+        esac
+    fi
+}
+
+# Platform 2 Action Handler
+handle_mcu_action() {
+    local action="${1:-menu}"
+    if [ "${action}" = "menu" ]; then
+        echo "Platform: [02_basic_mcu] Cortex-M3 SoC & Baremetal MCU"
+        echo "  [1] PTY:     Run Interactive UART PTY Terminal Demo"
+        echo "  [2] Test:    Run Baremetal Peripheral Tests (-L mcu)"
+        echo "  [3] Demo:    Run 02_basic_mcu Demo Binary"
+        echo "  [4] FW:      Run Firmware Environment (PTY Terminal, Scheduler, Watchdog)"
+        echo "  [0] Back"
+        read -r -p "Enter choice [1-4, 0]: " act_choice
+        case "${act_choice}" in
+            1) "${PROJECT_ROOT}/scripts/run_firmware.sh" uart_echo --pty ;;
+            2) "${PROJECT_ROOT}/scripts/02_run_tests.sh" --platform mcu ;;
+            3) "${BUILD_DIR}/platforms/02_basic_mcu/platform_02_mcu_demo" ;;
+            4) "${PROJECT_ROOT}/scripts/run_firmware.sh" ;;
+            0) show_platform_menu ;;
+            *) echo "Invalid choice."; exit 1 ;;
+        esac
+    else
+        case "${action}" in
+            pty) "${PROJECT_ROOT}/scripts/run_firmware.sh" uart_echo --pty ;;
+            test|tests) "${PROJECT_ROOT}/scripts/02_run_tests.sh" --platform mcu ;;
+            demo) "${BUILD_DIR}/platforms/02_basic_mcu/platform_02_mcu_demo" ;;
+            fw|firmware) "${PROJECT_ROOT}/scripts/run_firmware.sh" "${@:2}" ;;
+            *) echo "Unknown mcu action: ${action}"; exit 1 ;;
+        esac
+    fi
+}
+
+# Platform 3 Action Handler
+handle_accel_action() {
+    local action="${1:-menu}"
+    if [ "${action}" = "menu" ]; then
+        echo "Platform: [03_coprocessor_accel] Dual-Core Heterogeneous SoC & Accel"
+        echo "  [1] Demo:    Run 03_coprocessor_accel Demo Binary"
+        echo "  [2] Test:    Run Co-processor & Accel Platform Tests (-L accel)"
+        echo "  [3] CoSim:   Run Full Dual-Core Virtual Platform Test"
+        echo "  [0] Back"
+        read -r -p "Enter choice [1-3, 0]: " act_choice
+        case "${act_choice}" in
+            1) "${BUILD_DIR}/platforms/03_coprocessor_accel/platform_03_accel_demo" ;;
+            2) "${PROJECT_ROOT}/scripts/02_run_tests.sh" --platform accel ;;
+            3) ctest --test-dir "${BUILD_DIR}" -R virtual_platform_test --output-on-failure ;;
+            0) show_platform_menu ;;
+            *) echo "Invalid choice."; exit 1 ;;
+        esac
+    else
+        case "${action}" in
+            demo) "${BUILD_DIR}/platforms/03_coprocessor_accel/platform_03_accel_demo" ;;
+            test|tests) "${PROJECT_ROOT}/scripts/02_run_tests.sh" --platform accel ;;
+            cosim) ctest --test-dir "${BUILD_DIR}" -R virtual_platform_test --output-on-failure ;;
+            *) echo "Unknown accel action: ${action}"; exit 1 ;;
+        esac
+    fi
+}
+
+# All Platforms Handler
+handle_all_action() {
+    local action="${1:-menu}"
+    if [ "${action}" = "menu" ]; then
+        echo "Universal: All Platforms"
+        echo "  [1] Build:   Build All Platforms & Core (Parallel: $(nproc) cores)"
+        echo "  [2] Test:    Run All Tests Across All Platforms (Parallel: $(nproc) workers)"
+        echo "  [3] gem5:    Run Full gem5 & Microbench Suite"
+        echo "  [0] Back"
+        read -r -p "Enter choice [1-3, 0]: " act_choice
+        case "${act_choice}" in
+            1) "${PROJECT_ROOT}/scripts/01_build.sh" ;;
+            2) "${PROJECT_ROOT}/scripts/02_run_tests.sh" ;;
+            3) "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" --all ;;
+            0) show_platform_menu ;;
+            *) echo "Invalid choice."; exit 1 ;;
+        esac
+    else
+        case "${action}" in
+            build) "${PROJECT_ROOT}/scripts/01_build.sh" "${@:2}" ;;
+            test|tests) "${PROJECT_ROOT}/scripts/02_run_tests.sh" "${@:2}" ;;
+            gem5) "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" --all ;;
+            *) echo "Unknown all action: ${action}"; exit 1 ;;
+        esac
+    fi
+}
+
+show_platform_menu() {
     print_banner
-    echo "Sequential Demo Workflow:"
-    echo "  [1] Build:    Build Project (Release Mode)"
-    echo "  [2] Test:     Run Full Test Suite (Unit & Regression Tests)"
-    echo "  [3] uBench:   Run Component Microbenchmarks (uBench)"
-    echo "  [4] Sim:      Run CPU Simulation (reads configs/current.cfg automatically)"
-    echo "  [5] gem5:     Compare Accuracy against gem5 Golden Reference (100% PASS)"
+    echo "Step 1: Select Virtual Platform / Project"
+    echo "============================================================"
+    echo "  [1] 01_basic_perf:        Microarchitecture & gem5 Golden Calibration"
+    echo "  [2] 02_basic_mcu:         Cortex-M3 SoC & Baremetal Firmware (PTY, UART, DMA)"
+    echo "  [3] 03_coprocessor_accel: Dual-Core SoC, Mailbox & 2D Conv Acceleration"
+    echo "  [A] All Platforms:        Universal Parallel Build & Full Regression Suite"
     echo ""
-    echo "Architecture Exploration:"
-    echo "  [E] Exp:      Run Experiment on Active Config vs Baseline"
-    echo "  [C] Config:   Configure Active Simulation, Hardware Knobs, Presets, Save/Load"
-    echo "  [V] View:     View Full Active Microarchitecture Dashboard"
-    echo "  [S] Sweep:    Run Batch Parameter Sweep across Microarchitectural Knobs"
-    echo "  [F] FW:       Run Firmware Environment (PTY Terminal, Scheduler, Watchdog)"
-    echo "  [H] Help:     View Complete Command & Usage Manual"
+    echo "Global Utilities & Shortcuts:"
+    echo "  [C] Config:   Hardware Configuration Manager"
+    echo "  [L] Clean:    Clean Build Artifacts"
+    echo "  [H] Help:     View Command Manual"
     echo "  [0] Exit"
     echo "============================================================"
-    read -r -p "Enter choice [1-5, E, C, V, S, F, H, 0]: " choice
+    read -r -p "Enter choice [1-3, A, C, L, H, 0]: " choice
     case "${choice}" in
-        1) "${PROJECT_ROOT}/scripts/01_build.sh" ;;
-        2) "${PROJECT_ROOT}/scripts/02_run_tests.sh" ;;
-        3) "${PROJECT_ROOT}/scripts/03_run_ubench.sh" ;;
-        4) "${PROJECT_ROOT}/scripts/04_run_simulation.sh" ;;
-        5) "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" --all ;;
-        e|E|exp|experiment) run_interactive_exp ;;
+        1) handle_perf_action "menu" ;;
+        2) handle_mcu_action "menu" ;;
+        3) handle_accel_action "menu" ;;
+        a|A|all) handle_all_action "menu" ;;
         c|C|config) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" ;;
-        v|V|view|show) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" show ;;
-        s|S|sweep) "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep ;;
-        f|F|fw|firmware) "${PROJECT_ROOT}/scripts/run_firmware.sh" ;;
+        l|L|clean) rm -rf "${BUILD_DIR}"; echo "[OK] Cleaned build directory." ;;
         h|H|help) show_help ;;
         0|q|Q) echo "Goodbye!"; exit 0 ;;
         *) echo "Invalid option."; exit 1 ;;
@@ -105,30 +213,42 @@ show_menu() {
 }
 
 if [ $# -eq 0 ]; then
-    show_menu
+    show_platform_menu
 else
     COMMAND="$1"
     shift || true
     case "${COMMAND}" in
-        1|build)
+        1|perf|01_basic_perf)
+            handle_perf_action "$@"
+            ;;
+        2|mcu|02_basic_mcu)
+            handle_mcu_action "$@"
+            ;;
+        3|accel|03_coprocessor_accel)
+            handle_accel_action "$@"
+            ;;
+        a|all)
+            handle_all_action "$@"
+            ;;
+        build)
             "${PROJECT_ROOT}/scripts/01_build.sh" "$@"
             ;;
-        2|test|tests)
+        test|tests)
             "${PROJECT_ROOT}/scripts/02_run_tests.sh" "$@"
             ;;
-        3|ubench)
+        ubench)
             "${PROJECT_ROOT}/scripts/03_run_ubench.sh" "$@"
             ;;
-        4|sim|simulate)
+        sim|simulate)
             "${PROJECT_ROOT}/scripts/04_run_simulation.sh" "$@"
             ;;
-        5|gem5)
+        gem5)
             "${PROJECT_ROOT}/scripts/05_compare_gem5.sh" "$@"
             ;;
-        e|exp|experiment)
+        exp|experiment)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" "$@"
             ;;
-        c|cfg|config)
+        cfg|config)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" "$@"
             ;;
         edit|vi)
@@ -140,7 +260,7 @@ else
         list|ls)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" list
             ;;
-        s|sweep)
+        sweep)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/config.py" sweep "$@"
             ;;
         knobs|params|list-params)
@@ -149,7 +269,7 @@ else
         elfs|list-elfs)
             "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/experiment.py" --list-elfs
             ;;
-        f|fw|firmware)
+        fw|firmware)
             "${PROJECT_ROOT}/scripts/run_firmware.sh" "$@"
             ;;
         setup|deps|install-deps)
