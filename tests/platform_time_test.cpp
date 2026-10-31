@@ -610,3 +610,30 @@ TEST(PlatformTime, McuTimerInterruptsExecutingCpu) {
         EXPECT_EQ(bus.read32(BasicMcuPlatform::TIMER_BASE + 0x10), 1u);
     }
 }
+
+TEST(PlatformTime, UartResetBetweenDeviceAndIrqRejectsStaleNotification) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    TimeScheduler scheduler;
+    mmio::UartDevice uart;
+    mmio::NVICDevice nvic;
+    uart.write(0x10, 1, mmio::AccessSize::Word);
+    uart.write(0, 'A', mmio::AccessSize::Word);
+    UartAdapter adapter(scheduler, uart, nvic);
+    adapter.refresh();
+    scheduler.schedule(1, EventPhase::Device, [&] {
+        uart.reset();
+        uart.write(8, 7, mmio::AccessSize::Word);
+        uart.inject_rx('R');
+    });
+    scheduler.run(1, 1, [] { return StepResult::Progress; });
+    EXPECT_TRUE(uart.has_pending_irq());
+    EXPECT_FALSE(nvic.is_pending(uart.irq_line()));
+
+    uart.write(0x10, 1, mmio::AccessSize::Word);
+    uart.write(0, 'B', mmio::AccessSize::Word);
+    adapter.refresh();
+    scheduler.run(2, 1, [] { return StepResult::Progress; });
+    EXPECT_TRUE(nvic.is_pending(uart.irq_line()));
+    EXPECT_EQ(uart.read(0, mmio::AccessSize::Word), 'R');
+}

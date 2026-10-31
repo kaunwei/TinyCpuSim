@@ -39,13 +39,15 @@ private:
         if (scheduler_.now() == std::numeric_limits<uint64_t>::max()) return;
         scheduled_ = true;
         std::weak_ptr<int> lifetime = lifetime_;
-        device_event_ = scheduler_.schedule(scheduler_.now() + 1, EventPhase::Device, [this, lifetime] {
+        const auto generation = generation_;
+        device_event_ = scheduler_.schedule(scheduler_.now() + 1, EventPhase::Device, [this, lifetime, generation] {
             if (lifetime.expired()) return;
             scheduled_ = false;
-            if (generation_ != uart_.reset_generation()) { refresh(); return; }
+            if (generation != uart_.reset_generation()) { refresh(); return; }
             uart_.tick(clock_.convert(1));
-            irq_event_ = scheduler_.schedule(scheduler_.now(), EventPhase::Irq, [this, lifetime] {
-                if (!lifetime.expired() && uart_.has_pending_irq()) nvic_.set_pending(uart_.irq_line());
+            irq_event_ = scheduler_.schedule(scheduler_.now(), EventPhase::Irq, [this, lifetime, generation] {
+                if (!lifetime.expired() && generation == uart_.reset_generation() && uart_.has_pending_irq())
+                    nvic_.set_pending(uart_.irq_line());
             });
             if (uart_.is_busy()) schedule_next();
         });
