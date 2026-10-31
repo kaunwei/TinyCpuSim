@@ -498,7 +498,7 @@ add_subdirectory(platforms/03_coprocessor_accel)
 # Generate SDK Export Configuration
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/TinyCpuSimConfig.cmake"
 [=[# TinyCpuSim SDK Configuration
-get_filename_component(_TINYCPUSIM_SDK_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+get_filename_component(_TINYCPUSIM_SDK_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 if(NOT TARGET TinyCpuSim::Core)
     add_library(TinyCpuSim::Core STATIC IMPORTED GLOBAL)
     set_target_properties(TinyCpuSim::Core PROPERTIES
