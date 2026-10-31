@@ -12,6 +12,7 @@
 #include "tinyarmsim/loader.hpp"
 #include "tinyarmsim/mmio/nvic.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
+#include "tinyarmsim/platform/time_scheduler.hpp"
 #include "mailbox_scratchpad.hpp"
 
 namespace tinyarmsim::platform {
@@ -60,22 +61,38 @@ public:
         Loader::boot_cortex_m(accel_bus_, accel_state_, vtor_base);
     }
 
-    void step_quantum(uint64_t instructions) {
-        if (halted_) return;
-        uint64_t executed = 0;
-        while (executed < instructions && !halted_) {
-            try {
-                accel_cpu_.step();
-                executed++;
-            } catch (const CpuFaultException&) {
-                halted_ = true;
-                break;
-            } catch (...) {
-                halted_ = true;
-                throw;
-            }
+    void set_external_clock(bool enabled) noexcept {
+        external_clock_ = enabled;
+        accel_cpu_.set_external_clock(enabled);
+    }
+
+    [[nodiscard]] bool waiting() const noexcept { return accel_cpu_.waiting(); }
+
+    StepResult step() {
+        if (halted_) return StepResult::Halt;
+        if (accel_cpu_.waiting()) return StepResult::Wait;
+        try {
+            accel_cpu_.step();
+            return StepResult::Progress;
+        } catch (const CpuFaultException& fault) {
+            halted_ = true;
+            return fault.get_fault_type() == FaultType::SoftwareInterrupt
+                ? StepResult::Halt : StepResult::Fault;
+        } catch (...) {
+            halted_ = true;
+            throw;
         }
-        accel_bus_.tick(1);
+    }
+
+    uint64_t step_quantum(uint64_t instructions) {
+        if (halted_) return 0;
+        uint64_t executed = 0;
+        while (executed < instructions) {
+            if (step() != StepResult::Progress) break;
+            ++executed;
+        }
+        if (!external_clock_) accel_bus_.tick(1);
+        return executed;
     }
 
     [[nodiscard]] MemoryBus& accel_bus() noexcept { return accel_bus_; }
@@ -95,6 +112,7 @@ private:
     mmio::MailboxScratchpadDevice mailbox_;
     uint32_t accel_irq_line_{DEFAULT_ACCEL_IRQ_LINE};
     bool halted_{false};
+    bool external_clock_{false};
 };
 
 } // namespace tinyarmsim::platform
