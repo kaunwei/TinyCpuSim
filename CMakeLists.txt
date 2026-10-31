@@ -435,3 +435,8 @@ if (ENABLE_BAREMETAL_FIRMWARE)
 endif()
 gtest_discover_tests(baremetal_firmware_test TEST_PREFIX "baremetal_firmware_test.")
 
+# Unit Test Virtual Platform Orchestrator
+add_executable(test_virtual_platform_orchestrator tests/test_virtual_platform_orchestrator.cpp)
+target_link_libraries(test_virtual_platform_orchestrator PRIVATE tinyarmsim_core_static gtest_main)
+gtest_discover_tests(test_virtual_platform_orchestrator TEST_PREFIX "test_virtual_platform_orchestrator.")
+
