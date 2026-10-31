@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <algorithm>
+#include <optional>
 
 namespace tinyarmsim::uarch {
 
@@ -194,6 +195,7 @@ struct CoreConfig {
 
     CacheConfig l1i{};
     CacheConfig l1d{};
+    std::optional<CacheConfig> private_l2{std::nullopt};
     BranchPredictorConfig branch_predictor{};
     LsuConfig lsu{};
 
@@ -235,6 +237,9 @@ struct CoreConfig {
         }
         l1i.validate();
         l1d.validate();
+        if (private_l2.has_value()) {
+            private_l2->validate();
+        }
         branch_predictor.validate();
         lsu.validate();
     }

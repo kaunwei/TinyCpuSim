@@ -30,17 +30,37 @@ public:
         size_t num_cores = config.num_cores;
         l1i_caches_.reserve(num_cores);
         l1d_caches_.reserve(num_cores);
+        private_l2_caches_.reserve(num_cores);
 
         for (size_t i = 0; i < num_cores; ++i) {
             const auto& core_cfg = config.get_core_config(i);
             auto l1i = std::make_unique<Cache>(core_cfg.l1i, "Core" + std::to_string(i) + "_L1I");
             auto l1d = std::make_unique<Cache>(core_cfg.l1d, "Core" + std::to_string(i) + "_L1D");
-            l1i->set_next_level(&l2_cache_, config.dram_latency_cycles);
-            l1d->set_next_level(&l2_cache_, config.dram_latency_cycles);
+
+            if (core_cfg.private_l2.has_value() && core_cfg.private_l2->is_active()) {
+                auto p_l2 = std::make_unique<Cache>(*core_cfg.private_l2, "Core" + std::to_string(i) + "_Private_L2");
+                p_l2->set_next_level(nullptr, config.dram_latency_cycles);
+                l1i->set_next_level(p_l2.get(), config.dram_latency_cycles);
+                l1d->set_next_level(p_l2.get(), config.dram_latency_cycles);
+                private_l2_caches_.push_back(std::move(p_l2));
+            } else if (l2_cache_.get_config().is_active()) {
+                l1i->set_next_level(&l2_cache_, config.dram_latency_cycles);
+                l1d->set_next_level(&l2_cache_, config.dram_latency_cycles);
+                private_l2_caches_.push_back(nullptr);
+            } else {
+                l1i->set_next_level(nullptr, config.dram_latency_cycles);
+                l1d->set_next_level(nullptr, config.dram_latency_cycles);
+                private_l2_caches_.push_back(nullptr);
+            }
+
             l1i_caches_.push_back(std::move(l1i));
             l1d_caches_.push_back(std::move(l1d));
         }
         l2_cache_.set_next_level(nullptr, config.dram_latency_cycles);
+    }
+
+    [[nodiscard]] Cache* get_private_l2(size_t core_id) noexcept {
+        return (core_id < private_l2_caches_.size()) ? private_l2_caches_[core_id].get() : nullptr;
     }
 
     [[nodiscard]] size_t get_num_cores() const noexcept { return config_.num_cores; }
@@ -212,6 +232,7 @@ private:
     MESICoherenceEngine coherence_engine_;
     std::vector<std::unique_ptr<Cache>> l1i_caches_;
     std::vector<std::unique_ptr<Cache>> l1d_caches_;
+    std::vector<std::unique_ptr<Cache>> private_l2_caches_;
 };
 
 } // namespace tinyarmsim::uarch

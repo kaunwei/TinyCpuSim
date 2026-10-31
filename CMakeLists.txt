@@ -150,6 +150,11 @@ add_executable(test_config tests/unit/test_config.cpp)
 target_link_libraries(test_config PRIVATE tinyarmsim_core_static gtest_main)
 gtest_discover_tests(test_config)
 
+# Unit Test Composable Cache
+add_executable(test_composable_cache tests/unit/test_composable_cache.cpp)
+target_link_libraries(test_composable_cache PRIVATE tinyarmsim_core_static gtest_main)
+gtest_discover_tests(test_composable_cache TEST_PREFIX "test_composable_cache.")
+
 # Unit Test MMIO Bus
 add_executable(test_mmio_bus tests/unit/test_mmio_bus.cpp)
 target_link_libraries(test_mmio_bus PRIVATE tinyarmsim_core_static gtest_main)
