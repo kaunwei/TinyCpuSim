@@ -495,6 +495,30 @@ add_subdirectory(platforms/01_basic_perf)
 add_subdirectory(platforms/02_basic_mcu)
 add_subdirectory(platforms/03_coprocessor_accel)
 
+# Generate SDK Export Configuration
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/TinyCpuSimConfig.cmake"
+[=[# TinyCpuSim SDK Configuration
+get_filename_component(_TINYCPUSIM_SDK_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+if(NOT TARGET TinyCpuSim::Core)
+    add_library(TinyCpuSim::Core STATIC IMPORTED GLOBAL)
+    set_target_properties(TinyCpuSim::Core PROPERTIES
+        IMPORTED_LOCATION "${_TINYCPUSIM_SDK_DIR}/lib/libtinyarmsim_core_static.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${_TINYCPUSIM_SDK_DIR}/include"
+    )
+endif()
+]=])
+
+add_custom_target(sdk_package ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/lib"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/sdk/cmake"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:tinyarmsim_core_static>" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/lib/libtinyarmsim_core_static.a"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/TinyCpuSimConfig.cmake" "${CMAKE_CURRENT_SOURCE_DIR}/sdk/cmake/TinyCpuSimConfig.cmake"
+    DEPENDS tinyarmsim_core_static
+    COMMENT "Packaging TinyCpuSim SDK into sdk/"
+)
+
 
 
 
