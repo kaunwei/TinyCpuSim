@@ -1,5 +1,5 @@
-#include "../../bsp/platform.h"
-#include "../../bsp/uart.h"
+#include "platform.h"
+#include "uart.h"
 
 #define TOTAL_ROUNDS 3
 #define BUFFER_SIZE  128
