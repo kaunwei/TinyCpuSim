@@ -373,3 +373,81 @@ TEST(PlatformTime, WfiRespectsActiveExceptionPriority) {
     EXPECT_EQ(result.progress, 1u);
     EXPECT_EQ(cpu.state.get_pc(), 0x102u);
 }
+
+TEST(PlatformTime, CancelledLastEventDoesNotKeepWaitAlive) {
+    using namespace tinyarmsim::platform;
+    TimeScheduler scheduler;
+    bool called = false;
+    auto event = scheduler.schedule(3, EventPhase::Device, [&] { called = true; });
+    event.cancel();
+    event.cancel();
+    const auto result = scheduler.run(10, 1, [] { return StepResult::Wait; });
+    EXPECT_EQ(result.reason, StopReason::Wait);
+    EXPECT_EQ(scheduler.now(), 0u);
+    EXPECT_FALSE(called);
+}
+
+TEST(PlatformTime, AdapterDestructionCancelsOwnedEvents) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    TimeScheduler scheduler;
+    mmio::TimerDevice timer;
+    mmio::NVICDevice nvic;
+    { TimerAdapter adapter(scheduler, timer, nvic); }
+    const auto result = scheduler.run(10, 1, [] { return StepResult::Wait; });
+    EXPECT_EQ(result.reason, StopReason::Wait);
+    EXPECT_EQ(scheduler.now(), 0u);
+}
+
+TEST(PlatformTime, StopAndResetSuppressSameTimeStaleIrq) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (bool reset : {false, true}) {
+        TimeScheduler scheduler;
+        mmio::TimerDevice timer;
+        mmio::NVICDevice nvic;
+        timer.write(0, 1, mmio::AccessSize::Word);
+        timer.write(8, 5, mmio::AccessSize::Word);
+        TimerAdapter adapter(scheduler, timer, nvic);
+        scheduler.schedule(1, EventPhase::Device, [&] {
+            if (reset) adapter.reset(); else adapter.stop();
+        });
+        scheduler.run(1, 1, [] { return StepResult::Progress; });
+        EXPECT_TRUE(timer.has_pending_irq());
+        EXPECT_FALSE(nvic.is_pending(1));
+        adapter.stop();
+        adapter.stop();
+        EXPECT_EQ(scheduler.run(3, 1, [] { return StepResult::Wait; }).reason, StopReason::Wait);
+    }
+}
+
+TEST(PlatformTime, ResetRestartsFractionalClockFromCurrentTime) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    TimeScheduler scheduler;
+    mmio::TimerDevice timer;
+    mmio::NVICDevice nvic;
+    timer.write(0, 10, mmio::AccessSize::Word);
+    timer.write(8, 1, mmio::AccessSize::Word);
+    TimerAdapter adapter(scheduler, timer, nvic, 2, 3);
+    scheduler.run(1, 1, [] { return StepResult::Progress; });
+    adapter.reset();
+    adapter.reset();
+    scheduler.run(2, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(timer.read(4, mmio::AccessSize::Word), 10u);
+    scheduler.run(3, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(timer.read(4, mmio::AccessSize::Word), 9u);
+}
+
+TEST(PlatformTime, AdapterCanBeDestroyedAfterScheduler) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    mmio::TimerDevice timer;
+    mmio::NVICDevice nvic;
+    std::unique_ptr<TimerAdapter> adapter;
+    {
+        TimeScheduler scheduler;
+        adapter = std::make_unique<TimerAdapter>(scheduler, timer, nvic);
+    }
+    adapter.reset();
+}

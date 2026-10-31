@@ -4,6 +4,7 @@
 #include <functional>
 #include <queue>
 #include <limits>
+#include <memory>
 #include <tuple>
 #include "tinyarmsim/interpreter.hpp"
 
@@ -20,6 +21,7 @@ public:
         remainder_ = total % denominator_;
         return total / denominator_;
     }
+    void reset() noexcept { remainder_ = 0; }
 private:
     uint64_t numerator_, denominator_, remainder_ = 0;
 };
@@ -29,11 +31,22 @@ enum class StopReason { Deadline, Wait, Halt, Fault };
 struct RunResult { uint64_t progress; StopReason reason; };
 class TimeScheduler {
 public:
-    void schedule(uint64_t time, EventPhase phase, std::function<void()> callback) {
+    class Handle {
+    public:
+        Handle() = default;
+        void cancel() const { if (auto state = state_.lock()) *state = false; }
+    private:
+        friend class TimeScheduler;
+        explicit Handle(const std::shared_ptr<bool>& state) : state_(state) {}
+        std::weak_ptr<bool> state_;
+    };
+    Handle schedule(uint64_t time, EventPhase phase, std::function<void()> callback) {
         if (time < now_ || (phase_started_ && time == now_ && phase < phase_))
             throw std::invalid_argument("event in the past or an earlier phase");
         if (sequence_ == std::numeric_limits<uint64_t>::max()) throw std::overflow_error("event sequence overflow");
-        events_.push(Event{time, phase, sequence_++, std::move(callback)});
+        auto state = std::make_shared<bool>(true);
+        events_.push(Event{time, phase, sequence_++, std::move(callback), state});
+        return Handle(state);
     }
     template<class Step> RunResult run(uint64_t deadline, uint64_t quantum, Step step) {
         if (quantum == 0) throw std::invalid_argument("zero quantum");
@@ -43,8 +56,10 @@ public:
         auto dispatch = [&] {
             size_t dispatched = 0;
             while (!events_.empty() && events_.top().time == now_) {
+                if (!*events_.top().active) { events_.pop(); continue; }
                 if (++dispatched > 10000) throw std::runtime_error("nonprogressing event chain");
                 Event event = events_.top(); events_.pop();
+                *event.active = false;
                 phase_started_ = true; phase_ = event.phase;
                 event.callback();
             }
@@ -54,6 +69,7 @@ public:
             if (now_ == deadline) break;
             const auto result = step();
             if (result == StepResult::Wait) {
+                while (!events_.empty() && !*events_.top().active) events_.pop();
                 if (events_.empty() || events_.top().time > deadline) return {progress, StopReason::Wait};
                 now_ = events_.top().time;
                 phase_started_ = false;
@@ -80,7 +96,7 @@ public:
     }
     uint64_t now() const { return now_; }
 private:
-    struct Event { uint64_t time; EventPhase phase; uint64_t sequence; std::function<void()> callback; };
+    struct Event { uint64_t time; EventPhase phase; uint64_t sequence; std::function<void()> callback; std::shared_ptr<bool> active; };
     struct Later { bool operator()(const Event& a, const Event& b) const {
         return std::tie(a.time, a.phase, a.sequence) > std::tie(b.time, b.phase, b.sequence);
     }};
