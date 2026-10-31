@@ -102,3 +102,66 @@ TEST(PlatformTime, DoesNotReopenAnEarlierPhaseAtTheSameTime) {
     scheduler.run(0, 1, [] { return StepResult::Progress; });
     EXPECT_THROW(scheduler.schedule(0, EventPhase::Device, [] {}), std::invalid_argument);
 }
+
+TEST(PlatformTime, DispatchesStepScheduledEventsBeforeAdvancingTime) {
+    using namespace tinyarmsim::platform;
+    for (const uint64_t quantum : {1u, 8u}) {
+        TimeScheduler scheduler;
+        std::vector<int> order;
+        scheduler.schedule(1, EventPhase::Device, [&] { order.push_back(2); });
+        const auto result = scheduler.run(2, quantum, [&] {
+            order.push_back(0);
+            if (scheduler.now() == 0)
+                scheduler.schedule(0, EventPhase::Device, [&] { order.push_back(1); });
+            return StepResult::Progress;
+        });
+        EXPECT_EQ(order, (std::vector<int>{0, 1, 2, 0}));
+        EXPECT_EQ(result.progress, 2u);
+        EXPECT_EQ(result.reason, StopReason::Deadline);
+        EXPECT_EQ(scheduler.now(), 2u);
+    }
+}
+
+TEST(PlatformTime, PreservesStepEventsOnStopsAndExceptions) {
+    using namespace tinyarmsim::platform;
+    for (const auto stop : {StepResult::Halt, StepResult::Fault}) {
+        TimeScheduler scheduler;
+        unsigned callbacks = 0;
+        const auto result = scheduler.run(1, 1, [&] {
+            scheduler.schedule(scheduler.now(), EventPhase::Device, [&] { ++callbacks; });
+            return stop;
+        });
+        EXPECT_EQ(result.progress, 0u);
+        EXPECT_EQ(result.reason, stop == StepResult::Halt ? StopReason::Halt : StopReason::Fault);
+        EXPECT_EQ(scheduler.now(), 0u);
+        EXPECT_EQ(callbacks, 0u);
+        scheduler.run(0, 8, [] { return StepResult::Progress; });
+        EXPECT_EQ(callbacks, 1u);
+    }
+    TimeScheduler scheduler;
+    unsigned callbacks = 0;
+    EXPECT_THROW(scheduler.run(1, 1, [&]() -> StepResult {
+        scheduler.schedule(0, EventPhase::Device, [&] { ++callbacks; });
+        throw std::runtime_error("step failed");
+    }), std::runtime_error);
+    EXPECT_EQ(scheduler.now(), 0u);
+    scheduler.run(0, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(callbacks, 1u);
+}
+
+TEST(PlatformTime, PreservesRemainingEventsWhenStepScheduledCallbackThrows) {
+    using namespace tinyarmsim::platform;
+    TimeScheduler scheduler;
+    std::vector<int> order;
+    EXPECT_THROW(scheduler.run(1, 8, [&] {
+        scheduler.schedule(0, EventPhase::Device, [&] { order.push_back(1); throw std::runtime_error("callback failed"); });
+        scheduler.schedule(0, EventPhase::Irq, [&] { order.push_back(2); });
+        return StepResult::Progress;
+    }), std::runtime_error);
+    EXPECT_EQ(scheduler.now(), 0u);
+    const auto result = scheduler.run(0, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(result.progress, 0u);
+    EXPECT_EQ(result.reason, StopReason::Deadline);
+    EXPECT_EQ(order, (std::vector<int>{1, 2}));
+    EXPECT_THROW(scheduler.schedule(0, EventPhase::Device, [] {}), std::invalid_argument);
+}

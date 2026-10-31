@@ -39,7 +39,7 @@ public:
         if (quantum == 0) throw std::invalid_argument("zero quantum");
         if (deadline < now_) throw std::invalid_argument("past deadline");
         uint64_t progress = 0;
-        for (;;) {
+        auto dispatch = [&] {
             size_t dispatched = 0;
             while (!events_.empty() && events_.top().time == now_) {
                 if (++dispatched > 10000) throw std::runtime_error("nonprogressing event chain");
@@ -47,10 +47,14 @@ public:
                 phase_started_ = true; phase_ = event.phase;
                 event.callback();
             }
+        };
+        for (;;) {
+            dispatch();
             if (now_ == deadline) break;
             const auto result = step();
             if (result != StepResult::Progress)
                 return {progress, result == StepResult::Halt ? StopReason::Halt : StopReason::Fault};
+            dispatch();
             ++now_;
             phase_started_ = false;
             ++progress;
