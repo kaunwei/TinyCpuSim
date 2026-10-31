@@ -264,3 +264,112 @@ TEST(PlatformTime, TimerClockRetainsFractionalTicks) {
     EXPECT_EQ(scheduler.run_interpreter(3, 500, cpu.interpreter).progress, 1u);
     EXPECT_EQ(bus.read32(0x40001004), 8u);
 }
+
+TEST(PlatformTime, ExternalClockWfiWaitsWithoutEvents) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    MemoryBus bus(65536);
+    CpuInstance cpu("cpu", bus);
+    bus.write16(0x100, 0xbf30); // WFI
+    bus.write16(0x102, 0x202a); // MOVS r0, #42
+    cpu.state.set_pc(0x100);
+    cpu.interpreter.set_external_clock(true);
+    TimeScheduler scheduler;
+    const auto result = scheduler.run_interpreter(10, 8, cpu.interpreter);
+    EXPECT_EQ(result.reason, StopReason::Wait);
+    EXPECT_EQ(result.progress, 1u);
+    EXPECT_EQ(scheduler.now(), 1u);
+    EXPECT_EQ(cpu.state.get_pc(), 0x102u);
+    EXPECT_EQ(cpu.state.get_reg(0), 0u);
+}
+
+TEST(PlatformTime, WfiRealTimerWakesAcrossQuanta) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        MemoryBus bus(65536);
+        CpuInstance cpu("cpu", bus);
+        auto timer = std::make_unique<mmio::TimerDevice>();
+        auto* device = timer.get();
+        bus.register_device(std::move(timer));
+        bus.write16(0x100, 0xbf30);
+        bus.write16(0x102, 0x202a);
+        bus.write32(0x1044, 0x2001);
+        bus.write16(0x2000, 0x2463);
+        cpu.state.set_pc(0x100);
+        cpu.state.set_reg(13, 0x8000);
+        cpu.nvic.set_vtor(0x1000);
+        cpu.nvic.write(0x100, 2, mmio::AccessSize::Word);
+        bus.write32(0x40001000, 3);
+        bus.write32(0x40001008, 5);
+        cpu.interpreter.set_external_clock(true);
+        TimeScheduler scheduler;
+        TimerAdapter adapter(scheduler, *device, cpu.nvic);
+        const auto before = scheduler.run_interpreter(3, quantum, cpu.interpreter);
+        EXPECT_EQ(before.reason, StopReason::Deadline);
+        EXPECT_EQ(before.progress, 1u);
+        EXPECT_EQ(cpu.state.get_pc(), 0x102u);
+        EXPECT_TRUE(cpu.nvic.is_pending(1));
+        const auto after = scheduler.run_interpreter(5, quantum, cpu.interpreter);
+        EXPECT_EQ(after.progress, 2u);
+        EXPECT_EQ(cpu.state.get_reg(4), 99u);
+        EXPECT_EQ(cpu.state.get_reg(0), 0u);
+    }
+}
+
+TEST(PlatformTime, WfiPendingAndPrimaskDoNotLoseWakeup) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        MemoryBus bus(65536);
+        CpuInstance cpu("cpu", bus);
+        bus.write16(0x100, 0xbf30);
+        bus.write16(0x102, 0x202a);
+        cpu.state.set_pc(0x100);
+        cpu.state.set_primask(true);
+        cpu.nvic.write(0x100, 2, mmio::AccessSize::Word);
+        cpu.nvic.set_pending(1);
+        cpu.interpreter.set_external_clock(true);
+        TimeScheduler scheduler;
+        const auto result = scheduler.run_interpreter(2, quantum, cpu.interpreter);
+        EXPECT_EQ(result.progress, 2u);
+        EXPECT_EQ(cpu.state.get_reg(0), 42u);
+        EXPECT_TRUE(cpu.nvic.is_pending(1));
+    }
+}
+
+TEST(PlatformTime, DisabledPendingIrqDoesNotWakeAndFutureEventIsRetained) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    MemoryBus bus(65536);
+    CpuInstance cpu("cpu", bus);
+    bus.write16(0x100, 0xbf30);
+    cpu.state.set_pc(0x100);
+    cpu.nvic.set_pending(1);
+    cpu.interpreter.set_external_clock(true);
+    TimeScheduler scheduler;
+    scheduler.schedule(5, EventPhase::Irq, [&] { cpu.nvic.write(0x100, 2, mmio::AccessSize::Word); });
+    const auto result = scheduler.run_interpreter(4, 8, cpu.interpreter);
+    EXPECT_EQ(result.reason, StopReason::Wait);
+    EXPECT_EQ(result.progress, 1u);
+    EXPECT_EQ(scheduler.now(), 1u);
+    EXPECT_TRUE(cpu.interpreter.waiting());
+}
+
+TEST(PlatformTime, WfiRespectsActiveExceptionPriority) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    MemoryBus bus(65536);
+    CpuInstance cpu("cpu", bus);
+    bus.write16(0x100, 0xbf30);
+    cpu.state.set_pc(0x100);
+    cpu.nvic.write(0x100, 3, mmio::AccessSize::Word);
+    cpu.nvic.acknowledge_irq(0);
+    cpu.nvic.set_pending(1);
+    cpu.interpreter.set_external_clock(true);
+    TimeScheduler scheduler;
+    const auto result = scheduler.run_interpreter(3, 1, cpu.interpreter);
+    EXPECT_EQ(result.reason, StopReason::Wait);
+    EXPECT_EQ(result.progress, 1u);
+    EXPECT_EQ(cpu.state.get_pc(), 0x102u);
+}

@@ -24,8 +24,8 @@ private:
     uint64_t numerator_, denominator_, remainder_ = 0;
 };
 enum class EventPhase { Device, Irq };
-enum class StepResult { Progress, Halt, Fault };
-enum class StopReason { Deadline, Halt, Fault };
+enum class StepResult { Progress, Wait, Halt, Fault };
+enum class StopReason { Deadline, Wait, Halt, Fault };
 struct RunResult { uint64_t progress; StopReason reason; };
 class TimeScheduler {
 public:
@@ -53,6 +53,12 @@ public:
             dispatch();
             if (now_ == deadline) break;
             const auto result = step();
+            if (result == StepResult::Wait) {
+                if (events_.empty() || events_.top().time > deadline) return {progress, StopReason::Wait};
+                now_ = events_.top().time;
+                phase_started_ = false;
+                continue;
+            }
             if (result != StepResult::Progress)
                 return {progress, result == StepResult::Halt ? StopReason::Halt : StopReason::Fault};
             try { dispatch(); }
@@ -65,6 +71,7 @@ public:
     }
     RunResult run_interpreter(uint64_t deadline, uint64_t quantum, IsaInterpreter& interpreter) {
         return run(deadline, quantum, [&] {
+            if (interpreter.waiting()) return StepResult::Wait;
             try { interpreter.step(); return StepResult::Progress; }
             catch (const CpuFaultException& fault) {
                 return fault.get_fault_type() == FaultType::SoftwareInterrupt ? StepResult::Halt : StepResult::Fault;

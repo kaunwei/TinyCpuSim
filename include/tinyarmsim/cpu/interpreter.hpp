@@ -33,7 +33,11 @@ public:
     IsaInterpreter(ArchitecturalState& state, MemoryBus& bus) noexcept
         : state_(state), bus_(bus) {}
 
-    void set_external_clock(bool enabled) noexcept { external_clock_ = enabled; }
+    void set_external_clock(bool enabled) noexcept { external_clock_ = enabled; if (!enabled) waiting_ = false; }
+
+    [[nodiscard]] bool waiting() const noexcept {
+        return waiting_ && !(nvic_ && nvic_->can_wake_wfi());
+    }
 
     void set_profiler(uarch::TopDownProfiler* profiler) noexcept {
         profiler_ = profiler;
@@ -767,6 +771,8 @@ public:
                 break;
             }
             case Opcode::WFI:
+                if (external_clock_) waiting_ = true;
+                break;
             case Opcode::DMB:
             case Opcode::DSB:
             case Opcode::ISB:
@@ -800,6 +806,8 @@ public:
     }
 
     void step() {
+        if (waiting()) return;
+        waiting_ = false;
         if (nvic_ && nvic_->poll_and_try_enter_exception(state_, bus_)) {
             if (!external_clock_) bus_.tick(1);
             return;
@@ -966,6 +974,7 @@ private:
     }
 
     bool external_clock_ = false;
+    bool waiting_ = false;
     ArchitecturalState& state_;
     MemoryBus& bus_;
     SimulationStats stats_{};

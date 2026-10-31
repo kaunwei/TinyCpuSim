@@ -96,6 +96,16 @@ public:
         return -1;
     }
 
+    // WFI can wake under PRIMASK, but only for an enabled IRQ that can preempt.
+    [[nodiscard]] bool can_wake_wfi() const noexcept {
+        const int irq = get_highest_pending_irq();
+        if (irq < 0) return false;
+        for (uint32_t a = 0; a <= static_cast<uint32_t>(irq); ++a) {
+            if (iabr_ & (1u << a)) return false;
+        }
+        return true;
+    }
+
     void acknowledge_irq(uint32_t irq) noexcept {
         if (irq < 32) {
             ispr_ &= ~(1u << irq);
