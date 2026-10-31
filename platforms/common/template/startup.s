@@ -26,8 +26,7 @@ g_pfnVectors:
     .word Timer_IRQHandler
     .word GPIO_IRQHandler
     .word DMA_IRQHandler
-    .word Mailbox_IRQHandler
-    .space 11 * 4, 0
+    .space 12 * 4, 0
 
 .section .text.Reset_Handler, "ax", %progbits
 .global Reset_Handler
@@ -83,5 +82,3 @@ Default_Handler:
 .set GPIO_IRQHandler, Default_Handler
 .weak DMA_IRQHandler
 .set DMA_IRQHandler, Default_Handler
-.weak Mailbox_IRQHandler
-.set Mailbox_IRQHandler, Default_Handler

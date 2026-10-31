@@ -119,8 +119,10 @@ class NaturalFirmwareTest(unittest.TestCase):
             "-nostdlib",
             "-Wl,--fatal-warnings",
             "-T",
-            str(self.root / "firmware/bsp/linker.ld"),
-            str(self.root / "firmware/bsp/startup.s"),
+            str(self.root / "platforms/common/bsp/linker.ld"),
+            str(self.root / "platforms/common/bsp/startup.s"),
+            "-I", str(self.root / "platforms/common/bsp"),
+            "-I", str(self.root / "platforms/02_basic_mcu/bsp"),
             *map(str, extra_sources),
             str(source),
             "-o",
@@ -149,7 +151,7 @@ class NaturalFirmwareTest(unittest.TestCase):
                               "-I", str(self.root / "include"), str(runner_source), "-o", str(runner)])
             for optimization in ("-O0", "-O2"):
                 elf = work / f"readiness-{optimization[1:]}.elf"
-                self.compile_firmware(self.root / "firmware/apps/readiness_probe.c", elf, optimization,
+                self.compile_firmware(self.root / "platforms/02_basic_mcu/firmware/apps/readiness_probe.c", elf, optimization,
                                       keep_sections=True)
                 symbol_table = self.symbols(elf)
                 for function, input_value, expected in PROBE_CASES:
@@ -191,8 +193,8 @@ class NaturalFirmwareTest(unittest.TestCase):
             work = Path(directory)
             elf = work / "demo_all_peripherals.elf"
             self.compile_firmware(
-                self.root / "firmware/apps/demo_all_peripherals.c", elf, "-O2",
-                extra_sources=sorted((self.root / "firmware/bsp").glob("*.c")),
+                self.root / "platforms/02_basic_mcu/firmware/apps/demo_all_peripherals.c", elf, "-O2",
+                extra_sources=sorted((self.root / "platforms/common/bsp").glob("*.c")),
             )
             result = subprocess.run(
                 [self.simulator, "--firmware", "--max-steps", "200000", str(elf)],
@@ -243,7 +245,7 @@ class NaturalFirmwareTest(unittest.TestCase):
             "compiler_version": subprocess.run([cls.compiler, "--version"], text=True,
                                                    capture_output=True, check=True).stdout.splitlines()[0],
             "flags": ["-mcpu=cortex-m3", "-mthumb", "-O0/-O2", "-ffreestanding", "-fno-builtin"],
-            "probe_source": str(cls.root / "firmware/apps/readiness_probe.c"),
+            "probe_source": str(cls.root / "platforms/02_basic_mcu/firmware/apps/readiness_probe.c"),
             "independent_literals": True,
             "semantic_mismatches": [
                 row for row in rows if not row["passed"]

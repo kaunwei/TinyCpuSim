@@ -1,0 +1,32 @@
+#ifndef FW_CONFIG_H
+#define FW_CONFIG_H
+
+#ifndef FW_TICKS_PER_SECOND
+#define FW_TICKS_PER_SECOND 1000000u
+#endif
+
+#ifndef FW_TIMER_TASK_CAPACITY
+#define FW_TIMER_TASK_CAPACITY 4u
+#endif
+
+#ifndef FW_MAIN_SERVICE_CAPACITY
+#define FW_MAIN_SERVICE_CAPACITY 4u
+#endif
+
+#ifndef FW_UART_RX_CAPACITY
+#define FW_UART_RX_CAPACITY 128u
+#endif
+
+#ifndef FW_UART_TX_CAPACITY
+#define FW_UART_TX_CAPACITY 128u
+#endif
+
+#define FW_SELF_CHECK_INITIAL_COUNTER 42u
+#define FW_SELF_CHECK_INCREMENT 5u
+#ifndef FW_SELF_CHECK_EXPECTED
+#define FW_SELF_CHECK_EXPECTED 47u
+#endif
+#define FW_SELF_CHECK_FAIL 0u
+#define FW_SELF_CHECK_PASS 1u
+
+#endif /* FW_CONFIG_H */

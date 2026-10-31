@@ -5,7 +5,7 @@ set -eo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 SIM_BIN="${BUILD_DIR}/tinyarmsim"
-PROJECTS_DIR="${PROJECT_ROOT}/firmware/projects"
+PROJECTS_DIR="${PROJECT_ROOT}/platforms/02_basic_mcu/firmware"
 PYTHON_BIN="/usr/bin/python3"
 DEFAULT_ELF="${BUILD_DIR}/scheduler_acceptance.elf"
 DEFAULT_DEBUG_ELF="${BUILD_DIR}/scheduler_acceptance_debug.elf"
@@ -101,11 +101,11 @@ list_projects() {
             fi
         done
     fi
-    echo "  [${idx}] scheduler_acceptance (firmware/apps/scheduler_acceptance.c)"
+    echo "  [${idx}] scheduler_acceptance (platforms/02_basic_mcu/firmware/apps/scheduler_acceptance.c)"
     idx=$((idx + 1))
-    echo "  [${idx}] shell_acceptance (firmware/apps/shell_acceptance.c)"
+    echo "  [${idx}] shell_acceptance (platforms/02_basic_mcu/firmware/apps/shell_acceptance.c)"
     idx=$((idx + 1))
-    echo "  [${idx}] reference_app (firmware/apps/reference_app.c)"
+    echo "  [${idx}] reference_app (platforms/02_basic_mcu/firmware/apps/reference_app.c)"
     echo "============================================================"
 }
 
@@ -277,7 +277,7 @@ if [ -n "${PROJECT_NAME}" ] && [ -z "${ELF_PATH}" ]; then
             fi
             ;;
         *)
-            # Check if it exists under firmware/projects/
+            # Check if it exists under platforms/02_basic_mcu/firmware/
             if [ -d "${PROJECTS_DIR}/${PROJECT_NAME}" ]; then
                 PROJ_DIR="${PROJECTS_DIR}/${PROJECT_NAME}"
                 ELF_PATH="${PROJ_DIR}/${PROJECT_NAME}.elf"

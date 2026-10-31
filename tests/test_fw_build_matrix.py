@@ -21,7 +21,7 @@ class TestFirmwareBuildMatrix(unittest.TestCase):
         cls.sim = _REPO_ROOT / "build" / "tinyarmsim"
         cls.ref_release = _REPO_ROOT / "build" / "reference_app.elf"
         cls.ref_debug = _REPO_ROOT / "build" / "reference_app_debug.elf"
-        cls.template = _REPO_ROOT / "firmware" / "template"
+        cls.template = _REPO_ROOT / "platforms" / "common" / "template"
         cls.gcc = shutil.which("arm-none-eabi-gcc")
         if not cls.sim.exists():
             raise unittest.SkipTest("tinyarmsim binary missing")

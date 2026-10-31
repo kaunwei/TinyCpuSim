@@ -24,8 +24,8 @@
 #include "tinyarmsim/loader.hpp"
 
 extern "C" {
-#include "../firmware/bsp/workqueue.h"
-#include "../firmware/bsp/workqueue.c"
+#include "../platforms/common/bsp/workqueue.h"
+#include "../platforms/common/bsp/workqueue.c"
 }
 
 using namespace tinyarmsim;

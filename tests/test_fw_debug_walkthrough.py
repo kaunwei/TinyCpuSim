@@ -58,7 +58,7 @@ class FirmwareDebugWalkthroughTest(unittest.TestCase):
         )
 
     def _walkthrough(self, opt_flag):
-        template = _REPO_ROOT / "firmware" / "template"
+        template = _REPO_ROOT / "platforms" / "common" / "template"
         nm = shutil.which("arm-none-eabi-nm") or shutil.which("nm")
         objdump = shutil.which("arm-none-eabi-objdump") or shutil.which("objdump")
         self.assertIsNotNone(nm, "Neither arm-none-eabi-nm nor nm found in PATH")

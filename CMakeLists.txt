@@ -296,14 +296,14 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(BAREMETAL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/isa_boot_acceptance.elf")
     add_custom_command(
         OUTPUT "${BAREMETAL_ACCEPTANCE_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
-            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/isa_boot_acceptance.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/isa_boot_acceptance.s"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/isa_boot_acceptance.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/isa_boot_acceptance.s"
             -o "${BAREMETAL_ACCEPTANCE_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
-            firmware/apps/isa_boot_acceptance.c firmware/apps/isa_boot_acceptance.s
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld
+            platforms/02_basic_mcu/firmware/apps/isa_boot_acceptance.c platforms/02_basic_mcu/firmware/apps/isa_boot_acceptance.s
         VERBATIM
         COMMENT "Compiling Cortex-M3 bare-metal C boot acceptance ELF")
     add_custom_target(baremetal_firmware_elf DEPENDS "${BAREMETAL_ACCEPTANCE_ELF}")
@@ -322,33 +322,33 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(SCHEDULER_ACCEPTANCE_DEBUG_ELF "${CMAKE_CURRENT_BINARY_DIR}/scheduler_acceptance_debug.elf")
     add_custom_command(
         OUTPUT "${SCHEDULER_ACCEPTANCE_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
-            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/timer.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/scheduler.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/scheduler_acceptance.c"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/timer.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/scheduler.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/scheduler_acceptance.c"
             -o "${SCHEDULER_ACCEPTANCE_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
-            firmware/bsp/uart.c firmware/bsp/timer.c firmware/bsp/scheduler.c firmware/bsp/scheduler.h
-            firmware/apps/scheduler_acceptance.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld
+            platforms/common/bsp/uart.c platforms/common/bsp/timer.c platforms/common/bsp/scheduler.c platforms/common/bsp/scheduler.h
+            platforms/02_basic_mcu/firmware/apps/scheduler_acceptance.c
         VERBATIM
         COMMENT "Compiling scheduler acceptance ELF")
 
     add_custom_command(
         OUTPUT "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
-            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/timer.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/scheduler.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/scheduler_acceptance.c"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/timer.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/scheduler.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/scheduler_acceptance.c"
             -o "${SCHEDULER_ACCEPTANCE_DEBUG_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
-            firmware/bsp/uart.c firmware/bsp/timer.c firmware/bsp/scheduler.c firmware/bsp/scheduler.h
-            firmware/apps/scheduler_acceptance.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld
+            platforms/common/bsp/uart.c platforms/common/bsp/timer.c platforms/common/bsp/scheduler.c platforms/common/bsp/scheduler.h
+            platforms/02_basic_mcu/firmware/apps/scheduler_acceptance.c
         VERBATIM
         COMMENT "Compiling scheduler acceptance debug ELF")
 
@@ -358,16 +358,16 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(SHELL_ACCEPTANCE_ELF "${CMAKE_CURRENT_BINARY_DIR}/shell_acceptance.elf")
     add_custom_command(
         OUTPUT "${SHELL_ACCEPTANCE_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
-            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/shell.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/shell_acceptance.c"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/shell.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/shell_acceptance.c"
             -o "${SHELL_ACCEPTANCE_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
-            firmware/bsp/uart.c firmware/bsp/uart.h firmware/bsp/ring_buffer.h firmware/bsp/shell.c firmware/bsp/shell.h
-            firmware/apps/shell_acceptance.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld
+            platforms/common/bsp/uart.c platforms/common/bsp/uart.h platforms/common/bsp/ring_buffer.h platforms/common/bsp/shell.c platforms/common/bsp/shell.h
+            platforms/02_basic_mcu/firmware/apps/shell_acceptance.c
         VERBATIM
         COMMENT "Compiling shell acceptance ELF")
 
@@ -378,37 +378,37 @@ if (ENABLE_BAREMETAL_FIRMWARE)
     set(REFERENCE_APP_DEBUG_ELF "${CMAKE_CURRENT_BINARY_DIR}/reference_app_debug.elf")
     add_custom_command(
         OUTPUT "${REFERENCE_APP_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
-            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/timer.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/scheduler.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/shell.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/reference_app.c"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/timer.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/scheduler.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/shell.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/reference_app.c"
             -o "${REFERENCE_APP_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
-            firmware/bsp/uart.c firmware/bsp/uart.h firmware/bsp/timer.c firmware/bsp/scheduler.c
-            firmware/bsp/shell.c firmware/bsp/shell.h firmware/bsp/ring_buffer.h
-            firmware/apps/reference_app.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld
+            platforms/common/bsp/uart.c platforms/common/bsp/uart.h platforms/common/bsp/timer.c platforms/common/bsp/scheduler.c
+            platforms/common/bsp/shell.c platforms/common/bsp/shell.h platforms/common/bsp/ring_buffer.h
+            platforms/02_basic_mcu/firmware/apps/reference_app.c
         VERBATIM
         COMMENT "Compiling reference app ELF")
 
     add_custom_command(
         OUTPUT "${REFERENCE_APP_DEBUG_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib
-            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/uart.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/timer.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/scheduler.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/shell.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/apps/reference_app.c"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -DDEBUG -fno-if-conversion -fno-if-conversion2 -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Wall -Wextra -Werror -nostdlib -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -Wl,--gc-sections -Wl,--fatal-warnings -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/uart.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/timer.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/scheduler.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/shell.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/firmware/apps/reference_app.c"
             -o "${REFERENCE_APP_DEBUG_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld
-            firmware/bsp/uart.c firmware/bsp/uart.h firmware/bsp/timer.c firmware/bsp/scheduler.c
-            firmware/bsp/shell.c firmware/bsp/shell.h firmware/bsp/ring_buffer.h
-            firmware/apps/reference_app.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld
+            platforms/common/bsp/uart.c platforms/common/bsp/uart.h platforms/common/bsp/timer.c platforms/common/bsp/scheduler.c
+            platforms/common/bsp/shell.c platforms/common/bsp/shell.h platforms/common/bsp/ring_buffer.h
+            platforms/02_basic_mcu/firmware/apps/reference_app.c
         VERBATIM
         COMMENT "Compiling reference app debug ELF")
 
@@ -457,27 +457,27 @@ if (ARM_NONE_EABI_GCC)
     set(CONV_ACCEL_ELF "${CMAKE_CURRENT_BINARY_DIR}/conv_accelerator.elf")
     add_custom_command(
         OUTPUT "${CONV_HOST_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra
-            -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/projects/conv_host/main.c"
-            -I "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/03_coprocessor_accel/firmware/conv_host/main.c"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
             -o "${CONV_HOST_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld firmware/bsp/mailbox.h
-            firmware/projects/conv_host/main.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld platforms/common/bsp/mailbox.h
+            platforms/03_coprocessor_accel/firmware/conv_host/main.c
         VERBATIM)
     add_custom_command(
         OUTPUT "${CONV_ACCEL_ELF}"
-        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra
-            -T "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/linker.ld"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp/startup.s"
-            "${CMAKE_CURRENT_SOURCE_DIR}/firmware/projects/conv_accelerator/main.c"
-            -I "${CMAKE_CURRENT_SOURCE_DIR}/firmware/bsp"
+        COMMAND "${ARM_NONE_EABI_GCC}" -mcpu=cortex-m3 -mthumb -O1 -ffreestanding -nostdlib -Wall -Wextra -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp" -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/02_basic_mcu/bsp"
+            -T "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/linker.ld"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp/startup.s"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/03_coprocessor_accel/firmware/conv_accelerator/main.c"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/platforms/common/bsp"
             -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
             -o "${CONV_ACCEL_ELF}"
-        DEPENDS firmware/bsp/startup.s firmware/bsp/linker.ld firmware/bsp/mailbox.h
-            firmware/projects/conv_accelerator/main.c
+        DEPENDS platforms/common/bsp/startup.s platforms/common/bsp/linker.ld platforms/common/bsp/mailbox.h
+            platforms/03_coprocessor_accel/firmware/conv_accelerator/main.c
         VERBATIM)
     add_custom_target(conv_firmware_elves DEPENDS "${CONV_HOST_ELF}" "${CONV_ACCEL_ELF}")
 
