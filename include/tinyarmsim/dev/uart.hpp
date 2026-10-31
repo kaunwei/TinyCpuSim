@@ -63,7 +63,10 @@ public:
         }
     }
 
+    [[nodiscard]] uint64_t reset_generation() const noexcept { return reset_generation_; }
+
     void reset() override {
+        ++reset_generation_;
         reset_clock_state();
         rx_fifo_.clear();
         tx_output_.clear();
@@ -111,6 +114,7 @@ protected:
     }
 
 private:
+    uint64_t reset_generation_{0};
     uint32_t base_;
     uint32_t span_;
     uint32_t control_{0x03};

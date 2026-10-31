@@ -517,6 +517,61 @@ TEST(PlatformTime, McuClockedDevicesProgressDuringWait) {
     EXPECT_EQ(bus.get_device_at<tinyarmsim::mmio::UartDevice>(BasicMcuPlatform::UART_BASE)->get_tx_output(), "A");
 }
 
+TEST(PlatformTime, McuUartAsymmetricClockDuringWait) {
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu(2, 3);
+        auto& bus = mcu.bus();
+        bus.write16(0x100, 0xbf30);
+        mcu.cpu().state.set_pc(0x100);
+        bus.write32(BasicMcuPlatform::UART_BASE + 0x10, 1);
+        bus.write32(BasicMcuPlatform::UART_BASE, 'A');
+        auto before = mcu.run_until(14, quantum);
+        EXPECT_EQ(before.progress, 1u);
+        EXPECT_EQ(bus.read32(BasicMcuPlatform::UART_BASE + 4) & 8u, 8u);
+        auto at = mcu.run_until(15, quantum);
+        EXPECT_EQ(at.progress, 0u);
+        EXPECT_EQ(mcu.time(), 15u);
+        EXPECT_EQ(bus.get_device_at<tinyarmsim::mmio::UartDevice>(BasicMcuPlatform::UART_BASE)->get_tx_output(), "A");
+    }
+}
+
+TEST(PlatformTime, McuUartRemainderResetAndRxIrq) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu(4, 3);
+        auto& bus = mcu.bus();
+        auto* uart = bus.get_device_at<mmio::UartDevice>(BasicMcuPlatform::UART_BASE);
+        bus.write16(0x100, 0xbf30);
+        mcu.cpu().state.set_pc(0x100);
+        bus.write32(BasicMcuPlatform::UART_BASE + 0x10, 1);
+        bus.write32(BasicMcuPlatform::UART_BASE, 'A');
+        EXPECT_EQ(mcu.run_until(8, quantum).progress, 1u);
+        EXPECT_EQ(uart->get_tx_output(), "A");
+        bus.write32(BasicMcuPlatform::UART_BASE, 'B');
+        mcu.run_until(14, quantum);
+        EXPECT_EQ(uart->get_tx_output(), "A");
+        mcu.run_until(15, quantum);
+        EXPECT_EQ(uart->get_tx_output(), "AB");
+
+        bus.write32(BasicMcuPlatform::UART_BASE, 'X');
+        mcu.run_until(16, quantum);
+        uart->reset();
+        bus.write32(BasicMcuPlatform::UART_BASE + 0x10, 1);
+        bus.write32(BasicMcuPlatform::UART_BASE + 8, 7);
+        uart->set_tx_consumer([uart](uint8_t byte) { uart->inject_rx(byte); });
+        bus.write32(BasicMcuPlatform::UART_BASE, 'C');
+        mcu.run_until(23, quantum);
+        EXPECT_FALSE(mcu.cpu().nvic.is_pending(0));
+        EXPECT_EQ(uart->rx_size(), 0u);
+        mcu.run_until(24, quantum);
+        EXPECT_TRUE(mcu.cpu().nvic.is_pending(0));
+        EXPECT_EQ(bus.read32(BasicMcuPlatform::UART_BASE), 'C');
+        EXPECT_EQ(uart->get_tx_output(), "");
+    }
+}
+
 TEST(PlatformTime, McuPendingMaskedIrqAndRelativeRun) {
     using namespace tinyarmsim;
     using namespace tinyarmsim::platform;

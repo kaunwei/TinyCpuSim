@@ -9,6 +9,7 @@
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
 #include "tinyarmsim/platform/timer_adapter.hpp"
+#include "tinyarmsim/platform/uart_adapter.hpp"
 #include <limits>
 
 namespace tinyarmsim::platform {
@@ -21,7 +22,7 @@ public:
     static constexpr uint32_t GPIO_BASE = 0x40002000;
     static constexpr uint32_t NVIC_BASE = 0xE000E000;
 
-    BasicMcuPlatform()
+    explicit BasicMcuPlatform(uint64_t uart_numerator = 1, uint64_t uart_denominator = 1)
         : platform_(),
           bus_(platform_.create_bus("mcu_bus", MEMORY_SIZE)),
           cpu_(platform_.create_cpu("mcu_cpu", bus_)) {
@@ -35,6 +36,7 @@ public:
         auto gpio = std::make_unique<mmio::GpioDevice>(GPIO_BASE, 0x1000);
         gpio_ = gpio.get();
         bus_.register_device(std::move(gpio));
+        uart_adapter_ = std::make_unique<UartAdapter>(scheduler_, *uart_, cpu_.nvic, uart_numerator, uart_denominator);
         cpu_.interpreter.set_external_clock(true);
     }
 
@@ -84,8 +86,9 @@ private:
         if (timer_->has_pending_irq()) cpu_.nvic.set_pending(timer_->irq_line());
         if (uart_->has_pending_irq()) cpu_.nvic.set_pending(uart_->irq_line());
         if (gpio_->has_pending_irq()) cpu_.nvic.set_pending(gpio_->irq_line());
-        if (!other_scheduled_ && (uart_->is_busy() || gpio_->is_busy())) schedule_other();
-        if (other_scheduled_ && !uart_->is_busy() && !gpio_->is_busy()) {
+        uart_adapter_->refresh();
+        if (!other_scheduled_ && gpio_->is_busy()) schedule_other();
+        if (other_scheduled_ && !gpio_->is_busy()) {
             other_event_.cancel();
             other_scheduled_ = false;
         }
@@ -96,13 +99,12 @@ private:
         other_scheduled_ = true;
         other_event_ = scheduler_.schedule(scheduler_.now() + 1, EventPhase::Device, [this] {
             other_scheduled_ = false;
-            uart_->tick(1);
             gpio_->tick(1);
             irq_event_ = scheduler_.schedule(scheduler_.now(), EventPhase::Irq, [this] {
                 if (uart_->has_pending_irq()) cpu_.nvic.set_pending(uart_->irq_line());
                 if (gpio_->has_pending_irq()) cpu_.nvic.set_pending(gpio_->irq_line());
             });
-            if (uart_->is_busy() || gpio_->is_busy()) schedule_other();
+            if (gpio_->is_busy()) schedule_other();
         });
     }
     VirtualPlatform platform_;
@@ -113,6 +115,7 @@ private:
     mmio::GpioDevice* gpio_{};
     TimeScheduler scheduler_;
     std::unique_ptr<TimerAdapter> timer_adapter_;
+    std::unique_ptr<UartAdapter> uart_adapter_;
     TimeScheduler::Handle other_event_, irq_event_;
     bool other_scheduled_ = false;
 };
