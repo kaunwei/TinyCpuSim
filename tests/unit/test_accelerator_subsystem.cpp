@@ -28,9 +28,9 @@ TEST(AcceleratorSubsystemTest, BidirectionalDoorbellInterrupt) {
     accel.attach_to_host_bus(host_bus);
 
     // Host rings DOORBELL_TO_ACCEL (0x50000014)
-    EXPECT_FALSE(accel.accel_nvic().is_pending(16));
+    EXPECT_FALSE(accel.accel_nvic().is_pending(4));
     host_bus.write32(0x50000014, 1);
-    EXPECT_TRUE(accel.accel_nvic().is_pending(16));
+    EXPECT_TRUE(accel.accel_nvic().is_pending(4));
 
     // Accelerator rings DOORBELL_TO_HOST (0x50000018) via private bus
     EXPECT_FALSE(accel.mailbox().has_pending_irq());

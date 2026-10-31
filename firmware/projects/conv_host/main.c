@@ -11,8 +11,8 @@ void Mailbox_IRQHandler(void) {
 }
 
 int main(void) {
-    // 1. Enable Mailbox IRQ (IRQ 16) in NVIC
-    NVIC->ISER = (1U << 16);
+    // 1. Enable Mailbox IRQ (IRQ 4) in NVIC
+    NVIC->ISER = (1U << 4);
 
     // 2. Initialize 8x8 input image (constant 2) and 3x3 kernel (constant 1)
     volatile uint8_t* in_ptr = MAILBOX_SCRATCHPAD + CONV_INPUT_OFFSET;

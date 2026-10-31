@@ -30,7 +30,7 @@ class McuConvPlatform {
 public:
     static constexpr size_t HOST_MEM_SIZE = 64 * 1024 * 1024;
     static constexpr uint32_t ACCEL_BASE = 0x50000000;
-    static constexpr uint32_t ACCEL_HOST_IRQ = 16;
+    static constexpr uint32_t ACCEL_HOST_IRQ = 4;
     static constexpr uint32_t FIRMWARE_VTOR = 0x00010000;
 
     McuConvPlatform()

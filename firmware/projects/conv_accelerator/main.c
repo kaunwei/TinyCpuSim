@@ -37,8 +37,8 @@ void Mailbox_IRQHandler(void) {
 }
 
 int main(void) {
-    // Enable Mailbox IRQ (IRQ 16) in NVIC
-    NVIC->ISER = (1U << 16);
+    // Enable Mailbox IRQ (IRQ 4) in NVIC
+    NVIC->ISER = (1U << 4);
 
     while (!g_accel_done) {
         __asm__ volatile ("wfi");

@@ -57,7 +57,7 @@ private:
 class ConvolutionAcceleratorSubsystem {
 public:
     static constexpr size_t DEFAULT_ACCEL_MEM_SIZE = 16 * 1024 * 1024; // 16MB private bus
-    static constexpr uint32_t DEFAULT_ACCEL_IRQ_LINE = 16;
+    static constexpr uint32_t DEFAULT_ACCEL_IRQ_LINE = 4;
 
     explicit ConvolutionAcceleratorSubsystem(size_t accel_mem_size = DEFAULT_ACCEL_MEM_SIZE,
                                              uint32_t accel_irq_line = DEFAULT_ACCEL_IRQ_LINE)

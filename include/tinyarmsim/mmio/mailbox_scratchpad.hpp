@@ -15,7 +15,7 @@ public:
     static constexpr uint32_t DEFAULT_SPAN = 0x20000; // 128KB total span, covering CSRs + 64KB scratchpad at 0x1000
     static constexpr uint32_t SCRATCHPAD_OFFSET = MB_SCRATCHPAD_OFFSET;
     static constexpr size_t SCRATCHPAD_SIZE = MB_SCRATCHPAD_SIZE;
-    static constexpr uint32_t DEFAULT_HOST_IRQ_LINE = 16;
+    static constexpr uint32_t DEFAULT_HOST_IRQ_LINE = 4;
 
     using AccelIrqCallback = std::function<void()>;
 
