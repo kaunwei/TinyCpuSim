@@ -47,6 +47,9 @@ build/
 Build/
 build-*/
 
+# SDK generated and installed artifacts
+sdk/
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
