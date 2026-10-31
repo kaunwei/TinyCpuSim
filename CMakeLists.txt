@@ -17,10 +17,11 @@ endif()
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Core Library (Interface & Static)
 add_library(tinyarmsim_core INTERFACE)
-target_include_directories(tinyarmsim_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(tinyarmsim_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(tinyarmsim_core_static STATIC
     src/core/common.cpp
@@ -28,7 +29,7 @@ add_library(tinyarmsim_core_static STATIC
     src/core/faults.cpp
     src/uarch/stats.cpp
 )
-target_include_directories(tinyarmsim_core_static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(tinyarmsim_core_static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tinyarmsim_core_static PUBLIC tinyarmsim_core)
 
 # Main Executable CLIs

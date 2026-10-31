@@ -4,7 +4,7 @@
 #include <string>
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
-#include "tinyarmsim/platform/accelerator_subsystem.hpp"
+#include "platforms/03_coprocessor_accel/devices/accelerator_subsystem.hpp"
 #include "tinyarmsim/mmio/uart.hpp"
 #include "tinyarmsim/mmio/timer.hpp"
 
