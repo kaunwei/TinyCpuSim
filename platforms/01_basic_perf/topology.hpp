@@ -4,6 +4,8 @@
 #include <string>
 #include <fstream>
 #include <stdexcept>
+#include <limits>
+#include "tinyarmsim/platform/time_scheduler.hpp"
 #include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/memory/loader.hpp"
 #include "tinyarmsim/cpu/state.hpp"
@@ -27,18 +29,19 @@ public:
         Loader::load_elf(stream, bus_, state_);
     }
 
-    uint64_t run(uint64_t max_steps = 1000000) {
-        uint64_t steps = 0;
-        while (steps < max_steps) {
-            try {
-                interp_.step();
-                steps++;
-            } catch (const CpuFaultException&) {
-                break;
-            }
-        }
-        return steps;
+    // Absolute scheduler deadline in functional interpreter-step ticks.
+    RunResult run_until(uint64_t deadline, uint64_t quantum = 1) {
+        return scheduler_.run_interpreter(deadline, quantum, interp_);
     }
+
+    // Compatibility entrypoint: budget is relative to current platform time.
+    uint64_t run(uint64_t max_steps = 1000000) {
+        if (max_steps > std::numeric_limits<uint64_t>::max() - scheduler_.now())
+            throw std::overflow_error("platform deadline overflow");
+        return run_until(scheduler_.now() + max_steps).progress;
+    }
+
+    [[nodiscard]] uint64_t time() const noexcept { return scheduler_.now(); }
 
     [[nodiscard]] MemoryBus& bus() noexcept { return bus_; }
     [[nodiscard]] const MemoryBus& bus() const noexcept { return bus_; }
@@ -50,6 +53,7 @@ private:
     uarch::CoreConfig config_;
     ArchitecturalState state_;
     IsaInterpreter interp_;
+    TimeScheduler scheduler_;
 };
 
 } // namespace tinyarmsim::platform
