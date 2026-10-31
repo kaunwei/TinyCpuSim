@@ -440,3 +440,9 @@ add_executable(test_virtual_platform_orchestrator tests/test_virtual_platform_or
 target_link_libraries(test_virtual_platform_orchestrator PRIVATE tinyarmsim_core_static gtest_main)
 gtest_discover_tests(test_virtual_platform_orchestrator TEST_PREFIX "test_virtual_platform_orchestrator.")
 
+# Unit Test Accelerator Subsystem
+add_executable(test_accelerator_subsystem tests/unit/test_accelerator_subsystem.cpp)
+target_link_libraries(test_accelerator_subsystem PRIVATE tinyarmsim_core_static gtest_main)
+gtest_discover_tests(test_accelerator_subsystem TEST_PREFIX "test_accelerator_subsystem.")
+
+
