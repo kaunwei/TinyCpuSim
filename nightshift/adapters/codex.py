@@ -157,7 +157,7 @@ else:
 json.dump(payload, open(result, "w", encoding="utf-8"))
 json.dump({"status": final_status, "result_location": result, "exit_code": code}, open(status, "w", encoding="utf-8"))
 '''
-    child_env = {**request.get("environment", {}),
+    child_env = {**os.environ, **request.get("environment", {}),
                  "NIGHTSHIFT_TASK_ID": request.get("task_id", ""),
                  "NIGHTSHIFT_EXECUTION_KIND": request.get("kind", "main"),
                  "PORT": request.get("environment", {}).get("PORT", "3001"),
@@ -167,7 +167,8 @@ json.dump({"status": final_status, "result_location": result, "exit_code": code}
                              str(log_path), str(message_path), str(result_path),
                              str(status_path), str(limit)], stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=(os.name == "posix"))
+                            start_new_session=(os.name == "posix"),
+                            env=os.environ.copy())
     proc.stdin.write(prompt.encode("utf-8")); proc.stdin.close()
     response({"execution_id": str(proc.pid), "status_location": str(status_path)})
 

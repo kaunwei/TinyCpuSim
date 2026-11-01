@@ -93,27 +93,22 @@ scripts/status.sh
 scripts/reorder_queue.sh
 scripts/probe_line.sh
 scripts/extract_skeleton.sh
-.worker.env
 .worker.env.example
 .worker.notes.md
 tasks.txt
 progress.log
 todo/
-.worker-tree/
-.preview/
-.reports/
 .reports
-.scratch/
 .handoff/
 handoff/
 docs/experiments/
 AGENTS.md
 GEMINI.md
 
-# NightShift 24h Unattended Worker Artifacts
-.trials/
+
 
 # NightShift runtime artifacts (stored under nightshift/)
+nightshift/progress.log
 nightshift/tasks.done
 nightshift/tasks.done.*
 nightshift/worker*.status
@@ -131,3 +126,4 @@ nightshift/.worker-ghosts/
 nightshift/.worker-ghost-state*.json
 nightshift/.scratch/
 nightshift/tools/.venv/
+.trials/

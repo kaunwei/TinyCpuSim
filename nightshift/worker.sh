@@ -23,7 +23,7 @@ else
 fi
 
 # Worker runtime settings live in this launcher. Agent-specific settings live
-# in scripts/adapters/agents.json and are passed through the common adapter protocol.
+# in nightshift/adapters/agents.json and are passed through the common adapter protocol.
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 WORKER_ID="${WORKER_ID:-default}"
 OS_TYPE="${OS_TYPE:-auto}"
@@ -53,16 +53,26 @@ STATUS_FILE="${STATUS_FILE:-$DEFAULT_STATUS_FILE}"
 LOG_FILE="${LOG_FILE:-$DEFAULT_LOG_FILE}"
 PID_FILE="${PID_FILE:-$DEFAULT_PID_FILE}"
 TASK_TIMEOUT="${TASK_TIMEOUT:-1800}"
-STEP_BASE="${STEP_BASE:-12}"
+STEP_BASE="${STEP_BASE:-22}"
 STEP_PER_FILE="${STEP_PER_FILE:-5}"
 RESEARCH_STEP_BUDGET="${RESEARCH_STEP_BUDGET:-100}"
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 RUN_ONCE="${RUN_ONCE:-0}"
 WORKER_PORT="${WORKER_PORT:-3000}"
-if [ -f "$NIGHTSHIFT_DIR/adapters/agents.json" ]; then
+if [ -f "$NIGHTSHIFT_DIR/config.json" ]; then
+  DEFAULT_AGENT_CONFIG="$NIGHTSHIFT_DIR/config.json"
+elif [ -f "$PROJECT_ROOT/nightshift/config.json" ]; then
+  DEFAULT_AGENT_CONFIG="$PROJECT_ROOT/nightshift/config.json"
+elif [ -f "$NIGHTSHIFT_DIR/adapters/agents.json" ]; then
   DEFAULT_AGENT_CONFIG="$NIGHTSHIFT_DIR/adapters/agents.json"
+elif [ -f "$NIGHTSHIFT_DIR/agents.json" ]; then
+  DEFAULT_AGENT_CONFIG="$NIGHTSHIFT_DIR/agents.json"
+elif [ -f "$PROJECT_ROOT/nightshift/adapters/agents.json" ]; then
+  DEFAULT_AGENT_CONFIG="$PROJECT_ROOT/nightshift/adapters/agents.json"
+elif [ -f "$PROJECT_ROOT/nightshift/agents.json" ]; then
+  DEFAULT_AGENT_CONFIG="$PROJECT_ROOT/nightshift/agents.json"
 else
-  DEFAULT_AGENT_CONFIG="$NIGHTSHIFT_DIR/scripts/adapters/agents.json"
+  DEFAULT_AGENT_CONFIG="$NIGHTSHIFT_DIR/config.json"
 fi
 AGENT_CONFIG_FILE="${AGENT_CONFIG_FILE:-$DEFAULT_AGENT_CONFIG}"
 

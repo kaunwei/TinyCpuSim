@@ -17,7 +17,12 @@
     "tools/check_env.py",
     "tools/setup.sh",
     "tools/setup.ps1",
-    "install-manifest.json"
+    "install-manifest.json",
+    "acceptance.py",
+    "lifecycle.py",
+    "unittest_hot.py",
+    "acceptance.md",
+    "PORTING_GUIDE.md"
   ],
   "skill_files": [
     {

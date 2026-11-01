@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 import hashlib
+import importlib
+import importlib.util
 import json
 import math
 import os
@@ -29,11 +31,30 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scratch_review
+def _import_nightshift_module(name):
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        repo_dir = Path("/Volumes/Vault500G/workspace/NightShift/nightshift")
+        for candidate in [
+            Path(__file__).resolve().parent / f"{name}.py",
+            repo_dir / f"{name}.py",
+            Path.cwd() / "nightshift" / f"{name}.py",
+        ]:
+            if candidate.exists():
+                spec = importlib.util.spec_from_file_location(name, str(candidate))
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                sys.modules[name] = mod
+                return mod
+        return None
+
+acceptance = _import_nightshift_module("acceptance")
 
 
 FIELD_NAMES = (
     "LEVEL", "TARGET", "ACTION", "GOAL", "VERIFY",
-    "FORBIDDEN_SHORTCUTS", "CONSTRAINTS", "DEPENDS_ON",
+    "FORBIDDEN_SHORTCUTS", "CONSTRAINTS", "DEPENDS_ON", "CASES",
 )
 
 
@@ -369,11 +390,13 @@ def record_agent_score_result(root, registration_id, task_id, result, evidence="
     return {**updated, "registration_id": registration_id}
 
 
-def _record_score_result(path, task_id, result, evidence=""):
+def _record_score_result(path, task_id, result, evidence="", event_id=""):
     """Update shared Worker score from planner feedback or hard runtime evidence."""
     if result not in ("accept", "reject", "no_fault", "hard_failure", "success"):
         raise ValueError(f"unsupported score result: {result}")
     state = read_score_state(path)
+    if event_id and event_id in state.get("applied_events", {}):
+        return {**score_summary(state), "task_id": task_id, "result": result, "duplicate": True}
     failures = state["failures"]
     if result == "hard_failure":
         count = int(failures.get(task_id, 0)) + 1
@@ -395,11 +418,13 @@ def _record_score_result(path, task_id, result, evidence=""):
     state["feedback"].append({"task_id": task_id, "result": result,
                               "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()})
     state["feedback"] = state["feedback"][-20:]
+    if event_id:
+        state.setdefault("applied_events", {})[event_id] = result
     atomic_write(path, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
     return {**score_summary(state), "task_id": task_id, "result": result}
 
 
-def record_score_result(path, task_id, result, evidence="", progress_path="", audit_ns=""):
+def record_score_result(path, task_id, result, evidence="", progress_path="", audit_ns="", event_id=""):
     path = Path(path)
     lock = Path(f"{path}.lock")
     for _ in range(100):
@@ -415,7 +440,7 @@ def record_score_result(path, task_id, result, evidence="", progress_path="", au
             if not update_planner_review(progress_path, task_id, audit_ns, result):
                 return {**score_summary(read_score_state(path)), "task_id": task_id,
                         "result": result, "duplicate": True}
-        return _record_score_result(path, task_id, result, evidence)
+        return _record_score_result(path, task_id, result, evidence, event_id)
     finally:
         lock.rmdir()
 
@@ -425,8 +450,9 @@ def build_ghost_closeout_prompt(task_id, verify, progress_file, host_git=False):
                   if host_git else "After passing verification, commit only existing task changes; never edit their contents.")
     return f"""GHOST CLOSEOUT for original task {task_id} only. Verify/finalize existing work; do not implement or create another task.
 
-- Inspect Git status/diff/log and run verification: {verify or 'the task verification command'}.
-- Never modify, create, or delete source, tests, docs, config, or other implementation files. No fixes, workarounds, or other project-changing commands; if implementation is needed or unexpected changes exist, return blocked.
+- Inspect Git status/diff/log and run verification: {verify or 'python3 -m unittest'}.
+- Supply commit_message and wire existing tests into hot using allowed wiring files.
+- Never modify, create, or delete source, tests, docs, config, or other implementation files. Keep product code, test content and unrelated scripts unchanged. Runtime owns commits.
 - {git_policy} Never commit unverified or failed work. Leave runtime-owned {progress_file} and tasks.done untouched and unstaged; their changes do not block closeout.
 - Return exactly ONE JSON object to the adapter result file (not prose; CLI exit status alone is not proof):
   Verified changes: {{"outcome":"complete","changed":true,"commit_message":"type(scope): summary","verification_evidence":"actual command and result"}}
@@ -434,6 +460,7 @@ def build_ghost_closeout_prompt(task_id, verify, progress_file, host_git=False):
   Unfinished/failed: {{"outcome":"blocked","diagnostic":"concrete blocker: cause=<root cause>, verify_output=<failed error>, next_action=<planner suggestion>"}} (or scope_blocked/guidance when applicable).
 - On failure/blocker, provide concise ASCII diagnosis for Planner: state exact failing command, error line, and recommended ticket breakdown or target expansion.
 - A commit_message is required only for finished, verified changes. Runtime audits file changes and attributes this result to {task_id}.
+- Preserve tdd_cases from Worker. A missing test implementation needs Planner.
 """
 
 
@@ -459,7 +486,7 @@ def workspace_snapshot(work_dir, base):
     return snapshot
 
 
-def pop_task(queue_path):
+def pop_task(queue_path, claim_path=None):
     """Remove one task under the same directory lock used by reorder_queue.sh."""
     queue = Path(queue_path)
     lock = Path(f"{queue}.lock")
@@ -477,9 +504,33 @@ def pop_task(queue_path):
         for index, line in enumerate(lines):
             if line.strip() and not line.lstrip().startswith("#"):
                 task = line.rstrip("\r\n")
+                if claim_path:
+                    acceptance.save(claim_path, {"raw": task, "claimed": True})
                 atomic_write(queue, "".join(lines[:index] + lines[index + 1:]))
                 return task
         return ""
+    finally:
+        lock.rmdir()
+
+
+def remove_claimed_task(queue_path, task):
+    # Reuse queue rewrite locking while retaining comments and other entries.
+    queue = Path(queue_path)
+    lock = Path(f"{queue}.lock")
+    for _ in range(100):
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            time.sleep(0.05)
+    else:
+        raise TimeoutError("queue lock remains held")
+    try:
+        lines = queue.read_text().splitlines(keepends=True) if queue.exists() else []
+        for index, line in enumerate(lines):
+            if line.strip() == task.strip():
+                atomic_write(queue, "".join(lines[:index] + lines[index + 1:]))
+                break
     finally:
         lock.rmdir()
 
@@ -593,6 +644,13 @@ def load_agent_registry(config_file):
     profiles = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(profiles, dict):
         raise ValueError(f"{path} must contain an object keyed by agent name")
+    if "agents" in profiles and isinstance(profiles["agents"], dict):
+        profiles = profiles["agents"]
+    elif "acceptance" in profiles or "code_index" in profiles or "version" in profiles:
+        for fallback in [path.parent / "adapters" / "agents.json", path.parent / "agents.json"]:
+            if fallback.is_file():
+                return load_agent_registry(fallback)
+        return []
     normalized = []
     for name, profile in profiles.items():
         if not isinstance(name, str) or not name.strip() or not isinstance(profile, dict):
@@ -877,8 +935,11 @@ def task_header_has_tag(title, tag_pattern):
 
 
 def is_research_task(title):
-    """Check if task header contains [RESEARCH]."""
-    return task_header_has_tag(title, r"\[RESEARCH\]")
+    """Check if task is a research task."""
+    if task_header_has_tag(title, r"\[RESEARCH\]"):
+        return True
+    action = task_field(title, "ACTION").strip()
+    return bool(re.match(r"^\[RESEARCH\]", action, re.I))
 
 
 def agent_supports_task(agent, title, constraints=""):
@@ -990,7 +1051,9 @@ def execute_registered_agents(args, agents, state_path, rollback):
                                        "cancellation_failed", "step_budget_exceeded"))
         )
 
-        if not is_no_response and not should_failover_agent(code, parsed_output):
+        if isinstance(parsed_result, dict) and parsed_result.get("runtime_error"):
+            is_no_response = False
+        if (not is_no_response and not should_failover_agent(code, parsed_output)) or parsed_result.get("runtime_error"):
             state["consecutive_no_response"] = 0
             state["active_agent_id"] = agent["id"]
             if state.get("task_exclusions", {}).pop(args.task_id, None) is not None:
@@ -998,7 +1061,13 @@ def execute_registered_agents(args, agents, state_path, rollback):
             atomic_write(state_path, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
             return code, False
 
-        rollback(attempt.attempt_baseline, attempt.attempt_id)
+        try:
+            rollback(attempt.attempt_baseline, attempt.attempt_id)
+        except Exception:
+            args.recovery_failed = True
+            return 1, False
+        if getattr(args, "recovery_failed", False):
+            return 1, False
         if is_no_response:
             consecutive_no_response += 1
             state["consecutive_no_response"] = consecutive_no_response
@@ -1020,7 +1089,7 @@ def execute_registered_agents(args, agents, state_path, rollback):
 
         max_no_response = len(available)
         if is_no_response and consecutive_no_response >= max_no_response:
-            print(f"[WORKER] AGENT_NO_RESPONSE: {consecutive_no_response} consecutive switches without agent response; reporting to planner.", file=sys.stderr)
+            print(f"[WORKER] AGENT_NO_RESPONSE: {consecutive_no_response} consecutive switches without agent response; reporting to planner.", flush=True)
             args.agent_no_response = True
             return 0, True
 
@@ -1227,7 +1296,7 @@ def code_index_inputs(work_dir, paths):
                   for extension in spec.get("extensions", [])}
     special = {"cmakelists.txt", "makefile", "gnumakefile", "package.swift",
                "package.json", "tsconfig.json", "pyproject.toml", "cargo.toml",
-               "go.mod", "requirements.txt", "code-index.toml"}
+               "go.mod", "requirements.txt", "code-index.toml", "config.json"}
     settings_suffixes = {".xcconfig", ".xcscheme"}
     for name in paths:
         path = Path(name)
@@ -1284,7 +1353,7 @@ def finalize_task_git(args):
             git("add", "-A", "--", *changed)
             if git("diff", "--cached", "--name-only", "-z"):
                 git("commit", "-m", args.commit_message, "-m",
-                    f"Task: {args.task_id}\nScope: {args.target}\nVerification: {args.verify}")
+                    f"Task: {args.task_id}\nScope: {args.target}\nNightShift-Key: {acceptance.key(args.task_id, args.title)}")
         # Refresh only the task entries; unrelated staged/unstaged user work remains intact.
         subprocess.run(["git", "-C", args.work_dir, "reset", "-q", "HEAD", "--", *changed],
                        check=True, capture_output=True)
@@ -1328,7 +1397,9 @@ def bounded_verify_evidence(output):
             "stream_mode": "stdout_stderr_combined"}
 
 
-def finalize_structured_adapter_result(args, result):
+def _finalize_structured_adapter_result(args, result):
+    if scratch_review.is_review(getattr(args, "title", "")):
+        return 0
     outcome = result.get("outcome")
     if outcome == "no_change":
         reason = result.get("no_change_reason")
@@ -1356,15 +1427,23 @@ def finalize_structured_adapter_result(args, result):
     message = result.get("commit_message")
     if not isinstance(message, str) or not message.strip():
         return 126
-    if args.verify and not re.match(r"^(REPORT_ONLY|none)$", args.verify, re.I):
-        verify_code, verify_output = run_verify(args.verify, args.work_dir,
-                                                args.worker_port, args.timeout)
-        if verify_output:
-            print(verify_output, end="" if verify_output.endswith("\n") else "\n")
-        if verify_code:
-            reason = f"Verification failed ({verify_code}): {args.verify}; refusing script-owned commit."
-            result["runtime_error"] = {"phase": "verification", "message": reason,
-                                       "code": verify_code, **bounded_verify_evidence(verify_output)}
+    has_hot_config = (Path(args.work_dir) / "nightshift/config.json").is_file() or (Path(args.work_dir) / "nightshift/acceptance.json").is_file()
+    if has_hot_config and not is_research_task(args.title) and not scratch_review.is_review(args.title):
+        try:
+            result["hot"] = acceptance.hot(args, result, run_verify)
+        except (ValueError, OSError, subprocess.CalledProcessError) as error:
+            result["runtime_error"] = {"phase": "hot", "message": str(error), "code": 1}
+            return 1
+    elif args.verify and args.verify.lower() not in ("report_only", "none"):
+        code, output = run_verify(args.verify, args.work_dir, args.worker_port, args.timeout)
+        if output:
+            print(output, end="" if output.endswith("\n") else "\n")
+        if code:
+            reason = f"Verification failed ({code}): {args.verify}; refusing script-owned commit."
+            result["runtime_error"] = {
+                "phase": "verification", "message": reason, "code": code,
+                **bounded_verify_evidence(output)
+            }
             print(f"[WORKER] {reason}", file=sys.stderr)
             return 1
     audit_args = argparse.Namespace(
@@ -1380,8 +1459,21 @@ def finalize_structured_adapter_result(args, result):
         print(f"[WORKER] Pre-commit audit failed: {audit_reason}", file=sys.stderr)
         return audit_code
     args.commit_message = message
+    journal = {"task_id": args.task_id, "title": args.title, "base": args.base,
+               "phase": "ready_commit", "result": result,
+               "registration_id": getattr(args, "agent_id", ""),
+               "args": {name: getattr(args, name, "") for name in (
+                   "work_dir", "base", "target", "verify", "task_id", "title", "level",
+                   "worker_port", "timeout", "attempt_baseline", "required_cases")}}
+    journal_path = acceptance.record_path(args)
+    acceptance.save(journal_path, journal)
     try:
-        return finalize_task_git(args)
+        code = finalize_task_git(args)
+        if code == 0:
+            journal.update(phase="committed", commit=acceptance.git(args.work_dir, "rev-parse", "HEAD"))
+            acceptance.save(journal_path, journal)
+            result["commit"] = journal["commit"]
+        return code
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         detail = getattr(error, "stderr", b"") or str(error)
         if isinstance(detail, bytes):
@@ -1389,6 +1481,14 @@ def finalize_structured_adapter_result(args, result):
         result["runtime_error"] = {"phase": "git_finalization", "message": detail,
                                    "code": getattr(error, "returncode", 1)}
         print(f"[WORKER] Git finalization failed: {detail}", file=sys.stderr)
+        return 1
+
+
+def finalize_structured_adapter_result(args, result):
+    try:
+        return _finalize_structured_adapter_result(args, result)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        result["runtime_error"] = {"phase": "handoff", "message": str(error), "code": 1}
         return 1
 
 
@@ -1430,8 +1530,7 @@ def run_adapter_ghost(args, main_request, main_status, main_result):
         return 126, {}, None
     ghost_budget = int(getattr(args, "ghost_step_budget", 0) or
                        os.environ.get("WORKER_GHOST_STEP_BUDGET", "25"))
-    remaining_deadline = max(float(os.environ.get("WORKER_GHOST_TIMEOUT", "180")),
-                             args.timeout - float(main_status.get("elapsed_seconds", 0)))
+    remaining_deadline = float(os.environ.get("WORKER_GHOST_TIMEOUT", "180"))
     if ghost_budget <= 0 or remaining_deadline <= 0:
         return 126, {}, None
     output_root = Path(getattr(args, "ghost_artifact_root", "") or
@@ -1441,10 +1540,23 @@ def run_adapter_ghost(args, main_request, main_status, main_result):
     ghost_dir = output_root / f"ghost-{uuid.uuid4().hex}"
     ghost_dir.mkdir(parents=True, exist_ok=False)
     prompt_path = ghost_dir / "closeout-prompt.txt"
+    progress_file = getattr(args, "progress_file", "progress.log")
+    verify = getattr(args, "verify", "")
     atomic_write(prompt_path, build_ghost_closeout_prompt(
-        task_id, args.verify, args.progress_file, host_git=True))
+        task_id, verify, progress_file, host_git=True)
+        + "\nWORKER RESULT\n" + json.dumps(main_result, ensure_ascii=True))
     ghost_result = ghost_dir / "result.json"
-    before = workspace_snapshot(args.work_dir, args.base)
+    before = workspace_snapshot(args.work_dir, getattr(args, "base", None))
+    try:
+        before_head = acceptance.git(args.work_dir, "rev-parse", "HEAD")
+    except Exception:
+        before_head = ""
+    try:
+        wiring = set(acceptance.config(args.work_dir).get("wiring", []))
+    except ValueError:
+        wiring = set()
+    wiring.add("nightshift/config.json")
+    wiring.add("nightshift/acceptance.json")
     request = {
         **main_request,
         "kind": "closeout",
@@ -1463,16 +1575,19 @@ def run_adapter_ghost(args, main_request, main_status, main_result):
         callback_timeout=getattr(args, "callback_timeout", 30),
         execution_timeout=remaining_deadline, start_callback="closeout",
     )
-    after = workspace_snapshot(args.work_dir, args.base)
-    if before != after:
-        changed = sorted(name for name in before.keys() | after.keys()
-                         if before.get(name) != after.get(name))
-        details = "; ".join(f"{name}: {before.get(name)!r} -> {after.get(name)!r}"
-                             for name in changed)
-        print("[WORKER] Ghost closeout changed implementation files; rejecting result: "
-              + details,
-              file=sys.stderr)
-        return 126, {}, ghost_dir
+    after = workspace_snapshot(args.work_dir, getattr(args, "base", None))
+    changed = {name for name in before.keys() | after.keys()
+               if before.get(name) != after.get(name)}
+    # Exact wiring files only; test/source files cannot be whitelisted.
+    forbidden = {name for name in changed if name not in wiring
+                 or re.search(r"(?:^|/)(?:tests?|src|sources|app|lib)/|test[^/]*\.py$", name, re.I)
+                 or (Path(args.work_dir) / name).is_symlink()}
+    try:
+        after_head = acceptance.git(args.work_dir, "rev-parse", "HEAD")
+    except Exception:
+        after_head = ""
+    if forbidden or after_head != before_head:
+        return 126, {"diagnostic": "Ghost changed forbidden files or HEAD: " + ", ".join(sorted(forbidden))}, ghost_dir
     if status.get("status") not in ("complete", "failed") or not status.get("result_location"):
         return 126, {}, ghost_dir
     source = Path(status["result_location"])
@@ -1485,6 +1600,11 @@ def run_adapter_ghost(args, main_request, main_status, main_result):
         shutil.copy2(source, ghost_result)
     if status.get("status") == "failed" and result.get("outcome") not in ("blocked", "scope_blocked", "guidance", "failure"):
         return 126, result, ghost_dir
+    result = {**main_result, **result}
+    result.pop("runtime_error", None)
+    if getattr(args, "diagnostic_only", False):
+        diag = result.get("diagnostic", "") or "Ghost diagnosis completed"
+        return 1, {"diagnostic": diag}, ghost_dir
     code = finalize_structured_adapter_result(args, result)
     return code, result, ghost_dir
 
@@ -1496,6 +1616,7 @@ def execute_adapter_task(args):
     result_path = Path(args.result_file or output.with_name("adapter-result.json"))
     result_path.parent.mkdir(parents=True, exist_ok=True)
     attempt_id = getattr(args, "attempt_id", "") or str(uuid.uuid4())
+    args.attempt_id = attempt_id
     result_path.unlink(missing_ok=True)
     artifact_root = getattr(args, "adapter_artifact_dir", "")
     if not artifact_root:
@@ -1543,6 +1664,8 @@ def execute_adapter_task(args):
         "limits": {"execution_timeout_seconds": args.timeout,
                    "action_limit": args.step_budget},
     }
+    acceptance.save(acceptance.state_dir(args.work_dir) / "last-adapter.json",
+                    {"request": request, "command": adapter_command, "args": list(adapter_args)})
     status = execute_adapter_protocol(adapter_command, request, adapter_args,
                                       callback_timeout=getattr(args, "callback_timeout", 30),
                                       execution_timeout=getattr(args, "execution_timeout", args.timeout))
@@ -1563,18 +1686,29 @@ def execute_adapter_task(args):
                         ("blocked", "scope_blocked", "guidance", "failure"))
     if terminal_failure and status.get("status") in ("complete", "closeout_required", "failed"):
         code = finalize_structured_adapter_result(args, result)
+        try:
+            args.diagnostic_only = True
+            _, diagnosis, _ = run_adapter_ghost(args, request, status, result)
+            args.diagnostic_only = False
+            result.update(diagnosis)
+        except (OSError, ValueError, RuntimeError) as error:
+            result["ghost_error"] = str(error)
     elif status.get("status") in ("complete", "closeout_required"):
         if not isinstance(result, dict):
             raise ValueError("adapter result must be a JSON object")
         code = (finalize_structured_adapter_result(args, result)
                 if status.get("status") == "complete" else 126)
-        if code == 126 and (result.get("outcome") == "closeout_required"
-                            or (result.get("outcome") == "complete"
-                                and not str(result.get("commit_message", "")).strip())):
-            code, rescued_result, ghost_dir = run_adapter_ghost(args, request, status, result)
-            if rescued_result:
-                result = rescued_result
-                atomic_write(result_path, json.dumps(result, ensure_ascii=False) + "\n")
+        if code:
+            try:
+                code, rescued_result, ghost_dir = run_adapter_ghost(args, request, status, result)
+                if rescued_result:
+                    result = {**result, **rescued_result}
+                    if code == 0:
+                        result.pop("runtime_error", None)
+            except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+                result["ghost_error"] = str(error)
+                code = 1
+
     else:
         code = {"no_response": 124, "step_budget_exceeded": 125,
                 "closeout_required": 126, "execution_timeout": 124,
@@ -1618,7 +1752,7 @@ def build_task_prompt(task, task_id, level, target, verify, forbidden, constrain
     is_research = is_research_task(task)
     budget_rule = (f"- Budget: {max_steps} actions for research report; reserve 3 for closeout. Per-invocation timeout."
                    if is_research else
-                   f"- Budget: {max_steps} actions ({step_base}+{target_file_count}*{step_per_file}); reserve 3 for verify/closeout. Per-invocation timeout. Emit `[EXEC] <action>` when required; no fabricated markers, bundled actions, or budget evasion.")
+                   f"- Budget: {max_steps} actions ({step_base}+{target_file_count}×{step_per_file}); reserve 3 for verify/closeout. Per-invocation timeout. Emit `[EXEC] <action>` when required; no fabricated markers, bundled actions, or budget evasion.")
     return f"""Execute one NightShift ticket unattended. The ticket and launcher contract govern.
 
 TASK_ID: {task_id} | LEVEL: {level or '1'}
@@ -1636,7 +1770,7 @@ RULES
 
 CLOSEOUT
 - Run {verify or 'task verification'} and state actual results. [DEAD_END] requires isolated passing proof. At most 3 implementation attempts; on blocker, return [BLOCKED] with cause.
-- Never stage/commit or change Worker score. Runtime verifies, audits and commits using your message; Planner accepts. Do not adjust scope for the adapter.
+- Never stage/commit or change Worker score. Do not self-adjust the shared Worker score. Runtime verifies, audits and commits using your message; Planner accepts. Do not adjust scope for the adapter.
 - Return exactly one JSON object with no text before or after it. Fields: `outcome`=complete|closeout_required|blocked|scope_blocked|guidance|failure|no_change; `changed`=boolean; `verification_evidence`; `commit_message`; `no_change_reason` when relevant; `attempts`=integer; `confidence`=HIGH|MED|LOW. `complete`=finished/verified; `no_change`=no edits needed; `closeout_required`=verification/message pending. If verification fails, return blocked or failure; closeout_required cannot repair failed tests. Never invent evidence/messages from logs.
 
 {authority}
@@ -1682,710 +1816,30 @@ def acquire_worker_lock(path, pid):
 
 def worker_daemon(root):
     root = Path(root).resolve()
-    config = os.environ
-    worker_id = config.get("WORKER_ID", "default")
-
-    def resolve(name, default):
-        path = Path(config.get(name) or default)
-        return path if path.is_absolute() else root / path
-
-    tasks_file = resolve("TASKS_FILE", "tasks.txt")
-    done_file = resolve("TASKS_DONE_FILE", "tasks.done")
-    progress_file = resolve("PROGRESS_FILE", "progress.log")
-    pause_file = resolve("PAUSE_FILE", "PAUSE")
-    dispatch_gate_file = resolve("AGENT_DISPATCH_GATE_FILE", ".worker-dispatch-gate.json")
-    status_file = resolve("STATUS_FILE", f"worker.{worker_id}.status")
-    log_file = resolve("LOG_FILE", f".worker.{worker_id}.log")
-    pid_file = resolve("PID_FILE", f".worker.{worker_id}.pid")
-    if (root / "nightshift/adapters/agents.json").is_file():
-        agent_config_default = "nightshift/adapters/agents.json"
-    elif (root / "scripts/adapters/agents.json").is_file():
-        agent_config_default = "scripts/adapters/agents.json"
-    else:
-        agent_config_default = "agents/agents.json"
-    agent_config_file = resolve("AGENT_CONFIG_FILE", agent_config_default)
-    agents = load_agent_registry(agent_config_file)
-    if not agents and tasks_file.is_file() and any(
-            line.strip() and not line.lstrip().startswith("#")
-            for line in tasks_file.read_text(encoding="utf-8").splitlines()):
-        raise ValueError(f"{agent_config_file} must register at least one executable adapter")
-    safe_worker_id = re.sub(r"[^A-Za-z0-9_.-]", "_", worker_id)
-    agent_state_path = resolve(
-        "AI_AGENT_STATE_FILE", f".worker-agent-state.{safe_worker_id}.json")
-    ghost_state_path = resolve(
-        "WORKER_GHOST_STATE_FILE", f".worker-ghost-state.{safe_worker_id}.json")
-    ghost_artifact_root = resolve("WORKER_GHOST_ARTIFACT_DIR", ".worker-ghosts")
-    score_state_path = resolve("WORKER_SCORE_FILE", ".worker-score.json")
-    agent_score_state_path = resolve("WORKER_AGENT_SCORES_DIR", ".worker-agent-scores")
-    agent_events_path = resolve("WORKER_AGENT_EVENTS_FILE", ".worker-agent-events.jsonl")
-    timeout_value = float(config.get("TASK_TIMEOUT", "1800"))
-    timeout = int(timeout_value) if timeout_value.is_integer() else timeout_value
-    step_base = int(config.get("STEP_BASE", "12"))
-    step_per_file = int(config.get("STEP_PER_FILE", "5"))
-    research_step_budget = int(config.get("RESEARCH_STEP_BUDGET", "100"))
-    poll_interval = float(config.get("POLL_INTERVAL", "5"))
-    worker_port = config.get("WORKER_PORT", "3001")
-    work_dir = root
-    system = platform.system()
-    linux_release = Path("/etc/os-release")
-    is_ubuntu = (linux_release.is_file()
-                 and "ubuntu" in linux_release.read_text(encoding="utf-8", errors="replace").lower())
-    detected_os = "mac" if system == "Darwin" else "ubuntu" if system == "Linux" and is_ubuntu else "linux" if system == "Linux" else "unknown"
-    active_os = config.get("OS_TYPE", "auto")
-    if not active_os or active_os == "auto":
-        active_os = detected_os
-    platform_name = ("macOS (Darwin)" if active_os in ("mac", "darwin") else
-                     "Linux (Ubuntu)" if active_os == "ubuntu" else f"Linux ({active_os})")
-    step_args = {"step_base": step_base, "step_per_file": step_per_file,
-                 "research_step_budget": research_step_budget}
-
-    for name, default in (("CI", "1"), ("PAGER", "cat"), ("NO_COLOR", "1"),
-                          ("DEBIAN_FRONTEND", "noninteractive"), ("TERM", "dumb"),
-                          ("NIGHTSHIFT_WORKER", "1")):
-        os.environ[name] = config.get(name, default)
-
-    pid = os.getpid()
-    if not acquire_worker_lock(pid_file, pid):
+    owned = root / "nightshift" if (root / "nightshift").is_dir() else root
+    pid_file = Path(os.environ.get("PID_FILE", owned / ".worker.pid"))
+    if not pid_file.is_absolute():
+        pid_file = root / pid_file
+    if not acquire_worker_lock(pid_file, os.getpid()):
         return 1
-    stop_requested = threading.Event()
-    final_state = "STOPPED"
-    def request_stop(signum, frame):
-        stop_requested.set()
-    signal.signal(signal.SIGINT, request_stop)
-    signal.signal(signal.SIGTERM, request_stop)
-    if hasattr(signal, "SIGHUP"):
-        try:
-            signal.signal(signal.SIGHUP, request_stop)
-        except (ValueError, OSError):
-            pass
-
-    status_lock = _workspace_state_lock
-    latest_status = None
-    running_since = None
-    heartbeat_stop = threading.Event()
-
-    def update_status(state, task="", elapsed=0, current=0, total=0, remaining=0,
-                      percentage="0%", bar=""):
-        nonlocal latest_status, running_since
-        with status_lock:
-            if state == "RUNNING":
-                if latest_status is None or latest_status.state != "RUNNING" or latest_status.current_task != task:
-                    running_since = time.monotonic() - elapsed
-            else:
-                running_since = None
-            status_args = argparse.Namespace(
-                path=str(status_file), worker_id=worker_id, os_name=active_os,
-                platform=platform_name, work_dir=str(work_dir),
-                state=state, current_task=task, elapsed=int(elapsed),
-                current_index=int(current), total_tasks=int(total), remaining=int(remaining),
-                percentage=percentage, bar=bar or progress_bar(int(current), int(total)),
-                pid=pid, model="", cli="registered-adapters", timeout=timeout,
-                worker_score=read_score_state(score_state_path)["score"],
-            )
-            write_status(status_args)
-            latest_status = status_args
-
-    def refresh_running_status():
-        while not heartbeat_stop.wait(1):
-            with status_lock:
-                if latest_status is not None and latest_status.state == "RUNNING" and running_since is not None:
-                    latest_status.elapsed = int(time.monotonic() - running_since)
-                    try:
-                        write_status(latest_status)
-                    except OSError as error:
-                        print(f"[WORKER] Heartbeat write failed: {error}", file=sys.stderr)
-
-    heartbeat = threading.Thread(target=refresh_running_status, name="worker-heartbeat", daemon=True)
-
-    def append_line(path, line):
-        with Path(path).open("a", encoding="utf-8") as stream:
-            stream.write(line + "\n")
-
-    def stamp():
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+    lifecycle = _import_nightshift_module("lifecycle")
     try:
-        heartbeat.start()
-        for path in (tasks_file, done_file, progress_file):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch(exist_ok=True)
-        (root / ".reports/.archive").mkdir(parents=True, exist_ok=True)
-        inside = subprocess.run(["git", "-C", str(work_dir), "rev-parse", "--is-inside-work-tree"],
-                                capture_output=True, check=False).returncode == 0
-        if inside:
-            subprocess.run(["git", "-C", str(work_dir), "tag", "-f", "nightshift-session-base", "HEAD"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["git", "-C", str(root), "tag", "-f", "nightshift-session-base", "HEAD"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        print("=" * 78)
-        print(" 24-Hour Unattended AI Worker Daemon Started")
-        print(f" Worker ID: {worker_id} | OS: {platform_name} (CPUs: {os.cpu_count() or 4})")
-        print(f" PID: {pid} | Registered adapters: {len(agents)}")
-        print(f" WorkDir: {work_dir}")
-        print(f" Tasks: {tasks_file} | Status: {status_file}")
-        print(f" Progress: {progress_file} | Log: {log_file}")
-        print("=" * 78)
-        update_status("IDLE", bar="[------------------------------] 0%")
-        was_busy = False
-        idle_status_shown = False
-        run_once = env_bool("RUN_ONCE", "0")
-        pending_planner = None
-        waiting_for_response = False
-        recovery_halted_task = ""
-        scratch_checked_at = float("-inf")
-
-        while not stop_requested.is_set():
-            if recovery_halted_task and not pause_file.exists():
-                state_title = f"{recovery_halted_task} (recovery halted); awaiting revised queue or intervention"
-                update_status("RECOVERY_FAILED", state_title)
-                stop_requested.wait(poll_interval)
-                head_task = ""
-                if tasks_file.is_file():
-                    lines = [l.strip() for l in tasks_file.read_text(encoding="utf-8").splitlines()
-                             if l.strip() and not l.lstrip().startswith("#")]
-                    head_task = lines[0].split("|", 1)[0].replace(" ", "") if lines else ""
-                if head_task != recovery_halted_task:
-                    recovery_halted_task = ""
-                else:
-                    continue
-            if waiting_for_response and not pause_file.exists():
-                state = read_agent_state(agent_state_path)
-                if state.get("consecutive_no_response", 0) >= len(agents):
-                    update_status("AGENT_NO_RESPONSE", "Waiting for agent response")
-                    stop_requested.wait(poll_interval)
-                    continue
-                # Back off before retrying the requeued task to avoid a hot loop.
-                stop_requested.wait(poll_interval)
-                waiting_for_response = False
-            if (agents and not pending_planner and not pause_file.exists()
-                    and not dispatch_gate_file.exists() and time.monotonic() - scratch_checked_at >= 60):
-                try:
-                    scratch_review.check(tasks_file.parent, tasks_file, insert_task_front, atomic_write)
-                except (OSError, ValueError, TimeoutError) as error:
-                    print(f"[SCRATCH_REVIEW] monitor deferred: {error}", file=sys.stderr)
-                scratch_checked_at = time.monotonic()
-            poll_args = argparse.Namespace(tasks=str(tasks_file), done=str(done_file),
-                                           pause=str(pause_file), work_dir=str(work_dir),
-                                           dispatch_gate=str(dispatch_gate_file),
-                                           **step_args)
-            fields = poll_next(poll_args)
-            if fields[0] == "paused":
-                if dispatch_gate_file.exists():
-                    print(f"[{stamp()}] [PLANNER_REVIEW_REQUIRED] Dispatch held by {dispatch_gate_file}.")
-                    update_status("PAUSED_FOR_PLANNER", f"Review agent event in {dispatch_gate_file}", percentage="0%", bar="[PLANNER]")
-                    stop_requested.wait(poll_interval)
-                    continue
-                print(f"[{stamp()}] [PAUSED] Found {pause_file}. Sleeping...")
-                update_status("PAUSED", f"Paused via {pause_file} file", percentage="0%", bar="[PAUSED]")
-                stop_requested.wait(poll_interval)
-                continue
-            raw_task, done_count, remaining = fields[1], int(fields[2]), int(fields[3])
-            total, current = int(fields[4]), int(fields[5])
-            percent, bar = f"{fields[6]}%", fields[7]
-            if fields[0] == "idle":
-                if pending_planner:
-                    failed_task, reason = pending_planner
-                    state = {"SCOPE": "SCOPE_BLOCKED", "GUIDANCE": "AWAITING_GUIDANCE"}.get(reason, "BLOCKED")
-                    update_status(state, f"{failed_task} ({reason}); awaiting Planner")
-                    if not idle_status_shown:
-                        print(f"[AWAITING_PLANNER] {failed_task}: daemon remains alive; waiting for revised queue work.")
-                        idle_status_shown = True
-                    if run_once:
-                        break
-                    stop_requested.wait(poll_interval)
-                    continue
-                update_status("IDLE", current=done_count, total=total, percentage="100%", bar=bar)
-                if was_busy:
-                    print(f"\n{'=' * 78}\n[{stamp()}] [QUEUE_DRAINED] {bar}")
-                    print(f"[IDLE] Queue is empty (Total completed: {done_count} tasks).\n{'=' * 78}")
-                    was_busy, idle_status_shown = False, True
-                    if run_once:
-                        print("[WORKER] Exiting because RUN_ONCE is enabled.")
-                        break
-                elif not idle_status_shown:
-                    print(f"[{stamp()}] [IDLE] Queue is empty (Total completed: {done_count} tasks). Waiting for tasks in {tasks_file}...")
-                    idle_status_shown = True
-                    if run_once:
-                        print("[WORKER] Queue is empty and RUN_ONCE is enabled. Exiting.")
-                        break
-                stop_requested.wait(poll_interval)
-                continue
-
-            was_busy, idle_status_shown = True, False
-            pending_planner = None
-            scratch_checked_at = float("-inf")
-            task, task_id, level = raw_task, fields[8], fields[9]
-            target, verify, forbidden, constraints = fields[10], fields[11], fields[12], fields[13]
-            target_file_count, max_steps = int(fields[14]), int(fields[15])
-            head = subprocess.run(["git", "-C", str(work_dir), "rev-parse", "HEAD"],
-                                  capture_output=True, text=True, check=False)
-            base = head.stdout.strip() if head.returncode == 0 else "HEAD~1"
-            started = time.time()
-            is_research = is_research_task(task)
-            is_diagnostic = task_header_has_tag(task, r"\[DIAGNOSTIC\]")
-            # Script owns report freshness and retirement, including before research.
-            refresh_active_reports(root, work_dir)
-            if root.resolve() != work_dir.resolve():
-                refresh_active_reports(work_dir, work_dir)
-            print(f"\n{'=' * 78}\n[{stamp()}] >>> [Task {current} of {total} (In Progress) | Completed: {done_count}/{total} ({fields[6]}%)]")
-            print(f">>> Progress: {bar}\n>>> Task: {task}")
-            budget_msg = f"{max_steps} steps (Research budget)" if is_research else f"{max_steps} steps (Base: {step_base} + {target_file_count} files * {step_per_file})"
-            print(f">>> Step Budget: {budget_msg}\n{'=' * 78}")
-            update_status("RUNNING", task, current=current, total=total,
-                          remaining=max(0, remaining - 1), percentage=percent, bar=bar)
-            prompt = build_task_prompt(task, task_id, level, target, verify, forbidden,
-                                       constraints, max_steps, target_file_count,
-                                       step_base, step_per_file, progress_file)
-            with tempfile.TemporaryDirectory(prefix="nightshift-task-") as temporary:
-                prompt_path = Path(temporary) / "prompt.txt"
-                output_path = Path(temporary) / "cli-output.log"
-                result_path = Path(temporary) / "last-message.txt"
-                prompt_path.write_text(prompt, encoding="utf-8")
-                print(f"[WORKER] Launching registered adapters (StepBudget: {max_steps}, WorkDir: {work_dir})...")
-                cli_args = argparse.Namespace(
-                    adapter="", executable="", work_dir=str(work_dir),
-                    prompt_file=str(prompt_path), output_file=str(output_path),
-                    result_file=str(result_path),
-                    timeout=timeout, model="", effort="",
-                    step_budget=max_steps, research_step_budget=research_step_budget, worker_port=worker_port, target=target,
-                    task_id=task_id, title=task, level=level, verify=verify,
-                    base=base, progress_file=str(progress_file),
-                    ghost_state_path=str(ghost_state_path),
-                    ghost_artifact_root=str(ghost_artifact_root),
-                    agent_score_state_file=str(agent_score_state_path),
-                    agent_events_file=str(agent_events_path),
-                    attempt_snapshot_root=str(_scratch_state_root(root) / "attempts" /
-                                              re.sub(r"[^A-Za-z0-9_.-]", "_", task_id)),
-                    recovery_failed=False,
-                    recovery_halted=False,
-                )
-
-                def record_task_score(result, evidence=""):
-                    registration_id = getattr(cli_args, "executed_agent_id", "")
-                    if (registration_id and registered_agent_score_path(
-                            agent_score_state_path, registration_id).is_file()):
-                        return record_agent_score_result(
-                            agent_score_state_path, registration_id, task_id,
-                            result, evidence, agent_events_path,
-                            gate_path=dispatch_gate_file,
-                        )
-                    return record_score_result(score_state_path, task_id, result, evidence)
-
-                def recover_current_attempt(snapshot=None, attempt_id=None):
-                    nonlocal final_state
-                    try:
-                        adapter_dir = Path(getattr(cli_args, "adapter_artifact_dir", ""))
-                        adapter_artifacts = (sorted(path for path in adapter_dir.rglob("*") if path.is_file())
-                                             if adapter_dir.is_dir() else [])
-                        recovered = rollback_failed_task(
-                            root, work_dir, task_id,
-                            (tasks_file, done_file, progress_file, log_file, status_file, agent_state_path,
-                             ghost_state_path, ghost_artifact_root, score_state_path,
-                             *adapter_artifacts),
-                            snapshot if snapshot is not None else cli_args.attempt_baseline,
-                            attempt_id or cli_args.attempt_id,
-                        )
-                        # A failed attempt cannot permanently retire a report.
-                        settle_invalid_reports(root, work_dir, accepted=False)
-                        if root.resolve() != work_dir.resolve():
-                            settle_invalid_reports(work_dir, work_dir, accepted=False)
-                        return recovered
-                    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-                        cli_args.recovery_failed = True
-                        print(f"[WORKER] Attempt recovery failed; stopping before another execution: {error}",
-                              file=sys.stderr)
-                        restore_task_front(tasks_file, raw_task)
-                        append_line(progress_file,
-                                    f"[RECOVERY_HALTED] {task_id}: baseline could not be restored; task requeued.")
-                        final_state = "RECOVERY_FAILED"
-                        update_status(final_state, f"{task_id} (baseline restore failed)",
-                                      int(time.time() - started), current, total, remaining,
-                                      percent, bar)
-                        cli_args.recovery_halted = True
-                        return None
-
-                def recover_before_switch(snapshot, attempt_id):
-                    if recover_current_attempt(snapshot, attempt_id) is None:
-                        raise RuntimeError("attempt recovery failed; replacement execution was not started")
-                cli_args.awaiting_planner = False
-                cli_args.awaiting_agent = False
-                cli_args.agent_no_response = False
-                cli_args.agent_events_file = str(agent_events_path)
-                cli_args.dispatch_gate_file = str(dispatch_gate_file)
-                execution_error = ""
-                try:
-                    exit_code, has_event = execute_registered_agents(
-                        cli_args, agents, agent_state_path, recover_before_switch,
-                    )
-                except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-                    execution_error = str(error)
-                    print(f"[WORKER] CLI execution failed: {error}", file=sys.stderr)
-                    exit_code = 2
-                result_output = result_path if result_path.is_file() and result_path.stat().st_size else output_path
-                duration = int(time.time() - started)
-                append_line(log_file, f"=== [{stamp()}] Task: {task} (Duration: {duration}s, Exit: {exit_code}) ===")
-                with Path(log_file).open("a", encoding="utf-8") as stream:
-                    stream.write(output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else "")
-                    if execution_error:
-                        stream.write(f"\n[WORKER] Runtime execution error: {execution_error}")
-                    stream.write("\n")
-                result_text = result_output.read_text(encoding="utf-8", errors="replace") if result_output.exists() else ""
-
-                structured_outcome = ""
-                structured_execution_status = ""
-                failure_reason = execution_error
-                cli_exit_code = None
-                result_error_code = ""
-                try:
-                    payload = json.loads(result_text)
-                    if isinstance(payload, dict):
-                        structured_outcome = payload.get("outcome", "")
-                        structured_execution_status = payload.get("status", "")
-                        raw_cli_exit_code = payload.get("cli_exit_code")
-                        if isinstance(raw_cli_exit_code, int) and not isinstance(raw_cli_exit_code, bool):
-                            cli_exit_code = raw_cli_exit_code
-                        result_error_code = str(payload.get("error_code", ""))
-                        runtime_error = payload.get("runtime_error", {})
-                        if isinstance(runtime_error, dict) and runtime_error.get("message"):
-                            failure_reason = str(runtime_error["message"])
-                except json.JSONDecodeError:
-                    pass
-                structured_status = {
-                    "complete": "success", "no_change": "success",
-                    "closeout_required": "closeout_required", "scope_blocked": "scope",
-                    "guidance": "guidance", "blocked": "blocked", "failure": "error",
-                    "cancellation_failed": "cancel_failed",
-                }.get(structured_outcome, "")
-                if structured_execution_status == "cancellation_failed":
-                    structured_status = "cancel_failed"
-
-                outcome = ("agent_no_response" if getattr(cli_args, "agent_no_response", False) else
-                           "planner_gate" if cli_args.awaiting_planner else
-                           "agent_unavailable" if cli_args.awaiting_agent else
-                           "cancel_failed" if structured_status == "cancel_failed" else
-                           "timeout" if exit_code == 124 else
-                           "step_budget" if exit_code == 125 else
-                           "closeout_required" if exit_code == 126 and structured_outcome == "closeout_required" else
-                           "closeout_failed" if exit_code == 126 else
-                           "scope" if structured_status == "scope" else
-                           "blocked" if structured_status == "blocked" else
-                           "guidance" if structured_status == "guidance" else
-                           "cancel_failed" if structured_status == "cancel_failed" else
-                           "error" if exit_code else
-                           structured_status if structured_status else
-                           "scope" if "[SCOPE_BLOCKED]" in result_text else
-                           "blocked" if "[BLOCKED]" in result_text else
-                           "guidance" if re.search(r"\[(?:NEED_GUIDANCE|NEED_DECOMPOSITION)\]", result_text) else
-                           "success")
-                stamp_now = stamp()
-                if (scratch_review.is_review(task) and outcome not in
-                        ("agent_no_response", "planner_gate", "agent_unavailable", "cancel_failed")):
-                    error = "" if outcome == "success" else f"execution: {outcome}"
-                    if not error:
-                        try:
-                            guard, reason = git_audit(argparse.Namespace(
-                                work_dir=str(work_dir), base=base, target=target,
-                                constraints=constraints, title=task, level=1,
-                                baseline_snapshot=getattr(cli_args, "attempt_baseline", "")))
-                            if guard:
-                                raise ValueError(reason)
-                            scratch_review.validate_report(tasks_file.parent, task_id)
-                        except (OSError, ValueError, TypeError) as failure:
-                            error = str(failure)
-                    if error and getattr(cli_args, "attempt_baseline", ""):
-                        if recover_current_attempt() is None:
-                            if run_once:
-                                break
-                            recovery_halted_task = task_id
-                            continue
-                    scratch_review.finish(tasks_file.parent, task_id, atomic_write, error,
-                        str(Path(cli_args.attempt_baseline).parent)
-                        if not error and getattr(cli_args, "attempt_baseline", "") else "")
-                    print(f"[SCRATCH_REVIEW] {'failed' if error else 'reviewed'}: fixed report overwritten")
-                    update_status("IDLE")
-                    continue
-                if outcome not in ("success", "agent_no_response", "planner_gate", "agent_unavailable"):
-                    pending_planner = (task_id, outcome.upper())
-                if outcome == "agent_no_response":
-                    restore_task_front(tasks_file, raw_task)
-                    warning = ("=" * 80 + f"\n[AGENT_NO_RESPONSE] {task_id}: agent no response\n"
-                               f"Time: {stamp_now} | Status: AGENT_NO_RESPONSE\n"
-                               f"Task returned to {tasks_file}; all registered agents ({len(agents)}) returned no response.\n" + "=" * 80)
-                    prepend_progress(progress_file, warning)
-                    print(f"[{stamp_now}] [AGENT_NO_RESPONSE] agent no response; all registered agents ({len(agents)}) returned no response.")
-                    update_status("AGENT_NO_RESPONSE", task, duration, current, total,
-                                  remaining, percent, bar)
-                    if run_once:
-                        final_state = "AGENT_NO_RESPONSE"
-                        break
-                    waiting_for_response = True
-                    stop_requested.wait(poll_interval)
-                    continue
-                elif outcome == "planner_gate":
-                    restore_task_front(tasks_file, raw_task)
-                    append_line(progress_file,
-                                f"[PLANNER_REVIEW_REQUIRED] {task_id}: agent failover recorded; replacement waits for Planner acknowledgement.")
-                    print(f"[{stamp_now}] [PLANNER_REVIEW_REQUIRED] Replacement agent is held until Planner acknowledges the change.")
-                    update_status("PAUSED_FOR_PLANNER", task, duration, current, total,
-                                  remaining, percent, bar)
-                    if run_once:
-                        final_state = "PAUSED_FOR_PLANNER"
-                        break
-                    stop_requested.wait(poll_interval)
-                    continue
-                elif outcome == "agent_unavailable":
-                    restore_task_front(tasks_file, raw_task)
-                    append_line(progress_file,
-                                f"[AGENT_UNAVAILABLE] {task_id}: no eligible registration remains for this task; task returned to {tasks_file}. After fixing the adapter issue, remove this task from task_exclusions in {agent_state_path} to retry.")
-                    update_status("WAITING_FOR_AGENT", task, duration, current, total,
-                                  remaining, percent, bar)
-                    if run_once:
-                        final_state = "WAITING_FOR_AGENT"
-                        break
-                    stop_requested.wait(poll_interval)
-                    continue
-                elif outcome == "cancel_failed":
-                    restore_task_front(tasks_file, raw_task)
-                    final_state = "CANCEL_FAILED"
-                    update_status(final_state, f"{task_id} (execution may still be active)", duration,
-                                  current, total, remaining, percent, bar)
-                    append_line(progress_file,
-                                f"[RECOVERY_HALTED] {task_id}: execution stop was not confirmed; task requeued without restoring workspace.")
-                    if run_once:
-                        break
-                    recovery_halted_task = task_id
-                    stop_requested.wait(poll_interval)
-                    continue
-                elif outcome == "timeout":
-                    print(f"[{stamp_now}] [TIMEOUT] Task exceeded {timeout}s limit!")
-                    record_task_score("hard_failure", f"timeout after {timeout}s")
-                    archive = recover_current_attempt()
-                    if archive is None:
-                        if run_once:
-                            break
-                        recovery_halted_task = task_id
-                        stop_requested.wait(poll_interval)
-                        continue
-                    if archive and Path(archive).is_dir():
-                        diag_content = (f"# Failure Diagnostic: {task_id}\n\n"
-                                        f"- Time: {stamp_now}\n"
-                                        f"- Status: TIMEOUT\n"
-                                        f"- Timeout Limit: {timeout}s\n"
-                                        "- Suggestion: Task may be too complex or model got stuck in large context/compaction. Split into smaller tickets.\n")
-                        atomic_write(Path(archive) / "DIAGNOSTIC.md", diag_content)
-                    archive_note = f"Report: {Path(archive).name}/DIAGNOSTIC.md\n" if archive else ""
-                    summary = ("=" * 80 + f"\n[BLOCKED] {task_id}: Timeout Exceeded ({timeout}s)\n"
-                               f"Time: {stamp_now} | Status: TIMEOUT\nFailure Reason: Task execution timed out after {timeout} seconds.\n"
-                               + archive_note +
-                               "Action Needed for Human: Task may be too complex. Split into smaller atomic tasks.\n" + "=" * 80)
-                    prepend_progress(progress_file, summary)
-                    append_line(done_file, f"[{stamp_now}] [FAILED] {task} [TIMEOUT]")
-                    update_status("BLOCKED", f"{task} (TIMEOUT)", duration, current, total,
-                                  max(0, remaining - 1), percent, bar)
-                elif outcome in ("step_budget", "closeout_failed"):
-                    reason = ("Adapter action budget exhausted" if outcome == "step_budget"
-                              else "Restricted ghost closeout failed or attempted implementation")
-                    is_research_budget_exhaustion = (is_research and outcome == "step_budget")
-                    if is_research_budget_exhaustion:
-                        print(f"[{stamp_now}] [NO_FAULT] {task_id}: {reason} (research task)")
-                        record_task_score("no_fault", reason)
-                    else:
-                        print(f"[{stamp_now}] [HARD FAILURE] {task_id}: {reason}")
-                        record_task_score("hard_failure", reason)
-                    archive = recover_current_attempt()
-                    if archive is None:
-                        if run_once:
-                            break
-                        recovery_halted_task = task_id
-                        stop_requested.wait(poll_interval)
-                        continue
-                    diagnostic_text = payload.get("diagnostic", "") if isinstance(payload, dict) else ""
-                    if archive and Path(archive).is_dir():
-                        diag_content = (f"# Failure Diagnostic: {task_id}\n\n"
-                                        f"- Time: {stamp_now}\n"
-                                        f"- Outcome: {outcome}\n"
-                                        f"- Reason: {reason}\n")
-                        if diagnostic_text:
-                            diag_content += f"- Diagnostic:\n{diagnostic_text}\n"
-                        if isinstance(payload, dict) and payload.get("verification_evidence"):
-                            diag_content += f"- Verification Evidence: {payload.get('verification_evidence')}\n"
-                        atomic_write(Path(archive) / "DIAGNOSTIC.md", diag_content)
-                    short_diag = f" | Diagnostic: {diagnostic_text[:120]}" if diagnostic_text else ""
-                    archive_note = f"\n  Archive: {Path(archive).name}/DIAGNOSTIC.md" if archive else ""
-                    score_str = f"; score now {read_score_state(score_state_path)['score']}/5" if not is_research_budget_exhaustion else " (score unchanged)"
-                    lead_tag = "[NO_FAULT]" if is_research_budget_exhaustion else "[HARD_FAILURE]"
-                    action_tag = "[NEED_DECOMPOSITION]" if outcome == "step_budget" else "[PLANNER_REQUIRED]"
-                    prepend_progress(progress_file,
-                                     f"{lead_tag} {task_id}: {reason}{short_diag}{score_str}{archive_note}\n"
-                                     f"{action_tag} {task_id}: "
-                                     "Review the failed-task snapshot and return a bounded ticket through tasks.txt; daemon remains alive.")
-                    append_line(done_file, f"[{stamp_now}] [FAILED] {task} [{outcome.upper()}]")
-                    update_status("BLOCKED", f"{task} ({outcome.upper()})", duration, current,
-                                  total, max(0, remaining - 1), percent, bar)
-                elif outcome == "scope":
-                    print(f"[{stamp_now}] 🚧 [SCOPE BLOCKED] Worker honestly stopped at unannounced downstream boundaries.")
-                    if recover_current_attempt() is None:
-                        if run_once:
-                            break
-                        recovery_halted_task = task_id
-                        stop_requested.wait(poll_interval)
-                        continue
-                    summary = ("=" * 80 + f"\n[SCOPE_BLOCKED] {task_id}: Downstream Scope Boundary Reached\n"
-                               f"Time: {stamp_now} | Status: SCOPE_BLOCKED\nDetails: Compiler errors detected in files outside TARGET whitelist.\n"
-                               "Worker honestly stopped without violating boundaries. (No credit deduction).\n"
-                               "Action Needed for Human: Expand TARGET in tasks.txt or adopt Expand-Migrate-Contract.\n" + "=" * 80)
-                    prepend_progress(progress_file, summary)
-                    append_line(done_file, f"[{stamp_now}] [SCOPE_BLOCKED] {task}")
-                    update_status("SCOPE_BLOCKED", task, duration, current, total,
-                                  max(0, remaining - 1), percent, bar)
-                elif outcome == "guidance":
-                    print(f"[{stamp_now}] ✋ [AWAITING GUIDANCE] Worker honestly requested manager guidance.")
-                    if recover_current_attempt() is None:
-                        if run_once:
-                            break
-                        recovery_halted_task = task_id
-                        stop_requested.wait(poll_interval)
-                        continue
-                    append_line(done_file, f"[{stamp_now}] [GUIDANCE_REQUESTED] {task}")
-                    update_status("AWAITING_GUIDANCE", task, duration, current, total,
-                                  max(0, remaining - 1), percent, bar)
-                elif outcome == "blocked":
-                    print(f"[{stamp_now}] 🚧 [WORKER BLOCKED] Worker reported [BLOCKED]; rejecting task success.")
-                    archive = recover_current_attempt()
-                    if archive is None:
-                        break
-                    diagnostic_text = payload.get("diagnostic", "") if isinstance(payload, dict) else ""
-                    if archive and Path(archive).is_dir():
-                        diag_content = (f"# Failure Diagnostic: {task_id}\n\n"
-                                        f"- Time: {stamp_now}\n"
-                                        f"- Status: BLOCKED\n"
-                                        f"- Blocker: {diagnostic_text or 'Worker reported [BLOCKED]'}\n")
-                        atomic_write(Path(archive) / "DIAGNOSTIC.md", diag_content)
-                    archive_note = f"Report: {Path(archive).name}/DIAGNOSTIC.md\n" if archive else ""
-                    summary = ("=" * 80 + f"\n[BLOCKED] {task_id}: Worker Reported Blocked\n"
-                               f"Time: {stamp_now} | Status: BLOCKED\n"
-                               f"Failure Reason: {diagnostic_text or 'Worker final response contained [BLOCKED].'}\n"
-                               + archive_note
-                               + "Action Needed for Human: Inspect the worker response and resolve its blocker.\n"
-                               + "=" * 80)
-                    prepend_progress(progress_file, summary)
-                    append_line(done_file, f"[{stamp_now}] [FAILED] {task} [WORKER_BLOCKED]")
-                    final_state = "BLOCKED"
-                    update_status("BLOCKED", f"{task} (WORKER BLOCKED)", duration, current, total,
-                                  max(0, remaining - 1), percent, bar)
-                elif outcome == "error":
-                    print(f"[{stamp_now}] [ERROR] Task execution exited with code {exit_code}")
-                    if cli_args.recovery_failed:
-                        if not cli_args.recovery_halted:
-                            restore_task_front(tasks_file, raw_task)
-                            append_line(progress_file,
-                                        f"[RECOVERY_HALTED] {task_id}: attempt baseline was not captured; task requeued.")
-                            final_state = "RECOVERY_FAILED"
-                            update_status(final_state, f"{task_id} (baseline missing)", duration,
-                                          current, total, remaining, percent, bar)
-                        if run_once:
-                            break
-                        recovery_halted_task = task_id
-                        stop_requested.wait(poll_interval)
-                        continue
-                    if recover_current_attempt() is None:
-                        if run_once:
-                            break
-                        recovery_halted_task = task_id
-                        stop_requested.wait(poll_interval)
-                        continue
-                    if cli_exit_code is not None and not failure_reason:
-                        failure_reason = ("Codex final result format invalid" if result_error_code == "invalid_result"
-                                          else f"Codex CLI exited with code {cli_exit_code}" if cli_exit_code
-                                          else "Codex reported task failure")
-                    codex_details = (f"CLI Exit Code: {cli_exit_code}\nVerification: not run\n"
-                                     f"Result Error: {result_error_code or 'none'}\nTask Status: FAILED\n"
-                                     if cli_exit_code is not None else "")
-                    summary = ("=" * 80 + f"\n[BLOCKED] {task_id}: Execution Failed (Task Exit Code: {exit_code})\n"
-                               f"Time: {stamp_now} | Status: FAILED\n{codex_details}"
-                               f"Failure Reason: {failure_reason or f'Task execution returned status {exit_code}.'}\n"
-                               "Action Needed for Human: Inspect .worker.log for error details.\n" + "=" * 80)
-                    prepend_progress(progress_file, summary)
-                    append_line(done_file, f"[{stamp_now}] [FAILED] {task} [EXIT_{exit_code}]")
-                    update_status("BLOCKED", f"{task} (ERROR {exit_code})", duration, current, total,
-                                  max(0, remaining - 1), percent, bar)
-                else:
-                    audit_args = argparse.Namespace(
-                        work_dir=str(work_dir), root=str(root), base=base, target=target,
-                        constraints=constraints, title=task, level=int(level or 1),
-                        task_id=task_id, verify=verify, port=worker_port, verify_timeout=180,
-                        baseline_snapshot=getattr(cli_args, "attempt_baseline", ""),
-                    )
-                    audit = mechanical_audit(audit_args)
-                    if audit["status"] == 0 and is_research:
-                        try:
-                            publish_research_reports(root, work_dir, target)
-                        except (OSError, ValueError, shutil.Error) as error:
-                            audit["status"] = 14
-                            audit["error"] = f"Research Artifact Publish Failed: {error}"
-                    for message in audit["messages"]:
-                        print(message)
-                    guard_status, guard_error = audit["status"], audit["error"]
-                    if guard_status:
-                        pending_planner = (task_id, "GUARD_VIOLATION")
-                        print(f"[{stamp()}] 🛑 [GUARD REJECTION] Post-flight validation failed: {guard_error}")
-                        if recover_current_attempt() is None:
-                            if run_once:
-                                break
-                            recovery_halted_task = task_id
-                            stop_requested.wait(poll_interval)
-                            continue
-                        summary = (f"[MECHANICAL_AUDIT] Status: FAIL | Verify_Exit: {audit['verify_exit']} | Whitelist: {guard_status} | Tree: DIRTY\n"
-                                   + "=" * 80 + f"\n[BLOCKED] {task_id}: Guard Validation Failed\n"
-                                   f"Time: {stamp()} | Status: GUARD_VIOLATION\nFailure Reason: {guard_error}\n"
-                                   "Action Needed for Human: Inspect error and check target whitelist, forbidden shortcuts, or test assertions.\n"
-                                   + "=" * 80)
-                        prepend_progress(progress_file, summary)
-                        append_line(done_file, f"[{stamp()}] [FAILED] {task} [GUARD_VIOLATION]")
-                        update_status("BLOCKED", f"{task} (GUARD VIOLATION)", duration,
-                                      current, total, max(0, remaining - 1), percent, bar)
-                    else:
-                        structured_attempts = payload.get("attempts") if isinstance(payload, dict) else None
-                        if isinstance(structured_attempts, int) and not isinstance(structured_attempts, bool) and structured_attempts > 0:
-                            attempts = str(structured_attempts)
-                        else:
-                            attempts_match = re.search(r"Attempts:\s*(\d+)", result_text)
-                            if not attempts_match and progress_file.exists():
-                                attempts_match = re.search(r"Attempts:\s*(\d+)", progress_file.read_text(encoding="utf-8", errors="replace"))
-                            attempts = attempts_match.group(1) if attempts_match else "1"
-                        diff = subprocess.run(["git", "-C", str(work_dir), "diff", "--stat", base, "HEAD"],
-                                               capture_output=True, text=True, check=False).stdout.splitlines()
-                        diff_stat = diff[-1].strip() if diff else "0 files changed"
-                        audit_ns = time.time_ns()
-                        prepend_progress(progress_file, f"[MECHANICAL_AUDIT] Status: PASS | Task: {task_id} | Verify_Exit: 0 | Tests_Run: >=1 | Whitelist: PASS | Tree: CLEAN | Diff: {diff_stat} | Attempts: {attempts} | Audit_NS: {audit_ns} | Planner_Review: pending")
-                        # Audit passed: retire agent-marked reports, then validate remaining evidence.
-                        settle_invalid_reports(root, work_dir, accepted=True)
-                        refresh_active_reports(root, work_dir)
-                        if root.resolve() != work_dir.resolve():
-                            settle_invalid_reports(work_dir, work_dir, accepted=True)
-                            refresh_active_reports(work_dir, work_dir)
-                        record_task_score("success")
-                        new_done = done_count + 1
-                        final_bar = progress_bar(new_done, total)
-                        print(f"[{stamp()}] [SUCCESS] Task completed in {duration}s | {final_bar}")
-                        append_line(done_file, f"[{stamp()}] [DONE] {task} (Duration: {duration}s) [Audit_NS: {audit_ns}]")
-                        update_status("IDLE", current=new_done, total=total,
-                                      remaining=max(0, remaining - 1),
-                                      percentage=f"{new_done * 100 // total if total else 0}%", bar=final_bar)
-            stop_requested.wait(poll_interval)
-        return 0
+        return lifecycle.daemon(root, sys.modules[__name__])
     finally:
-        heartbeat_stop.set()
-        if heartbeat.is_alive():
-            heartbeat.join(timeout=2)
         try:
             pid_file.unlink(missing_ok=True)
         except OSError:
             pass
+        status_file = Path(os.environ.get("STATUS_FILE", owned / "worker.status"))
+        if not status_file.is_absolute():
+            status_file = root / status_file
         try:
-            update_status(final_state, bar="[------------------------------] 0%")
-        except (OSError, ValueError):
+            if status_file.is_file():
+                status_data = json.loads(status_file.read_text(encoding="utf-8"))
+                if status_data.get("state") not in ("BLOCKED", "PAUSED", "PAUSED_FOR_PLANNER", "AGENT_NO_RESPONSE", "RECOVERY_FAILED", "WAITING_FOR_AGENT"):
+                    status_data["state"] = "STOPPED"
+                    atomic_write(status_file, json.dumps(status_data) + "\n")
+        except Exception:
             pass
 
 
@@ -2428,7 +1882,8 @@ def git_audit(args):
     if diagnostic and any(re.match(r"^(Sources|src|app|lib)/", name, re.I) for name in changed):
         return 4, "Diagnostic Violation: Modifying production code in [DIAGNOSTIC] is strictly forbidden. Only tests and .reports/ allowed."
 
-    if not diagnostic and not research:
+    has_hot_config = (Path(args.work_dir) / "nightshift/config.json").is_file() or (Path(args.work_dir) / "nightshift/acceptance.json").is_file()
+    if not diagnostic and not research and not has_hot_config:
         tests = [name for name in changed if re.search(r"(^tests/|^Tests/|^test/|Test\.[a-z]+$|_test\.[a-z]+$)", name, re.I)]
         if tests:
             unauthorized = (task_header_has_tag(args.title, r"\[CODE:\s*FIX\]")
@@ -2452,7 +1907,7 @@ def git_audit(args):
                 and not parts[2].startswith(".reports/")):
             deleted_lines += int(parts[1])
     if not re.search(r"large deletion approved|unrestricted", args.constraints, re.I):
-        limit = {2: 150, 3: 40}.get(args.level)
+        limit = {2: 150, 3: 40}.get(int(args.level) if str(args.level).isdigit() else args.level)
         if limit is not None and deleted_lines > limit:
             return 8, f"Blast Radius Violation: Level {args.level} tasks cannot delete >{limit} lines (Deleted: {deleted_lines})."
 
@@ -3092,7 +2547,7 @@ def main(argv=None):
     task_cli.add_argument("--output-file", required=True)
     task_cli.add_argument("--result-file", default="")
     task_cli.add_argument("--timeout", type=float, default=1800)
-    task_cli.add_argument("--step-budget", type=int, default=17)
+    task_cli.add_argument("--step-budget", type=int, default=27)
     task_cli.add_argument("--research-step-budget", type=int, default=100)
     task_cli.add_argument("--worker-port", default="3001")
     task_cli.add_argument("--target", default="")
@@ -3100,6 +2555,7 @@ def main(argv=None):
     task_cli.add_argument("--title", default="")
     task_cli.add_argument("--level", default="1")
     task_cli.add_argument("--verify", default="")
+    task_cli.add_argument("--required-cases", default="")
     task_cli.add_argument("--base", default="")
     task_cli.add_argument("--progress-file", default="progress.log")
     task_cli.add_argument("--ghost-state-file", default="")
@@ -3171,9 +2627,11 @@ def main(argv=None):
     poll.add_argument("--pause", required=True)
     poll.add_argument("--dispatch-gate", default="")
     poll.add_argument("--work-dir", required=True)
-    poll.add_argument("--step-base", type=int, default=12)
+    poll.add_argument("--step-base", type=int, default=22)
     poll.add_argument("--step-per-file", type=int, default=5)
     poll.add_argument("--research-step-budget", type=int, default=100)
+    restart = commands.add_parser("restart")
+    restart.add_argument("--root", required=True)
     daemon = commands.add_parser("daemon")
     daemon.add_argument("--root", required=True)
     daemon.add_argument("--research-step-budget", type=int, default=100)
@@ -3182,6 +2640,9 @@ def main(argv=None):
         state = (read_agent_score_state(args.state, args.agent_id) if args.agent_id
                  else read_score_state(args.state))
         print(json.dumps(score_summary(state), ensure_ascii=False))
+    elif args.command == "restart":
+        (acceptance.state_dir(args.root) / "paused.json").unlink(missing_ok=True)
+        print("[RESTART] Planner released failure pause; next Worker starts clean.")
     elif args.command == "score-record":
         if args.agent_id:
             event_path = args.events or str(Path(args.state).parent / ".worker-agent-events.jsonl")
@@ -3218,7 +2679,8 @@ def main(argv=None):
             args.ghost_state_path = args.ghost_state_file
         if args.score_state_file:
             args.agent_score_state_file = args.score_state_file
-        return execute_adapter_task(args)
+        with acceptance.workspace(args.work_dir):
+            return execute_adapter_task(args)
     elif args.command == "attempt-snapshot":
         print(capture_attempt_baseline(args.work_dir, args.task_id, args.attempt_id,
                                        args.snapshot))

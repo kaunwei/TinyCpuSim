@@ -61,6 +61,8 @@ for relative in manifest["runtime"]:
     origin, destination = source / relative, target / relative
     if origin.resolve() == destination.resolve():
         continue
+    if relative == "PORTING_GUIDE.md" and (destination.exists() or (destination.parent / ".ported").exists()):
+        continue
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(origin, destination)
 PYDEPLOY
@@ -161,7 +163,16 @@ rmdir "$TARGET_DIR/nightshift/tools/bin" 2>/dev/null || true
 rmdir "$TARGET_DIR/scripts/adapters" 2>/dev/null || true
 rmdir "$TARGET_DIR/.nightshift" 2>/dev/null || true
 
-# Preserve the existing agent registry; otherwise the bundled default is ready to use.
+# Preserve existing configurations; otherwise the bundled default is ready to use.
+if [ ! -f "$TARGET_DIR/nightshift/config.json" ] && [ -f "$BUNDLE_SOURCE/config.json" ]; then
+  cp "$BUNDLE_SOURCE/config.json" "$TARGET_DIR/nightshift/config.json"
+fi
+# Deploy PORTING_GUIDE.md for new projects; never overwrite if already present or porting is completed.
+if [ -f "$BUNDLE_SOURCE/PORTING_GUIDE.md" ]; then
+  if [ ! -f "$TARGET_DIR/nightshift/PORTING_GUIDE.md" ] && [ ! -f "$TARGET_DIR/nightshift/.ported" ]; then
+    cp "$BUNDLE_SOURCE/PORTING_GUIDE.md" "$TARGET_DIR/nightshift/PORTING_GUIDE.md"
+  fi
+fi
 if [ ! -f "$TARGET_DIR/nightshift/adapters/agents.json" ]; then
   mkdir -p "$TARGET_DIR/nightshift/adapters"
   cp "$BUNDLE_SOURCE/adapters/agents.json" "$TARGET_DIR/nightshift/adapters/agents.json"
@@ -201,6 +212,23 @@ if migrated:
     Path(sys.argv[1]).write_text(json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
                                  encoding="utf-8")
 PY
+if [ -f "$TARGET_DIR/nightshift/config.json" ] && [ -f "$TARGET_DIR/nightshift/adapters/agents.json" ]; then
+  "$PYTHON_BIN" - "$TARGET_DIR/nightshift/config.json" "$TARGET_DIR/nightshift/adapters/agents.json" <<'PYMERGE'
+import json
+from pathlib import Path
+import sys
+cfg_path, agents_path = Path(sys.argv[1]), Path(sys.argv[2])
+try:
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    agents = json.loads(agents_path.read_text(encoding="utf-8"))
+    if isinstance(cfg, dict) and isinstance(agents, dict) and agents:
+        if "agents" not in cfg or set(agents.keys()) != {"codex-main", "agy-backup"}:
+            cfg["agents"] = agents
+            cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+except Exception:
+    pass
+PYMERGE
+fi
 
 # Skill sources and installed skills share the host-discovered root layout.
 "$PYTHON_BIN" - "$BUNDLE_SOURCE" "$SOURCE_ROOT" "$TARGET_DIR" <<'PYSKILLS'
@@ -262,7 +290,7 @@ fi
 touch "$TARGET_DIR/.gitignore"
 IGNORE_HEADER="# NightShift runtime artifacts (stored under nightshift/)"
 IGNORE_ENTRIES=(
-  "nightshift/tasks.done" "nightshift/tasks.done.*" "nightshift/worker*.status"
+  "nightshift/progress.log" "nightshift/tasks.done" "nightshift/tasks.done.*" "nightshift/worker*.status"
   "nightshift/.worker*.log" "nightshift/.worker*.pid" "nightshift/.worker-agent-state*.json"
   "nightshift/.worker-score*.json" "nightshift/.worker-agent-scores/" "nightshift/.worker-agent-events*.json*"
   "nightshift/.worker-dispatch-gate.json" "nightshift/.worker*.lock/" "nightshift/PAUSE" "nightshift/tasks.txt.lock/"
@@ -326,8 +354,15 @@ bash -n "$TARGET_DIR/nightshift/"*.sh
 sh -n "$TARGET_DIR/nightshift/tools/setup.sh"
 "$PYTHON_BIN" -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' "$TARGET_DIR/nightshift/worker_runtime.py"
 "$PYTHON_BIN" -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' "$TARGET_DIR/nightshift/tools/index.py"
+[ -f "$TARGET_DIR/nightshift/config.json" ] || { echo "Missing config.json after install" >&2; exit 1; }
+[ -f "$TARGET_DIR/nightshift/PORTING_GUIDE.md" ] || [ -f "$TARGET_DIR/nightshift/.ported" ] || {
+  echo "Missing PORTING_GUIDE.md after install" >&2; exit 1;
+}
 
 printf '\nNightShift %s complete.\n' "$([ "$IS_UPDATE" -eq 1 ] && echo update || echo install)"
 printf '  Worker: %s\n  Queue:  %s\n  Index:  %s\n' \
   "$TARGET_DIR/nightshift/worker.sh" "$TARGET_DIR/nightshift/tasks.txt" \
   "$TARGET_DIR/nightshift/.scratch/code-index/INDEX.md"
+if [ -f "$TARGET_DIR/nightshift/PORTING_GUIDE.md" ]; then
+  printf '  Guide:  %s\n' "$TARGET_DIR/nightshift/PORTING_GUIDE.md"
+fi

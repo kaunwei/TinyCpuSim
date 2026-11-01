@@ -89,9 +89,10 @@ def read_small(path, limit=8192):
 
 
 def task_line(task_id):
-    return (f"{task_id} | LEVEL: 1 | TARGET: nightshift/.scratch/attempts, "
-            f"nightshift/.scratch/failed_tasks, {REPORT} | ACTION: {TAG} Review obsolete artifacts; "
-            "delete only proven safe entries under the maintenance prompt | VERIFY: true")
+    header = task_id if TAG in task_id else f"{task_id} {TAG}"
+    return (f"{header} | LEVEL: 1 | TARGET: nightshift/.scratch/attempts, "
+            f"nightshift/.scratch/failed_tasks, {REPORT} | ACTION: Review obsolete artifacts; "
+            "delete only proven safe entries under the maintenance prompt | VERIFY: none")
 
 
 def check(runtime, tasks, insert, write, now=None):

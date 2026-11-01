@@ -1,8 +1,8 @@
 [project]
 # Index configured code while excluding generated/dependency trees by default.
-include = ["**/*"]
-exclude = []
+include = ["src/**", "include/**", "platforms/**", "tests/**", "scripts/**"]
+exclude = ["build/**", "sdk/**", ".scratch/**", "nightshift/**"]
 
 [scope]
-tool = ["nightshift/tools/**"]
-project = ["**/*"]
+tool = ["nightshift/**"]
+project = ["src/**", "include/**", "platforms/**", "tests/**", "scripts/**"]

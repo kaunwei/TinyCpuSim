@@ -22,12 +22,29 @@ except ImportError:  # Windows
     fcntl = None
     import msvcrt
 
+TOOL_ROOT = Path(__file__).resolve().parent
+
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.9 and 3.10
-    import tomli as tomllib
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        for sp in TOOL_ROOT.glob(".venv/lib/python*/site-packages"):
+            if str(sp) not in sys.path:
+                sys.path.insert(0, str(sp))
+        try:
+            import tomli as tomllib
+        except ModuleNotFoundError:
+            from pip._vendor import tomli as tomllib
 
-from tree_sitter_language_pack import get_parser
+try:
+    from tree_sitter_language_pack import get_parser
+except ModuleNotFoundError:
+    for sp in TOOL_ROOT.glob(".venv/lib/python*/site-packages"):
+        if str(sp) not in sys.path:
+            sys.path.insert(0, str(sp))
+    from tree_sitter_language_pack import get_parser
 
 
 SCHEMA_VERSION = 5
@@ -36,7 +53,6 @@ IGNORED_PARTS = {
     ".git", ".build", ".swiftpm", "build", "DerivedData", ".worker-tree",
     ".preview", ".scratch", "nightshift/.scratch", ".trials", ".reports", ".venv", ".aider.tags.cache.v4",
 }
-TOOL_ROOT = Path(__file__).resolve().parent
 LANGUAGE_REGISTRY = json.loads((TOOL_ROOT / "languages.json").read_text(encoding="utf-8"))
 EXTENSIONS = {
     extension: language
@@ -93,6 +109,22 @@ def summary_location(root: Path) -> Path:
 
 
 def project_config(root: Path) -> dict:
+    config_json = root / "nightshift" / "config.json"
+    if config_json.is_file():
+        try:
+            parsed = json.loads(config_json.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict) and ("code_index" in parsed or "code-index" in parsed):
+                ci = parsed.get("code_index") or parsed.get("code-index", {})
+                project = ci.get("project", {}) if isinstance(ci.get("project"), dict) else ci
+                scope = ci.get("scope", {}) if isinstance(ci.get("scope"), dict) else ci
+                return {
+                    "include": project.get("include", ["*", "**/*"]),
+                    "exclude": project.get("exclude", []),
+                    "tool_paths": scope.get("tool", ci.get("tool", [])),
+                    "project_paths": scope.get("project", ci.get("project", ["*", "**/*"])),
+                }
+        except (OSError, ValueError) as exc:
+            raise IndexErrorMessage(f"project config is invalid: {config_json}: {exc}") from exc
     path = root / "nightshift" / "code-index.toml"
     legacy_path = root / ".nightshift" / "code-index.toml"
     if not path.is_file() and legacy_path.is_file():
@@ -367,14 +399,12 @@ def configuration_sha256(root: Path) -> str:
             continue
         if path.name in {
             "Package.swift", "project.pbxproj", "package.json", "tsconfig.json", "pyproject.toml",
-            "Cargo.toml", "go.mod", "requirements.txt", "code-index.toml",
+            "Cargo.toml", "go.mod", "requirements.txt", "code-index.toml", "config.json",
         } or path.suffix in {".xcconfig", ".xcscheme"}:
             candidates.add(path)
-    config_path = root / "nightshift" / "code-index.toml"
-    if not config_path.is_file():
-        config_path = root / ".nightshift" / "code-index.toml"
-    if config_path.is_file():
-        candidates.add(config_path)
+    for cfg_candidate in (root / "nightshift/config.json", root / "nightshift/code-index.toml", root / ".nightshift/code-index.toml"):
+        if cfg_candidate.is_file():
+            candidates.add(cfg_candidate)
     for path in sorted(candidates):
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")
         digest.update(hashlib.sha256(path.read_bytes()).digest())
@@ -587,7 +617,7 @@ def indexed_worktree_changes(root: Path) -> list[str]:
     changed = set()
     settings = {
         "Package.swift", "project.pbxproj", "package.json", "tsconfig.json", "pyproject.toml",
-        "Cargo.toml", "go.mod", "requirements.txt", "code-index.toml",
+        "Cargo.toml", "go.mod", "requirements.txt", "code-index.toml", "config.json",
     }
     for record in records:
         if not record:

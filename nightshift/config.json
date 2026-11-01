@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "acceptance": {
+    "hot": "/usr/bin/python3 scripts/nightshift_acceptance.py --suite hot",
+    "cold": "/usr/bin/python3 scripts/nightshift_acceptance.py --suite cold",
+    "cold_every": 5,
+    "timeout": 180,
+    "wiring": [
+      "nightshift/acceptance_config.json"
+    ]
+  },
+  "agents": {
+    "codex-main": {
+      "default": true,
+      "worker": {
+        "task_timeout_seconds": 1800,
+        "research_step_budget": 100
+      },
+      "agent": {
+        "adapter": "codex",
+        "command": "codex",
+        "args": [],
+        "env": {},
+        "config": {
+          "model": "gpt-6.1-terra",
+          "effort": "medium",
+          "approval_mode": "auto",
+          "sandbox": "workspace-write",
+          "ephemeral": "1"
+        }
+      }
+    },
+    "agy-backup": {
+      "default": false,
+      "worker": {
+        "task_timeout_seconds": 1800,
+        "research_step_budget": 100
+      },
+      "agent": {
+        "adapter": "agy",
+        "command": "agy",
+        "args": [],
+        "env": {},
+        "config": {
+          "model": "gemini-3.8-flash-medium",
+          "effort": "medium",
+          "mode": "accept-edits"
+        }
+      }
+    }
+  },
+  "code_index": {
+    "include": ["src/**", "include/**", "platforms/**", "tests/**", "scripts/**"],
+    "exclude": ["build/**", "sdk/**", ".scratch/**", "nightshift/**"],
+    "tool": ["nightshift/**"],
+    "project": ["src/**", "include/**", "platforms/**", "tests/**", "scripts/**"]
+  }
+}

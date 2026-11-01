@@ -46,6 +46,16 @@ while [[ $# -gt 0 ]]; do
             EXTRA_ARGS+=("-L" "$2")
             shift 2
             ;;
+        --hot)
+            RANGE=$("${PROJECT_ROOT}/scripts/nightshift_acceptance.py" --range hot)
+            EXTRA_ARGS+=("-I" "${RANGE}")
+            shift
+            ;;
+        --cold)
+            RANGE=$("${PROJECT_ROOT}/scripts/nightshift_acceptance.py" --range cold)
+            EXTRA_ARGS+=("-I" "${RANGE}")
+            shift
+            ;;
         *)
             EXTRA_ARGS+=("$1")
             shift

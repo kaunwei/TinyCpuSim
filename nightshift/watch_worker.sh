@@ -145,7 +145,7 @@ $1:$key"
 # replay unreviewed results, but never reuse history for a queued retry.
 REPLAY_CANDIDATES="$EXPECTED_TASK_ID"
 if [ -z "$EXPECTED_TASK_ID" ] && [ -f "$PROGRESS_FILE" ]; then
-  REPLAY_CANDIDATES=$(grep -F 'Planner_Review: pending' "$PROGRESS_FILE" | grep -Eo 'Task: TASK-[[:alnum:]_.-]+' | awk '{print $2}' | sort -u)
+  REPLAY_CANDIDATES=$(grep -E 'Planner_Review: pending|Acceptance: automatic' "$PROGRESS_FILE" | grep -Eo 'Task: TASK-[[:alnum:]_.-]+' | awk '{print $2}' | sort -u)
 fi
 for task_id in $REPLAY_CANDIDATES; do
   if task_ids_from_file "$TASKS_FILE" | grep -Fxq "$task_id"; then continue; fi
@@ -153,7 +153,7 @@ for task_id in $REPLAY_CANDIDATES; do
     awk -v expected="$task_id" '{ for(i=1;i<=NF;i++) if($i ~ /^TASK-/) {
       task=$i; sub(/\[.*$/, "", task); if(task==expected) last=$0; break
     }} END {print last}')
-  if [[ "$LAST_RESULT" == *"[DONE]"* ]] && matching_audits "$task_id" | grep -Fq 'Planner_Review: pending'; then
+  if [[ "$LAST_RESULT" == *"[DONE]"* ]] && matching_audits "$task_id" | grep -Eq 'Planner_Review: pending|Acceptance: automatic'; then
     track_task "$task_id"
     PENDING_DONE_TASKS="$PENDING_DONE_TASKS $task_id"
     REPLAY_TASKS="$REPLAY_TASKS $task_id"
