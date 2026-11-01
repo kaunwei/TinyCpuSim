@@ -338,11 +338,6 @@ def run(root, runtime):
             if not raw:
                 if running["state"] != "BLOCKED":
                     update("IDLE")
-                    if not is_silent_cold:
-                        print(f"[IDLE] Queue is empty. Waiting for tasks in {tasks}...")
-                else:
-                    if not is_silent_cold:
-                        print(f"[BLOCKED] Queue is empty; preserving failure state.")
                 if once:
                     if not is_silent_cold:
                         print("[WORKER] Queue is empty and RUN_ONCE is enabled. Exiting.")
