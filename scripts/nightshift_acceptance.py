@@ -97,10 +97,18 @@ def resolve_source(test):
                     return str(cand.relative_to(PROJECT_ROOT))
 
     # 2. C++ platform tests
+    if cmd0 == "test_coprocessor_accel":
+        p1 = PROJECT_ROOT / "tests/test_coprocessor_accel.cpp"
+        if p1.is_file():
+            diff_res = subprocess.run(["git", "-C", str(PROJECT_ROOT), "diff", "--name-only", "HEAD", "--", str(p1)],
+                                      capture_output=True, text=True)
+            if "test_coprocessor_accel.cpp" in diff_res.stdout:
+                return "tests/test_coprocessor_accel.cpp"
+        return "platforms/03_coprocessor_accel/tests/test_coprocessor_accel.cpp"
+
     platform_map = {
         "test_perf_platform": "platforms/01_basic_perf/tests/test_perf_platform.cpp",
         "test_mcu_platform": "platforms/02_basic_mcu/tests/test_mcu_platform.cpp",
-        "test_coprocessor_accel": "platforms/03_coprocessor_accel/tests/test_coprocessor_accel.cpp",
     }
     if cmd0 in platform_map:
         return platform_map[cmd0]
