@@ -568,3 +568,8 @@ add_custom_target(sdk_package ALL
 add_executable(platform_time_test tests/platform_time_test.cpp)
 target_link_libraries(platform_time_test PRIVATE tinyarmsim_core_static gtest_main)
 gtest_discover_tests(platform_time_test)
+
+add_executable(test_standalone_time_lib tests/test_standalone_time_lib.cpp)
+target_link_libraries(test_standalone_time_lib PRIVATE TinyCpuSim::Time gtest_main)
+gtest_discover_tests(test_standalone_time_lib TEST_PREFIX "test_standalone_time_lib.")
+
