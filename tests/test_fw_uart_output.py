@@ -5,7 +5,7 @@ from tests.fw_cpp_test_support import run_cpp
 
 class TestFwUartOutput(unittest.TestCase):
     def test_service_retains_backlog_on_eagain_then_drains_in_order(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -42,7 +42,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_service_reports_overflow_and_fatal_peer_error(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <cerrno>
 #include <system_error>
@@ -78,7 +78,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_flush_waits_for_reader_and_drains_exact_bytes(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -124,7 +124,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_flush_timeout_is_bounded_and_retains_pending_bytes(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <chrono>
 #include <system_error>
@@ -162,7 +162,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_flush_reports_overflow_after_queue_drains(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -211,7 +211,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_flush_closed_peer_survives_default_sigpipe_and_latches_failure(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <chrono>
 #include <csignal>
@@ -252,7 +252,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_partial_pipe_writes_preserve_wrapped_byte_order(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -313,7 +313,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_ring_and_descriptor_ownership(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <cerrno>
 #include <cstdint>
@@ -384,7 +384,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_closed_peer_write_preserves_thread_signal_state(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <cerrno>
 #include <csignal>
@@ -481,7 +481,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_default_sigpipe_disposition_returns_epipe_without_termination(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <cerrno>
 #include <csignal>
@@ -521,7 +521,7 @@ int main() {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_default_sigpipe_service_preserves_latched_flush_epipe(self):
-        source = r'''#include "tinyarmsim/firmware_uart_output.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_uart_output.hpp"
 #include <cassert>
 #include <cerrno>
 #include <chrono>

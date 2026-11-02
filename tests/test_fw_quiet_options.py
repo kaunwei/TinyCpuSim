@@ -14,7 +14,7 @@ class TestFwQuietOptions(unittest.TestCase):
         cpp_src = f"""#include <iostream>
 #include <vector>
 #include <string>
-#include "tinyarmsim/cli_options.hpp"
+#include "tinyarmsim/utils/cli_options.hpp"
 
 int main(int argc, char* argv[]) {{
     std::vector<std::string> args;

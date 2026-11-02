@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 CPP_SRC = """
-#include "tinyarmsim/firmware_signal_guard.hpp"
+#include "tinyarmsim/utils/firmware_signal_guard.hpp"
 #include <cassert>
 #include <csignal>
 #include <pthread.h>

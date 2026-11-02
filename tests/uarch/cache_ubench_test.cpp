@@ -3,7 +3,7 @@
 #include "tinyarmsim/uarch/coherence.hpp"
 #include "tinyarmsim/uarch/memory_hierarchy.hpp"
 #include "tinyarmsim/uarch/prefetcher.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::uarch;

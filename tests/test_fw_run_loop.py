@@ -6,7 +6,7 @@ class TestFwRunLoop(unittest.TestCase):
     def test_branch_to_self_positive_limit_preserves_fault_and_count(self):
         source = r"""
 #include <iostream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;
@@ -39,7 +39,7 @@ int main() {
     def test_run0_preserves_fault(self):
         source = r"""
 #include <iostream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;
@@ -71,7 +71,7 @@ int main() {
     def test_svc_returns_preset_r0(self):
         source = r"""
 #include <iostream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;
@@ -103,7 +103,7 @@ int main() {
         source = r"""
 #include <iostream>
 #include <sstream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;

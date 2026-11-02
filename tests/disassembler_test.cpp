@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/instruction.hpp"
-#include "tinyarmsim/disassembler.hpp"
-#include "tinyarmsim/decoder.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
+#include "tinyarmsim/cpu/disassembler.hpp"
+#include "tinyarmsim/cpu/decoder.hpp"
 
 using namespace tinyarmsim;
 

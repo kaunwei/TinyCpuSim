@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <fstream>
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/loader.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/memory/loader.hpp"
 #include "tinyarmsim/uarch/ooo_core.hpp"
 
 using namespace tinyarmsim;

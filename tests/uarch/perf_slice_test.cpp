@@ -4,9 +4,9 @@
 #include <filesystem>
 #include "tinyarmsim/uarch/slice_manager.hpp"
 #include "tinyarmsim/uarch/multicore_system.hpp"
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim::uarch;
 

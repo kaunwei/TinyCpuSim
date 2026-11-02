@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <iostream>
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 #include "tinyarmsim/uarch/lsu.hpp"
 #include "tinyarmsim/uarch/memory_disambiguator.hpp"
 #include "tinyarmsim/uarch/ooo_core.hpp"

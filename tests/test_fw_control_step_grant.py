@@ -6,7 +6,7 @@ class TestFwControlStepGrant(unittest.TestCase):
 
     def test_single_step_grant_ordered(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

@@ -7,7 +7,7 @@ class TestFwControlPause(unittest.TestCase):
 
     def test_pause_regs_continue_and_stop_cycle(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -110,7 +110,7 @@ int main() {
 
     def test_regs_missing_provider(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -143,7 +143,7 @@ int main() {
 
     def test_pause_then_eof(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -185,7 +185,7 @@ int main() {
 
     def test_pause_then_stop(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

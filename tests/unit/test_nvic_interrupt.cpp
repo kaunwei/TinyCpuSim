@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 #include <memory>
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/device.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/dev/device.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
 
 using namespace tinyarmsim;
 

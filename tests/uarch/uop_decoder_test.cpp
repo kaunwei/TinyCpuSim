@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/decoder.hpp"
+#include "tinyarmsim/cpu/decoder.hpp"
 #include "tinyarmsim/uarch/uop_decoder.hpp"
 
 using namespace tinyarmsim;

@@ -5,7 +5,7 @@
 #include "tinyarmsim/uarch/rat_prf.hpp"
 #include "tinyarmsim/uarch/rob_issue_queue.hpp"
 #include "tinyarmsim/uarch/ooo_core.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::uarch;

@@ -6,7 +6,7 @@ class TestFwControlChannel(unittest.TestCase):
 
     def test_partial_stop_then_p_and_ack(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -44,7 +44,7 @@ int main() {
 
     def test_one_shot_result_no_duplicate_ack(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -90,7 +90,7 @@ int main() {
 
     def test_eof_before_stop(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -120,7 +120,7 @@ int main() {
 
     def test_unknown_command_followed_by_stop(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -165,7 +165,7 @@ int main() {
 
     def test_stop_followed_by_half_close(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -201,7 +201,7 @@ int main() {
 
     def test_partial_incomplete_stop_plus_eof(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -229,7 +229,7 @@ int main() {
 
     def test_stop_followed_by_full_close_no_sigpipe(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -256,7 +256,7 @@ int main() {
 
     def test_backpressured_peer_drains_and_receives_all(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -343,7 +343,7 @@ int main() {
 
     def test_permanently_non_reading_peer_yields_transport_failed(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

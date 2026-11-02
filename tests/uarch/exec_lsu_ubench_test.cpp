@@ -3,7 +3,7 @@
 #include "tinyarmsim/uarch/rat_prf.hpp"
 #include "tinyarmsim/uarch/lsu.hpp"
 #include "tinyarmsim/uarch/cache.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::uarch;

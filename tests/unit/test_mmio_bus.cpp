@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/dev/device.hpp"
 
 using namespace tinyarmsim;
 

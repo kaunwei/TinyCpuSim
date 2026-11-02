@@ -6,7 +6,7 @@ from tests.fw_cpp_test_support import run_cpp
 class TestFwControlBreakpoint(unittest.TestCase):
     def test_breakpoint_set_while_paused_hits_before_continue_executes(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <cassert>
 #include <poll.h>
 #include <string>
@@ -47,7 +47,7 @@ int main() {
 
     def test_breakpoint_parsing_and_preserves_last_valid_address(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <cassert>
 #include <poll.h>
 #include <string>
@@ -103,7 +103,7 @@ int main() {
 
     def test_continue_at_self_branch_rehits_at_next_boundary(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <cassert>
 #include <poll.h>
 #include <string>

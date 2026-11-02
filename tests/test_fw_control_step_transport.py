@@ -6,7 +6,7 @@ class TestFwControlStepTransport(unittest.TestCase):
 
     def test_step_transport_failure_precedence(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

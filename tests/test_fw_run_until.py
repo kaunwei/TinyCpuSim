@@ -6,7 +6,7 @@ class TestFwRunUntil(unittest.TestCase):
     def test_immediate_true_returns_zero_steps_and_result_zero(self):
         source = r"""
 #include <iostream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;
@@ -35,7 +35,7 @@ int main() {
     def test_predicate_false_three_times_then_true_returns_three_steps_and_result_zero(self):
         source = r"""
 #include <iostream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;
@@ -69,7 +69,7 @@ int main() {
     def test_false_predicate_with_budget_two_triggers_max_step_fault(self):
         source = r"""
 #include <iostream>
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 int main() {
     tinyarmsim::MemoryBus bus;

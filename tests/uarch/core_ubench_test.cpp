@@ -5,11 +5,11 @@
 #include "tinyarmsim/uarch/fusion_unit.hpp"
 #include "tinyarmsim/uarch/uop.hpp"
 #include "tinyarmsim/uarch/ooo_core.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/uarch/cache.hpp"
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::uarch;

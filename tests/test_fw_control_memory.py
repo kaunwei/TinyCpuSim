@@ -6,7 +6,7 @@ from tests.fw_cpp_test_support import run_cpp
 
 class TestFwControlMemory(unittest.TestCase):
     def test_memory_provider_returns_numeric_bytes_and_moves_with_owner(self):
-        source = r'''#include "tinyarmsim/firmware_control.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_control.hpp"
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -37,7 +37,7 @@ int main() {
         self.assertIn('"event":"memory","address":32,"bytes":[0,1,127,255]', proc.stdout)
 
     def test_missing_provider_and_invalid_ranges_preserve_command_order(self):
-        source = r'''#include "tinyarmsim/firmware_control.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_control.hpp"
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -66,7 +66,7 @@ int main() {
         ])
 
     def test_malformed_memory_prefixes_do_not_invoke_provider(self):
-        source = r'''#include "tinyarmsim/firmware_control.hpp"
+        source = r'''#include "tinyarmsim/utils/firmware_control.hpp"
 #include <cassert>
 #include <iostream>
 #include <string>

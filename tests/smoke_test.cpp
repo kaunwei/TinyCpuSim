@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/common.hpp"
+#include "tinyarmsim/cpu/common.hpp"
 
 TEST(SmokeTest, VersionStringIsNotEmpty) {
     auto version = tinyarmsim::get_version_string();

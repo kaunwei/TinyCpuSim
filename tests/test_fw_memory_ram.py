@@ -9,8 +9,8 @@ class TestFwMemoryRam(unittest.TestCase):
 #include <vector>
 #include <optional>
 #include <cstdint>
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/dev/device.hpp"
 
 class CountingDevice : public tinyarmsim::mmio::MMIODevice {
 public:

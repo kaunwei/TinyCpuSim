@@ -6,7 +6,7 @@ from tests.fw_cpp_test_support import run_cpp
 class TestFwControlHostService(unittest.TestCase):
     def test_host_service_runs_for_running_checks_and_step_grants(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -80,7 +80,7 @@ int main() {
 
     def test_host_service_runs_while_paused_until_peer_stops(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -138,7 +138,7 @@ int main() {
 
     def test_host_service_moves_with_control(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -181,7 +181,7 @@ int main() {
 
     def test_host_service_exception_propagates_and_closes_control_fd(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
@@ -210,7 +210,7 @@ int main() {
 
     def test_empty_host_service_preserves_stop_and_eof_behavior(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

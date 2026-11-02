@@ -6,11 +6,11 @@ class TestFwControlTimerPause(unittest.TestCase):
 
     def test_pause_freezes_timer_and_step_advances_one_tick(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
-#include <tinyarmsim/interpreter.hpp>
-#include <tinyarmsim/mmio/timer.hpp>
-#include <tinyarmsim/memory_bus.hpp>
-#include <tinyarmsim/state.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
+#include <tinyarmsim/cpu/interpreter.hpp>
+#include <tinyarmsim/dev/timer.hpp>
+#include <tinyarmsim/memory/memory_bus.hpp>
+#include <tinyarmsim/cpu/state.hpp>
 #include <sys/socket.h>
 #include <poll.h>
 #include <unistd.h>

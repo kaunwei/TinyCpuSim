@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 #include <memory>
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
-#include "tinyarmsim/mmio/uart.hpp"
-#include "tinyarmsim/mmio/timer.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
+#include "tinyarmsim/dev/uart.hpp"
+#include "tinyarmsim/dev/timer.hpp"
 
 using namespace tinyarmsim;
 

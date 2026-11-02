@@ -6,7 +6,7 @@ class TestFwControlStepDeferStop(unittest.TestCase):
 
     def test_step_defer_stop(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

@@ -7,10 +7,10 @@ class TestFwControlIrqStep(unittest.TestCase):
 
     def test_one_step_executes_pending_irq_handler_instruction(self):
         source = r"""
-#include "tinyarmsim/firmware_control.hpp"
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
-#include "tinyarmsim/mmio/timer.hpp"
+#include "tinyarmsim/utils/firmware_control.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
+#include "tinyarmsim/dev/timer.hpp"
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

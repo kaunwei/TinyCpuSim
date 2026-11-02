@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/uarch/fetch_unit.hpp"
 
 using namespace tinyarmsim;

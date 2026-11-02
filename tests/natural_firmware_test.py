@@ -22,8 +22,8 @@ RUNNER_SOURCE = r'''#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <string>
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/loader.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/loader.hpp"
 
 int main(int argc, char** argv) {
     using namespace tinyarmsim;
@@ -58,9 +58,9 @@ int main(int argc, char** argv) {
 FIRMWARE_RUNNER_SOURCE = r'''#include <fstream>
 #include <iostream>
 #include <string>
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/loader.hpp"
-#include "tinyarmsim/mmio/soc_platform.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/loader.hpp"
+#include "tinyarmsim/dev/soc_platform.hpp"
 
 int main(int argc, char** argv) {
     using namespace tinyarmsim;

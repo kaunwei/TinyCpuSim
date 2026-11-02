@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/faults.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/cpu/faults.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim;
 

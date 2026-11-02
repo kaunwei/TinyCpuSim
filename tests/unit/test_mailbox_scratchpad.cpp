@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "platforms/03_coprocessor_accel/devices/mailbox_scratchpad.h"
 #include "platforms/03_coprocessor_accel/devices/mailbox_scratchpad.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::mmio;

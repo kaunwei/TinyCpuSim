@@ -5,7 +5,7 @@ from tests.fw_cpp_test_support import run_cpp
 
 class TestFwUartTxConsumer(unittest.TestCase):
     def test_completion_capture_and_optional_consumer_lifecycle(self):
-        source = r'''#include "tinyarmsim/mmio/uart.hpp"
+        source = r'''#include "tinyarmsim/dev/uart.hpp"
 #include <cassert>
 #include <cstdint>
 #include <string>

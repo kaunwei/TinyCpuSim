@@ -6,7 +6,7 @@ class TestFwControlProgressStep(unittest.TestCase):
 
     def test_progress_acknowledgement_and_terminal_ordering(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <poll.h>
 #include <unistd.h>

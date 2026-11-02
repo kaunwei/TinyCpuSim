@@ -2,9 +2,9 @@
 #include <sstream>
 #include <vector>
 #include <cstring>
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/loader.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/memory/loader.hpp"
 
 using namespace tinyarmsim;
 

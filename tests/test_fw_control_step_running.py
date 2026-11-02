@@ -6,7 +6,7 @@ class TestFwControlStepRunning(unittest.TestCase):
 
     def test_step_while_running_returns_error_and_preserves_state(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>

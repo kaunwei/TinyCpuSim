@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/i2c.hpp"
-#include "tinyarmsim/mmio/spi.hpp"
-#include "tinyarmsim/mmio/crc32.hpp"
-#include "tinyarmsim/mmio/custom_device.hpp"
-#include "tinyarmsim/mmio/gpio.hpp"
-#include "tinyarmsim/mmio/dma.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/dev/i2c.hpp"
+#include "tinyarmsim/dev/spi.hpp"
+#include "tinyarmsim/dev/crc32.hpp"
+#include "tinyarmsim/dev/custom_device.hpp"
+#include "tinyarmsim/dev/gpio.hpp"
+#include "tinyarmsim/dev/dma.hpp"
 
 using namespace tinyarmsim;
 

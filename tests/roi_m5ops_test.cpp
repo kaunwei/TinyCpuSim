@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::uarch;

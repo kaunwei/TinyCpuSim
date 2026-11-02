@@ -9,7 +9,7 @@ class TestFwControlOptions(unittest.TestCase):
 #include <iostream>
 #include <vector>
 #include <string>
-#include "tinyarmsim/cli_options.hpp"
+#include "tinyarmsim/utils/cli_options.hpp"
 
 int main() {{
     std::vector<std::string> args = {{{args_cpp}}};

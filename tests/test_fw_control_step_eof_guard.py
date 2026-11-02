@@ -6,7 +6,7 @@ class TestFwControlStepEofGuard(unittest.TestCase):
 
     def test_step_then_eof_without_stop_denies_execution(self):
         source = r"""
-#include <tinyarmsim/firmware_control.hpp>
+#include <tinyarmsim/utils/firmware_control.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cassert>
