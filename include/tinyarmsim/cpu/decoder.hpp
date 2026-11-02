@@ -1,9 +1,9 @@
 #pragma once
 
 #include <cstdint>
-#include "tinyarmsim/instruction.hpp"
-#include "tinyarmsim/disassembler.hpp"
-#include "tinyarmsim/faults.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
+#include "tinyarmsim/cpu/disassembler.hpp"
+#include "tinyarmsim/cpu/faults.hpp"
 
 namespace tinyarmsim {
 

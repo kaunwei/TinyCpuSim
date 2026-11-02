@@ -1,4 +1,4 @@
-#include "tinyarmsim/common.hpp"
+#include "tinyarmsim/cpu/common.hpp"
 
 namespace tinyarmsim {
 

@@ -4,8 +4,8 @@
 #include <vector>
 #include <memory>
 #include <chrono>
-#include "tinyarmsim/common.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/cpu/common.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"
 #include "tinyarmsim/uarch/cache.hpp"

@@ -16,7 +16,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <utility>
-#include "tinyarmsim/mmio/uart.hpp"
+#include "tinyarmsim/dev/uart.hpp"
 
 namespace tinyarmsim {
 

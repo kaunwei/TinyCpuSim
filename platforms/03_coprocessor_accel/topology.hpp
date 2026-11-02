@@ -4,13 +4,13 @@
 #include <string>
 #include <stdexcept>
 #include <limits>
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
 #include "tinyarmsim/platform/time_scheduler.hpp"
 #include "platforms/03_coprocessor_accel/devices/accelerator_subsystem.hpp"
-#include "tinyarmsim/mmio/uart.hpp"
-#include "tinyarmsim/mmio/timer.hpp"
+#include "tinyarmsim/dev/uart.hpp"
+#include "tinyarmsim/dev/timer.hpp"
 
 namespace tinyarmsim::platform {
 

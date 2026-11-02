@@ -2,9 +2,9 @@
 
 #include <cstdint>
 #include <string>
-#include "tinyarmsim/faults.hpp"
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/cpu/faults.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/dev/device.hpp"
 
 namespace tinyarmsim::mmio {
 

@@ -4,7 +4,7 @@
 #include <functional>
 #include <string>
 #include <vector>
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/dev/device.hpp"
 #include "mailbox_scratchpad.h"
 
 namespace tinyarmsim::mmio {

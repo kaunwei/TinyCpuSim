@@ -1,5 +1,5 @@
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/instruction.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
 
 namespace tinyarmsim {
 

@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/dev/device.hpp"
 
 namespace tinyarmsim::mmio {
 

@@ -7,17 +7,17 @@
 #include <iomanip>
 #include <unordered_map>
 #include <fstream>
-#include "tinyarmsim/common.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/instruction.hpp"
-#include "tinyarmsim/decoder.hpp"
-#include "tinyarmsim/opcode_cache.hpp"
-#include "tinyarmsim/trace.hpp"
-#include "tinyarmsim/faults.hpp"
+#include "tinyarmsim/cpu/common.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
+#include "tinyarmsim/cpu/decoder.hpp"
+#include "tinyarmsim/cpu/opcode_cache.hpp"
+#include "tinyarmsim/utils/trace.hpp"
+#include "tinyarmsim/cpu/faults.hpp"
 #include "tinyarmsim/uarch/topdown_profiler.hpp"
 #include "tinyarmsim/uarch/slice_manager.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
 
 namespace tinyarmsim {
 

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <vector>
-#include "tinyarmsim/instruction.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
 #include "tinyarmsim/uarch/uop.hpp"
 #include "tinyarmsim/uarch/fusion_unit.hpp"
 

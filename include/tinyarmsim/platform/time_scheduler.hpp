@@ -4,7 +4,7 @@
 #include "tinyarmsim/time/types.hpp"
 #include "tinyarmsim/time/clock.hpp"
 #include "tinyarmsim/time/scheduler.hpp"
-#include "tinyarmsim/interpreter.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
 
 namespace tinyarmsim::platform {
 

@@ -4,7 +4,7 @@
 #include <deque>
 #include <functional>
 #include <string>
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/dev/device.hpp"
 
 namespace tinyarmsim::mmio {
 

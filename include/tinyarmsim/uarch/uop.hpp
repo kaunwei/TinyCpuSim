@@ -5,8 +5,8 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
-#include "tinyarmsim/common.hpp"
-#include "tinyarmsim/instruction.hpp"
+#include "tinyarmsim/cpu/common.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
 #include "tinyarmsim/uarch/branch_predictor.hpp"
 #include "tinyarmsim/uarch/rat_prf.hpp"
 

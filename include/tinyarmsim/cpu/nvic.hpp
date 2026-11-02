@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "tinyarmsim/mmio/device.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/dev/device.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 
 namespace tinyarmsim::mmio {
 

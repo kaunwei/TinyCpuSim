@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/cache.hpp"
 #include "tinyarmsim/uarch/coherence.hpp"

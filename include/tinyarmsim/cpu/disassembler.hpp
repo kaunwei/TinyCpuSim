@@ -4,7 +4,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cctype>
-#include "tinyarmsim/instruction.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
 
 namespace tinyarmsim {
 

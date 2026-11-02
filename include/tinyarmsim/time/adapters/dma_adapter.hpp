@@ -5,7 +5,7 @@
 #include <memory>
 
 #include "tinyarmsim/dev/dma.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
 #include "tinyarmsim/time/clock.hpp"
 #include "tinyarmsim/time/scheduler.hpp"
 #include "tinyarmsim/time/types.hpp"

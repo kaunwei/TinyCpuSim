@@ -3,8 +3,8 @@
 #include <vector>
 #include <array>
 #include <unordered_map>
-#include "tinyarmsim/instruction.hpp"
-#include "tinyarmsim/decoder.hpp"
+#include "tinyarmsim/cpu/instruction.hpp"
+#include "tinyarmsim/cpu/decoder.hpp"
 
 namespace tinyarmsim {
 

@@ -2,7 +2,7 @@
 
 #include <array>
 #include <cstdint>
-#include "tinyarmsim/faults.hpp"
+#include "tinyarmsim/cpu/faults.hpp"
 
 namespace tinyarmsim {
 

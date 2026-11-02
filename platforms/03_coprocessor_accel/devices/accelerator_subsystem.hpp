@@ -6,11 +6,11 @@
 #include <fstream>
 #include <stdexcept>
 
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/state.hpp"
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/loader.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/cpu/state.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/loader.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
 #include "tinyarmsim/platform/time_scheduler.hpp"
 #include "mailbox_scratchpad.hpp"

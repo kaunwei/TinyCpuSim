@@ -6,7 +6,7 @@
 #include <optional>
 #include <stdexcept>
 #include <algorithm>
-#include "tinyarmsim/memory_bus.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
 #include "tinyarmsim/uarch/uop.hpp"
 #include "tinyarmsim/uarch/config.hpp"
 #include "tinyarmsim/uarch/stats.hpp"

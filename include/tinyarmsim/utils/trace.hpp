@@ -5,7 +5,7 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
-#include "tinyarmsim/disassembler.hpp"
+#include "tinyarmsim/cpu/disassembler.hpp"
 
 namespace tinyarmsim {
 

@@ -2,17 +2,17 @@
 
 #include <memory>
 #include <utility>
-#include "tinyarmsim/interpreter.hpp"
-#include "tinyarmsim/memory_bus.hpp"
-#include "tinyarmsim/mmio/crc32.hpp"
-#include "tinyarmsim/mmio/custom_device.hpp"
-#include "tinyarmsim/mmio/dma.hpp"
-#include "tinyarmsim/mmio/gpio.hpp"
-#include "tinyarmsim/mmio/i2c.hpp"
-#include "tinyarmsim/mmio/nvic.hpp"
-#include "tinyarmsim/mmio/spi.hpp"
-#include "tinyarmsim/mmio/timer.hpp"
-#include "tinyarmsim/mmio/uart.hpp"
+#include "tinyarmsim/cpu/interpreter.hpp"
+#include "tinyarmsim/memory/memory_bus.hpp"
+#include "tinyarmsim/dev/crc32.hpp"
+#include "tinyarmsim/dev/custom_device.hpp"
+#include "tinyarmsim/dev/dma.hpp"
+#include "tinyarmsim/dev/gpio.hpp"
+#include "tinyarmsim/dev/i2c.hpp"
+#include "tinyarmsim/cpu/nvic.hpp"
+#include "tinyarmsim/dev/spi.hpp"
+#include "tinyarmsim/dev/timer.hpp"
+#include "tinyarmsim/dev/uart.hpp"
 
 namespace tinyarmsim::mmio {
 

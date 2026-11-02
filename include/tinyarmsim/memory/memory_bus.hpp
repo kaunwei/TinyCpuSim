@@ -7,8 +7,8 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-#include "tinyarmsim/faults.hpp"
-#include "tinyarmsim/mmio/device.hpp"
+#include "tinyarmsim/cpu/faults.hpp"
+#include "tinyarmsim/dev/device.hpp"
 
 namespace tinyarmsim {
 
