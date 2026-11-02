@@ -5,6 +5,7 @@
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
+#include "tinyarmsim/platform/time_scheduler.hpp"
 #include "platforms/03_coprocessor_accel/devices/accelerator_subsystem.hpp"
 #include "tinyarmsim/mmio/uart.hpp"
 #include "tinyarmsim/mmio/timer.hpp"
@@ -64,6 +65,7 @@ public:
     [[nodiscard]] MemoryBus& host_bus() noexcept { return host_bus_; }
     [[nodiscard]] CpuInstance& host_cpu() noexcept { return host_cpu_; }
     [[nodiscard]] ConvolutionAcceleratorSubsystem& accelerator() noexcept { return accel_subsystem_; }
+    [[nodiscard]] uint64_t time() const noexcept { return scheduler_.now(); }
 
     void load_host_firmware(const std::string& elf_path) {
         platform_.load_elf("host_cpu", elf_path, Loader::ElfLoadMode::Firmware);
@@ -124,6 +126,7 @@ private:
     MemoryBus& host_bus_;
     CpuInstance& host_cpu_;
     ConvolutionAcceleratorSubsystem accel_subsystem_;
+    TimeScheduler scheduler_;
 };
 
 } // namespace tinyarmsim::platform
