@@ -40,7 +40,7 @@ int main() {
         accel.set_external_clock(false);
         assert(!accel.waiting());
         assert(accel.step_quantum(1) == 1);
-        assert(accel.accel_state().get_reg(0) == 42 && ticks->ticks == 2);
+        assert(accel.accel_state().get_reg(0) == 42 && ticks->ticks == 1);
     }
     {
         ConvolutionAcceleratorSubsystem accel(4096);

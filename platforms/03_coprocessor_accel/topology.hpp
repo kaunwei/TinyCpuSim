@@ -128,15 +128,14 @@ public:
             }
         }
 
-        host_bus_.tick(1);
         return host_active || accel_active;
     }
 
-    uint64_t run(uint64_t max_cycles, uint64_t quantum_size = 500) {
-        if (max_cycles > std::numeric_limits<uint64_t>::max() - scheduler_.now()) {
+    uint64_t run(uint64_t max_steps, uint64_t quantum = 500) {
+        if (max_steps > std::numeric_limits<uint64_t>::max() - scheduler_.now()) {
             throw std::overflow_error("platform deadline overflow");
         }
-        return run_until(scheduler_.now() + max_cycles, quantum_size).progress;
+        return run_until(scheduler_.now() + max_steps, quantum).progress;
     }
 
 private:

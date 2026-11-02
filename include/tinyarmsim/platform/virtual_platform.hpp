@@ -112,10 +112,6 @@ public:
             }
         }
 
-        for (auto& [name, bus] : buses_) {
-            bus->tick(1);
-        }
-
         return any_active;
     }
 

@@ -96,7 +96,7 @@ TEST(AcceleratorSubsystemTest, ExternalClockSuspendsWfiAndDoesNotTickBus) {
     const auto resumed_progress = accel.step_quantum(1);
     EXPECT_EQ(resumed_progress, 1);
     EXPECT_EQ(accel.accel_state().get_reg(0), 42);
-    EXPECT_EQ(ticks->ticks, 2);
+    EXPECT_EQ(ticks->ticks, 1);
 }
 
 TEST(AcceleratorSubsystemTest, SvcHaltsAndStopsQuantumEarly) {

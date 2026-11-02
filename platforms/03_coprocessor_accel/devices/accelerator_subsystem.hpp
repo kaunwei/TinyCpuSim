@@ -91,7 +91,6 @@ public:
             if (step() != StepResult::Progress) break;
             ++executed;
         }
-        if (!external_clock_) accel_bus_.tick(1);
         return executed;
     }
 
