@@ -149,6 +149,7 @@ class DefaultAcceptanceRunner(AcceptanceRunner):
 
     def run_hot(self, args, result, run):
         root = Path(args.work_dir)
+        print(f"\n[HOT_GATE] >>> Starting Hot Acceptance Gate for task: {args.task_id}", flush=True)
         cfg = config(root)
         config_file = "nightshift/config.json" if (root / "nightshift/config.json").is_file() else "nightshift/acceptance.json"
         for name in [config_file, *cfg.get("wiring", [])]:
@@ -163,6 +164,7 @@ class DefaultAcceptanceRunner(AcceptanceRunner):
                     or not item["id"] or not safe_path(item.get("source")) or item["id"] in declared):
                 raise GateError("tdd_cases requires unique IDs and relative source paths")
             declared[item["id"]] = item["source"]
+        print(f"[HOT_GATE] Discovering permanent test cases (baseline={args.base[:8]})...", flush=True)
         permanent, discovery = self.invoke(root, cfg, "hot", "discover", args.base, run)
         for identity, source in declared.items():
             case = permanent.get(identity, {})
@@ -187,6 +189,7 @@ class DefaultAcceptanceRunner(AcceptanceRunner):
         if isinstance(explicit, str):
             explicit = [part.strip() for part in explicit.split(",") if part.strip()]
         required.update(explicit)
+        print(f"[HOT_GATE] Running hot test suite with {len(required)} required TDD cases...", flush=True)
         executed, execution = self.invoke(root, cfg, "hot", "run", args.base, run, args.task_id, sorted(required))
         if not executed or any(case.get("status") != "passed" for case in executed.values()):
             raise GateError("hot contains failed, skipped or invalid case results")
@@ -198,13 +201,16 @@ class DefaultAcceptanceRunner(AcceptanceRunner):
                 raise GateError(f"case evidence changed between discovery and execution: {identity}")
         evidence = [discovery, execution]
         if args.verify and args.verify.lower() not in ("none", "report_only"):
+            print(f"[HOT_GATE] Running task verify command: {args.verify}...", flush=True)
             code, output = run(args.verify, str(root), args.worker_port, cfg.get("timeout", 180))
             evidence.append({"phase": "task", "command": args.verify, "exit": code, "output": output[-16384:]})
             if code:
                 raise GateError(f"task VERIFY exited {code}\n{output[-16384:]}")
+        print(f"[HOT_GATE] <<< Hot Acceptance Gate PASSED cleanly for {args.task_id}!\n", flush=True)
         return {"cases": sorted(executed), "evidence": evidence}
 
     def run_cold(self, root, run):
+        print(f"\n[COLD_REGRESSION] >>> Starting Periodic Cold Regression Suite...", flush=True)
         cfg = config(root)
         head = git(root, "rev-parse", "HEAD")
         path = state_dir(root) / "cold.json"
@@ -212,6 +218,7 @@ class DefaultAcceptanceRunner(AcceptanceRunner):
         if state.get("passed") == head:
             state.update(commits=[], pending=False)
             save(path, state)
+            print(f"[COLD_REGRESSION] Already passed for HEAD {head[:8]}.", flush=True)
             return
         ignored = re.compile(r"(?:^|/)(?:nightshift/)?(?:progress\.log|tasks\.txt|tasks\.done|worker\..*\.status|\.preview|\.reports|\.worker.*|\.scratch)")
         def product_status():
@@ -221,12 +228,14 @@ class DefaultAcceptanceRunner(AcceptanceRunner):
         before = product_status()
         if before:
             raise GateError("cold requires a clean product tree")
+        print(f"[COLD_REGRESSION] Running cold test command at HEAD {head[:8]}...", flush=True)
         code, output = run(command(cfg, "cold"), str(root), "3001", cfg.get("timeout", 180))
         after = product_status()
         if code or before != after or git(root, "rev-parse", "HEAD") != head:
             raise GateError(f"cold failed or changed product files (exit {code}) at {head}\n{output[-16384:]}")
         state.update(passed=head, commits=[], pending=False)
         save(path, state)
+        print(f"[COLD_REGRESSION] <<< Cold Regression Suite PASSED cleanly for HEAD {head[:8]}!\n", flush=True)
 
 
 def get_runner(root, cfg=None):

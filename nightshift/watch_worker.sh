@@ -63,6 +63,8 @@ PENDING_DONE_TASKS=""
 PENDING_FAILED_TASKS=""
 REPLAY_TASKS=""
 DONE_AUDIT_KEYS=""
+PREV_OBSERVED_STATE=""
+PREV_OBSERVED_TASK=""
 
 track_task() {
   local task_id="$1"
@@ -209,6 +211,13 @@ while true; do
     [ -z "$STATE" ] && STATE="UNKNOWN"
   fi
   if [ -z "$EXPECTED_TASK_ID" ]; then track_task "$CURRENT_TASK"; fi
+  if [ "$STATE" != "$PREV_OBSERVED_STATE" ] || [ "$CURRENT_TASK" != "$PREV_OBSERVED_TASK" ]; then
+    if [ -n "$PREV_OBSERVED_STATE" ]; then
+      echo "[SENTINEL_OBSERVE] State: $STATE | Task: ${CURRENT_TASK:-none} (${ELAPSED}s)"
+    fi
+    PREV_OBSERVED_STATE="$STATE"
+    PREV_OBSERVED_TASK="$CURRENT_TASK"
+  fi
 
   NEW_DONE=""
   if [ -f "$TASKS_DONE_FILE" ]; then

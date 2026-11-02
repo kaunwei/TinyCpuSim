@@ -1548,6 +1548,7 @@ def run_adapter_ghost(args, main_request, main_status, main_result):
                        (_runtime_state_root(args.work_dir) / ".worker-ghosts")) / re.sub(
                            r"[^A-Za-z0-9_.-]", "_", task_id)
     output_root.mkdir(parents=True, exist_ok=True)
+    print(f"\n[GHOST] >>> Invoking closeout ghost for {task_id} (budget={ghost_budget}, timeout={remaining_deadline:.1f}s)...", flush=True)
     ghost_dir = output_root / f"ghost-{uuid.uuid4().hex}"
     ghost_dir.mkdir(parents=True, exist_ok=False)
     prompt_path = ghost_dir / "closeout-prompt.txt"
@@ -1617,6 +1618,7 @@ def run_adapter_ghost(args, main_request, main_status, main_result):
         diag = result.get("diagnostic", "") or "Ghost diagnosis completed"
         return 1, {"diagnostic": diag}, ghost_dir
     code = finalize_structured_adapter_result(args, result)
+    print(f"[GHOST] <<< Ghost closeout finished with exit code {code}.\n", flush=True)
     return code, result, ghost_dir
 
 

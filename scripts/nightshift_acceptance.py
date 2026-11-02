@@ -277,15 +277,18 @@ def handle_nightshift_protocol(selected_tests):
             cases.append(case_entry)
 
     if phase == "discover":
+        print(f"[ACCEPTANCE_DISCOVER] Discovered {len(cases)} test cases for permanent evidence.", flush=True)
         payload = {"run": nonce, "cases": cases}
         Path(result_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return 0
 
     if phase == "run":
+        print(f"[ACCEPTANCE_RUN] Executing {len(selected_tests)} test cases in acceptance suite...", flush=True)
         # Execute tests and record passed/failed status
         all_tests = get_all_ctest_tests()
         code = run_ctest_subset(selected_tests, all_tests)
         status_val = "passed" if code == 0 else "failed"
+        print(f"[ACCEPTANCE_RUN] Acceptance suite {status_val.upper()} (exit code {code}).", flush=True)
         for c in cases:
             c["status"] = status_val
         payload = {"run": nonce, "cases": cases}

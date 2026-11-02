@@ -243,14 +243,17 @@ def run(root, runtime):
                 scheduled_cold = True
         token = f"Audit_NS: {active['event']}"
         attempts = result.get("attempts", 1)
+        print(f"[AUDIT] Running mechanical audit for {active['task_id']}...", flush=True)
         append_once(progress, token,
                     f"[MECHANICAL_AUDIT] Status: PASS | Task: {active['task_id']} | Verify_Exit: 0 | Whitelist: PASS | Tree: CLEAN | Attempts: {attempts} | Audit_NS: {active['event']} | Acceptance: automatic")
         append_once(done, token, f"[DONE] {active['raw']} [Audit_NS: {active['event']}]")
+        print(f"[COMMIT] Committing verified changes for {active['task_id']} ({commit[:8] if commit else 'no-commit'})...", flush=True)
         runtime.settle_invalid_reports(root, root, accepted=True)
         runtime.refresh_active_reports(root, root)
         journal.update(phase="accepted", commit=commit, result=result, event=active["event"])
         gate.save(journal_path, journal)
         active_path.unlink(missing_ok=True)
+        print(f"[DONE] <<< Task {active['task_id']} accepted and verified cleanly!\n", flush=True)
         if scheduled_cold and once:
             update("IDLE")
             return True
