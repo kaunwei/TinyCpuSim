@@ -637,3 +637,59 @@ TEST(PlatformTime, UartResetBetweenDeviceAndIrqRejectsStaleNotification) {
     EXPECT_TRUE(nvic.is_pending(uart.irq_line()));
     EXPECT_EQ(uart.read(0, mmio::AccessSize::Word), 'R');
 }
+
+#include "tinyarmsim/platform/dma_adapter.hpp"
+
+TEST(PlatformTime, DmaAdapterSchedulesBeatsAndPublishesIrq) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+
+    MemoryBus bus(65536);
+    mmio::DmaDevice dma(bus);
+    mmio::NVICDevice nvic;
+    TimeScheduler scheduler;
+    DmaAdapter adapter(scheduler, dma, nvic);
+
+    bus.write8(0x1000, 0x11);
+    bus.write8(0x1001, 0x22);
+    bus.write8(0x1002, 0x33);
+
+    dma.write(0x14, 1, mmio::AccessSize::Word);
+    dma.write(0x00, 0x1000, mmio::AccessSize::Word);
+    dma.write(0x04, 0x2000, mmio::AccessSize::Word);
+    dma.write(0x08, 3, mmio::AccessSize::Word);
+    dma.write(0x0C, mmio::DmaDevice::CR_EN | mmio::DmaDevice::CR_TCIE |
+                    mmio::DmaDevice::CR_SRC_INC | mmio::DmaDevice::CR_DST_INC,
+              mmio::AccessSize::Word);
+
+    adapter.refresh();
+
+    EXPECT_FALSE(nvic.is_pending(dma.irq_line()));
+    EXPECT_EQ(bus.read8(0x2000), 0u);
+    EXPECT_EQ(bus.read8(0x2001), 0u);
+    EXPECT_EQ(bus.read8(0x2002), 0u);
+
+    scheduler.run(1, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(scheduler.now(), 1u);
+    EXPECT_EQ(dma.read(0x08, mmio::AccessSize::Word), 2u);
+    EXPECT_EQ(bus.read8(0x2000), 0x11u);
+    EXPECT_EQ(bus.read8(0x2001), 0u);
+    EXPECT_EQ(bus.read8(0x2002), 0u);
+    EXPECT_FALSE(nvic.is_pending(dma.irq_line()));
+
+    scheduler.run(2, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(scheduler.now(), 2u);
+    EXPECT_EQ(dma.read(0x08, mmio::AccessSize::Word), 1u);
+    EXPECT_EQ(bus.read8(0x2000), 0x11u);
+    EXPECT_EQ(bus.read8(0x2001), 0x22u);
+    EXPECT_EQ(bus.read8(0x2002), 0u);
+    EXPECT_FALSE(nvic.is_pending(dma.irq_line()));
+
+    scheduler.run(3, 1, [] { return StepResult::Progress; });
+    EXPECT_EQ(scheduler.now(), 3u);
+    EXPECT_EQ(dma.read(0x08, mmio::AccessSize::Word), 0u);
+    EXPECT_EQ(bus.read8(0x2000), 0x11u);
+    EXPECT_EQ(bus.read8(0x2001), 0x22u);
+    EXPECT_EQ(bus.read8(0x2002), 0x33u);
+    EXPECT_TRUE(nvic.is_pending(dma.irq_line()));
+}
