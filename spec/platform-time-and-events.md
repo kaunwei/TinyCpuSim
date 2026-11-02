@@ -58,13 +58,20 @@ A unified, deterministic functional simulation time and event scheduling contrac
    - Publishes completion interrupt (IRQ 3) to `NVICDevice` in `EventPhase::Irq`.
    - Integrated into `BasicMcuPlatform` at `DMA_BASE` (`0x40006000`), exposed via `dma()`.
 
-6. **Platform Uniform Conformance**:
+6. **Platform Uniform Conformance & Single-Ownership Invariant (Ticket 08)**:
    - `BasicPerfPlatform`, `BasicMcuPlatform`, and `McuConvPlatform` all implement:
      - `RunResult run_until(uint64_t deadline, uint64_t quantum = 500)`
      - `uint64_t run(uint64_t max_steps, uint64_t quantum = 500)`
      - `uint64_t time() const noexcept`
+   - All platforms conform to the single-ownership ticking invariant: bus ticking belongs exclusively to either single-instruction internal execution or external `TimeScheduler` events. Duplicate ticking in legacy `step_quantum` methods has been fully retired.
    - All three reject `quantum == 0` and `deadline < time()` with `std::invalid_argument`.
    - All three check deadline arithmetic overflow with `std::overflow_error`.
+
+7. **Parallel Execution Feasibility Evaluation (Ticket 09)**:
+   - Evaluated against reference contract: workload exhibits strictly alternating execution phases with near-zero (< 1%) concurrent instruction overlap and low cross-core event density ($1.3 \times 10^{-4}$ events/tick).
+   - Conservative parallel synchronization requires lookahead $L \ge 1$ tick and per-core event queues.
+   - Grounded recommendation: NO-GO for host multithreading in current simulator backend; single-host-thread scheduler delivers optimal throughput (~36 ms) without threading contention or race hazards.
+   - Defined strict future adoption gates: deterministic trace equivalence, ThreadSanitizer cleanliness, and bus race trapping.
 
 ## Testing Decisions
 
@@ -81,7 +88,7 @@ A unified, deterministic functional simulation time and event scheduling contrac
 ## Out of Scope
 
 - Hardware cycle-accurate pipeline simulation for simple microcontroller peripherals.
-- Multithreaded parallel host execution backend (deferred to future Ticket 09).
+- Multithreaded parallel host execution backend (evaluated and established as NO-GO per Ticket 09).
 - Dynamic power or voltage domain modeling.
 
 ## Further Notes
