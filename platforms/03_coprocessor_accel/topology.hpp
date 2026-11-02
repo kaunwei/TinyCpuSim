@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
@@ -77,6 +78,27 @@ public:
         accel_subsystem_.load_firmware(elf_path, Loader::ElfLoadMode::Firmware);
         accel_subsystem_.accel_nvic().set_vtor(FIRMWARE_VTOR);
         accel_subsystem_.boot_cortex_m(FIRMWARE_VTOR);
+    }
+
+    RunResult run_until(uint64_t deadline, uint64_t quantum = 500) {
+        if (quantum == 0) throw std::invalid_argument("zero quantum");
+        if (deadline < scheduler_.now()) throw std::invalid_argument("past deadline");
+        return scheduler_.run(deadline, quantum, [this] {
+            StepResult hr = host_cpu_.halted ? StepResult::Halt : (host_cpu_.interpreter.waiting() ? StepResult::Wait : StepResult::Progress);
+            if (hr == StepResult::Progress) {
+                try {
+                    host_cpu_.interpreter.step();
+                } catch (const CpuFaultException& f) {
+                    host_cpu_.halted = true;
+                    hr = f.get_fault_type() == FaultType::SoftwareInterrupt ? StepResult::Halt : StepResult::Fault;
+                }
+            }
+            StepResult ar = accel_subsystem_.step();
+            if (hr == StepResult::Progress || ar == StepResult::Progress) return StepResult::Progress;
+            if (hr == StepResult::Wait || ar == StepResult::Wait) return StepResult::Wait;
+            if (hr == StepResult::Fault || ar == StepResult::Fault) return StepResult::Fault;
+            return StepResult::Halt;
+        });
     }
 
     bool step_quantum(uint64_t quantum_size = 500) {
