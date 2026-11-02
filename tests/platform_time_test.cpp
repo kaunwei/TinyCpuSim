@@ -693,3 +693,63 @@ TEST(PlatformTime, DmaAdapterSchedulesBeatsAndPublishesIrq) {
     EXPECT_EQ(bus.read8(0x2002), 0x33u);
     EXPECT_TRUE(nvic.is_pending(dma.irq_line()));
 }
+
+TEST(PlatformTime, McuDmaTransfersDuringWfiWait) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+
+    for (uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        BasicMcuPlatform mcu;
+        auto& bus = mcu.bus();
+        auto& dma = mcu.dma();
+
+        EXPECT_EQ(&dma, bus.get_device_at<mmio::DmaDevice>(BasicMcuPlatform::DMA_BASE));
+
+        bus.write16(0x100, 0xbf30); // WFI
+        bus.write16(0x102, 0x202a); // MOVS r0, #42
+        mcu.cpu().state.set_pc(0x100);
+        mcu.cpu().state.set_primask(true);
+        mcu.cpu().nvic.write(0x100, (1u << dma.irq_line()), mmio::AccessSize::Word);
+
+        bus.write8(0x2000, 0x11);
+        bus.write8(0x2001, 0x22);
+        bus.write8(0x2002, 0x33);
+        bus.write8(0x2003, 0x44);
+
+        bus.write8(0x3000, 0x00);
+        bus.write8(0x3001, 0x00);
+        bus.write8(0x3002, 0x00);
+        bus.write8(0x3003, 0x00);
+
+        dma.write(0x14, 1, mmio::AccessSize::Word);
+        dma.write(0x00, 0x2000, mmio::AccessSize::Word);
+        dma.write(0x04, 0x3000, mmio::AccessSize::Word);
+        dma.write(0x08, 4, mmio::AccessSize::Word);
+        dma.write(0x0C, mmio::DmaDevice::CR_EN | mmio::DmaDevice::CR_TCIE |
+                        mmio::DmaDevice::CR_SRC_INC | mmio::DmaDevice::CR_DST_INC,
+                  mmio::AccessSize::Word);
+
+        auto before = mcu.run_until(2, quantum);
+        EXPECT_EQ(before.progress, 1u);
+        EXPECT_EQ(mcu.time(), 2u);
+        EXPECT_EQ(bus.read8(0x3000), 0x11u);
+        EXPECT_EQ(bus.read8(0x3001), 0x22u);
+        EXPECT_EQ(bus.read8(0x3002), 0x00u);
+        EXPECT_EQ(bus.read8(0x3003), 0x00u);
+        EXPECT_EQ(dma.read(0x08, mmio::AccessSize::Word), 2u);
+        EXPECT_TRUE((dma.read(0x10, mmio::AccessSize::Word) & mmio::DmaDevice::SR_BUSY) != 0);
+        EXPECT_FALSE(mcu.cpu().nvic.is_pending(dma.irq_line()));
+
+        auto after = mcu.run_until(5, quantum);
+        EXPECT_EQ(after.progress, 1u);
+        EXPECT_EQ(bus.read8(0x3000), 0x11u);
+        EXPECT_EQ(bus.read8(0x3001), 0x22u);
+        EXPECT_EQ(bus.read8(0x3002), 0x33u);
+        EXPECT_EQ(bus.read8(0x3003), 0x44u);
+        EXPECT_EQ(dma.read(0x08, mmio::AccessSize::Word), 0u);
+        EXPECT_FALSE((dma.read(0x10, mmio::AccessSize::Word) & mmio::DmaDevice::SR_BUSY) != 0);
+        EXPECT_TRUE((dma.read(0x10, mmio::AccessSize::Word) & mmio::DmaDevice::SR_TCIF) != 0);
+        EXPECT_TRUE(mcu.cpu().nvic.is_pending(dma.irq_line()));
+        EXPECT_EQ(mcu.cpu().state.get_reg(0), 42u);
+    }
+}

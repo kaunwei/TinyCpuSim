@@ -6,10 +6,12 @@
 #include "tinyarmsim/dev/uart.hpp"
 #include "tinyarmsim/dev/timer.hpp"
 #include "tinyarmsim/dev/gpio.hpp"
+#include "tinyarmsim/dev/dma.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
 #include "tinyarmsim/platform/timer_adapter.hpp"
 #include "tinyarmsim/platform/uart_adapter.hpp"
+#include "tinyarmsim/platform/dma_adapter.hpp"
 #include <limits>
 
 namespace tinyarmsim::platform {
@@ -20,9 +22,11 @@ public:
     static constexpr uint32_t UART_BASE = 0x40000000;
     static constexpr uint32_t TIMER_BASE = 0x40001000;
     static constexpr uint32_t GPIO_BASE = 0x40002000;
+    static constexpr uint32_t DMA_BASE = 0x40006000;
     static constexpr uint32_t NVIC_BASE = 0xE000E000;
 
-    explicit BasicMcuPlatform(uint64_t uart_numerator = 1, uint64_t uart_denominator = 1)
+    explicit BasicMcuPlatform(uint64_t uart_numerator = 1, uint64_t uart_denominator = 1,
+                              uint64_t dma_numerator = 1, uint64_t dma_denominator = 1)
         : platform_(),
           bus_(platform_.create_bus("mcu_bus", MEMORY_SIZE)),
           cpu_(platform_.create_cpu("mcu_cpu", bus_)) {
@@ -36,7 +40,11 @@ public:
         auto gpio = std::make_unique<mmio::GpioDevice>(GPIO_BASE, 0x1000);
         gpio_ = gpio.get();
         bus_.register_device(std::move(gpio));
+        auto dma = std::make_unique<mmio::DmaDevice>(bus_, DMA_BASE, 0x1000);
+        dma_ = dma.get();
+        bus_.register_device(std::move(dma));
         uart_adapter_ = std::make_unique<UartAdapter>(scheduler_, *uart_, cpu_.nvic, uart_numerator, uart_denominator);
+        dma_adapter_ = std::make_unique<DmaAdapter>(scheduler_, *dma_, cpu_.nvic, dma_numerator, dma_denominator);
         cpu_.interpreter.set_external_clock(true);
     }
 
@@ -74,6 +82,10 @@ public:
     [[nodiscard]] VirtualPlatform& platform() noexcept { return platform_; }
     [[nodiscard]] MemoryBus& bus() noexcept { return bus_; }
     [[nodiscard]] CpuInstance& cpu() noexcept { return cpu_; }
+    [[nodiscard]] mmio::DmaDevice& dma() noexcept { return *dma_; }
+    [[nodiscard]] const mmio::DmaDevice& dma() const noexcept { return *dma_; }
+    [[nodiscard]] DmaAdapter& dma_adapter() noexcept { return *dma_adapter_; }
+    [[nodiscard]] const DmaAdapter& dma_adapter() const noexcept { return *dma_adapter_; }
 
 private:
     void refresh_devices() {
@@ -86,7 +98,9 @@ private:
         if (timer_->has_pending_irq()) cpu_.nvic.set_pending(timer_->irq_line());
         if (uart_->has_pending_irq()) cpu_.nvic.set_pending(uart_->irq_line());
         if (gpio_->has_pending_irq()) cpu_.nvic.set_pending(gpio_->irq_line());
+        if (dma_->has_pending_irq()) cpu_.nvic.set_pending(dma_->irq_line());
         uart_adapter_->refresh();
+        dma_adapter_->refresh();
         if (!other_scheduled_ && gpio_->is_busy()) schedule_other();
         if (other_scheduled_ && !gpio_->is_busy()) {
             other_event_.cancel();
@@ -103,6 +117,7 @@ private:
             irq_event_ = scheduler_.schedule(scheduler_.now(), EventPhase::Irq, [this] {
                 if (uart_->has_pending_irq()) cpu_.nvic.set_pending(uart_->irq_line());
                 if (gpio_->has_pending_irq()) cpu_.nvic.set_pending(gpio_->irq_line());
+                if (dma_->has_pending_irq()) cpu_.nvic.set_pending(dma_->irq_line());
             });
             if (gpio_->is_busy()) schedule_other();
         });
@@ -113,9 +128,11 @@ private:
     mmio::UartDevice* uart_{};
     mmio::TimerDevice* timer_{};
     mmio::GpioDevice* gpio_{};
+    mmio::DmaDevice* dma_{};
     TimeScheduler scheduler_;
     std::unique_ptr<TimerAdapter> timer_adapter_;
     std::unique_ptr<UartAdapter> uart_adapter_;
+    std::unique_ptr<DmaAdapter> dma_adapter_;
     TimeScheduler::Handle other_event_, irq_event_;
     bool other_scheduled_ = false;
 };
