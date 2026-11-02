@@ -611,6 +611,8 @@ TEST(PlatformTime, McuTimerInterruptsExecutingCpu) {
     }
 }
 
+#include "tinyarmsim/platform/uart_adapter.hpp"
+
 TEST(PlatformTime, UartResetBetweenDeviceAndIrqRejectsStaleNotification) {
     using namespace tinyarmsim;
     using namespace tinyarmsim::platform;

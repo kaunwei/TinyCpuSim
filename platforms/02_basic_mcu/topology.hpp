@@ -9,12 +9,17 @@
 #include "tinyarmsim/dev/dma.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
-#include "tinyarmsim/platform/timer_adapter.hpp"
-#include "tinyarmsim/platform/uart_adapter.hpp"
-#include "tinyarmsim/platform/dma_adapter.hpp"
+#include "tinyarmsim/platform/time_scheduler.hpp"
+#include "tinyarmsim/time/adapters/timer_adapter.hpp"
+#include "tinyarmsim/time/adapters/uart_adapter.hpp"
+#include "tinyarmsim/time/adapters/dma_adapter.hpp"
 #include <limits>
 
 namespace tinyarmsim::platform {
+
+using TimerAdapter = ::tinyarmsim::time::adapters::TimerAdapter;
+using UartAdapter = ::tinyarmsim::time::adapters::UartAdapter;
+using DmaAdapter = ::tinyarmsim::time::adapters::DmaAdapter;
 
 class BasicMcuPlatform {
 public:
