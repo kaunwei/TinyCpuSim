@@ -16,3 +16,14 @@ TEST(CoprocessorAccelPlatformTest, LiveConvolutionCoSimulation) {
     EXPECT_EQ(result, 0xCAFECAFE);
     EXPECT_EQ(platform.accelerator().mailbox().read(0, mmio::AccessSize::Word), 2u);
 }
+
+TEST(CoprocessorAccelPlatformTest, RunUntilDeadlineAndStepProgress) {
+    McuConvPlatform platform;
+    platform.load_host_firmware(CONV_HOST_ELF);
+    platform.load_accel_firmware(CONV_ACCEL_ELF);
+
+    auto res = platform.run_until(100, 500);
+    EXPECT_EQ(res.reason, StopReason::Deadline);
+    EXPECT_EQ(platform.time(), 100u);
+}
+

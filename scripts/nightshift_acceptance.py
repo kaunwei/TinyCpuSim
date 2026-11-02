@@ -98,9 +98,9 @@ def resolve_source(test):
 
     # 2. C++ platform tests
     platform_map = {
-        "test_perf_platform": "platforms/01_basic_perf/test_perf_platform.cpp",
-        "test_mcu_platform": "platforms/02_basic_mcu/test_mcu_platform.cpp",
-        "test_coprocessor_accel": "platforms/03_coprocessor_accel/test_coprocessor_accel.cpp",
+        "test_perf_platform": "platforms/01_basic_perf/tests/test_perf_platform.cpp",
+        "test_mcu_platform": "platforms/02_basic_mcu/tests/test_mcu_platform.cpp",
+        "test_coprocessor_accel": "platforms/03_coprocessor_accel/tests/test_coprocessor_accel.cpp",
     }
     if cmd0 in platform_map:
         return platform_map[cmd0]
