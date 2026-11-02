@@ -13,8 +13,6 @@
     "codex-main": {
       "default": true,
       "worker": {
-        "step_base": 35,
-        "step_per_file": 5,
         "task_timeout_seconds": 1800,
         "research_step_budget": 100
       },
@@ -35,8 +33,6 @@
     "agy-backup": {
       "default": false,
       "worker": {
-        "step_base": 35,
-        "step_per_file": 5,
         "task_timeout_seconds": 1800,
         "research_step_budget": 100
       },
