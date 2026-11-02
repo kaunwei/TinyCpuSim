@@ -753,3 +753,140 @@ TEST(PlatformTime, McuDmaTransfersDuringWfiWait) {
         EXPECT_EQ(mcu.cpu().state.get_reg(0), 42u);
     }
 }
+
+#include "platforms/01_basic_perf/topology.hpp"
+#include "platforms/03_coprocessor_accel/topology.hpp"
+
+TEST(PlatformTime, DeterministicTimingConformanceAcrossAllThreePlatforms) {
+    using namespace tinyarmsim;
+    using namespace tinyarmsim::platform;
+
+    // Verify deterministic timing conformance and quantum insensitivity across {1, 8, 64, 500}.
+    for (const uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        auto perf = std::make_unique<BasicPerfPlatform>();
+        perf->bus().write16(0x0, 0x2005); // MOVS r0, #5
+        perf->bus().write16(0x2, 0x3003); // ADDS r0, #3
+        perf->bus().write16(0x4, 0xdf00); // SVC #0 (halt)
+
+        auto mcu = std::make_unique<BasicMcuPlatform>();
+        mcu->bus().write16(0x100, 0x2005); // MOVS r0, #5
+        mcu->bus().write16(0x102, 0x3003); // ADDS r0, #3
+        mcu->bus().write16(0x104, 0xdf00); // SVC #0 (halt)
+        mcu->cpu().state.set_pc(0x100);
+
+        auto conv = std::make_unique<McuConvPlatform>();
+        conv->host_bus().write16(0x100, 0x2005); // MOVS r0, #5
+        conv->host_bus().write16(0x102, 0x3003); // ADDS r0, #3
+        conv->host_bus().write16(0x104, 0xdf00); // SVC #0 (halt)
+        conv->host_cpu().state.set_pc(0x100);
+
+        conv->accelerator().accel_bus().write16(0x100, 0x210a); // MOVS r1, #10
+        conv->accelerator().accel_bus().write16(0x102, 0x3105); // ADDS r1, #5
+        conv->accelerator().accel_bus().write16(0x104, 0xdf00); // SVC #0 (halt)
+        conv->accelerator().accel_state().set_pc(0x100);
+
+        // Step 1: run_until to deadline 1.
+        const auto perf_res1 = perf->run_until(1, quantum);
+        EXPECT_EQ(perf_res1.reason, StopReason::Deadline);
+        EXPECT_EQ(perf_res1.progress, 1u);
+        EXPECT_EQ(perf->time(), 1u);
+        EXPECT_EQ(perf->state().get_reg(0), 5u);
+
+        const auto mcu_res1 = mcu->run_until(1, quantum);
+        EXPECT_EQ(mcu_res1.reason, StopReason::Deadline);
+        EXPECT_EQ(mcu_res1.progress, 1u);
+        EXPECT_EQ(mcu->time(), 1u);
+        EXPECT_EQ(mcu->cpu().state.get_reg(0), 5u);
+
+        const auto conv_res1 = conv->run_until(1, quantum);
+        EXPECT_EQ(conv_res1.reason, StopReason::Deadline);
+        EXPECT_EQ(conv_res1.progress, 1u);
+        EXPECT_EQ(conv->time(), 1u);
+        EXPECT_EQ(conv->host_cpu().state.get_reg(0), 5u);
+        EXPECT_EQ(conv->accelerator().accel_state().get_reg(1), 10u);
+
+        // Step 2: run_until to deadline 10 (all platforms halt at tick 2).
+        const auto perf_res2 = perf->run_until(10, quantum);
+        EXPECT_EQ(perf_res2.reason, StopReason::Halt);
+        EXPECT_EQ(perf_res2.progress, 1u);
+        EXPECT_EQ(perf->time(), 2u);
+        EXPECT_EQ(perf->state().get_reg(0), 8u);
+
+        const auto mcu_res2 = mcu->run_until(10, quantum);
+        EXPECT_EQ(mcu_res2.reason, StopReason::Halt);
+        EXPECT_EQ(mcu_res2.progress, 1u);
+        EXPECT_EQ(mcu->time(), 2u);
+        EXPECT_EQ(mcu->cpu().state.get_reg(0), 8u);
+
+        const auto conv_res2 = conv->run_until(10, quantum);
+        EXPECT_EQ(conv_res2.reason, StopReason::Halt);
+        EXPECT_EQ(conv_res2.progress, 1u);
+        EXPECT_EQ(conv->time(), 2u);
+        EXPECT_EQ(conv->host_cpu().state.get_reg(0), 8u);
+        EXPECT_EQ(conv->accelerator().accel_state().get_reg(1), 15u);
+
+        // Step 3: Conformance on invalid arguments.
+        EXPECT_THROW(perf->run_until(5, 0), std::invalid_argument);
+        EXPECT_THROW(mcu->run_until(5, 0), std::invalid_argument);
+        EXPECT_THROW(conv->run_until(5, 0), std::invalid_argument);
+
+        EXPECT_THROW(perf->run_until(1, quantum), std::invalid_argument);
+        EXPECT_THROW(mcu->run_until(1, quantum), std::invalid_argument);
+        EXPECT_THROW(conv->run_until(1, quantum), std::invalid_argument);
+
+        EXPECT_THROW(perf->run(std::numeric_limits<uint64_t>::max()), std::overflow_error);
+        EXPECT_THROW(mcu->run(std::numeric_limits<uint64_t>::max(), quantum), std::overflow_error);
+        EXPECT_THROW(conv->run(std::numeric_limits<uint64_t>::max(), quantum), std::overflow_error);
+    }
+
+    // Relative budget run conformance across {1, 8, 64, 500}.
+    for (const uint64_t quantum : {1u, 8u, 64u, 500u}) {
+        auto perf = std::make_unique<BasicPerfPlatform>();
+        perf->bus().write16(0x0, 0x2005);
+        perf->bus().write16(0x2, 0x3003);
+        perf->bus().write16(0x4, 0xdf00);
+
+        auto mcu = std::make_unique<BasicMcuPlatform>();
+        mcu->bus().write16(0x100, 0x2005);
+        mcu->bus().write16(0x102, 0x3003);
+        mcu->bus().write16(0x104, 0xdf00);
+        mcu->cpu().state.set_pc(0x100);
+
+        auto conv = std::make_unique<McuConvPlatform>();
+        conv->host_bus().write16(0x100, 0x2005);
+        conv->host_bus().write16(0x102, 0x3003);
+        conv->host_bus().write16(0x104, 0xdf00);
+        conv->host_cpu().state.set_pc(0x100);
+
+        conv->accelerator().accel_bus().write16(0x100, 0x210a);
+        conv->accelerator().accel_bus().write16(0x102, 0x3105);
+        conv->accelerator().accel_bus().write16(0x104, 0xdf00);
+        conv->accelerator().accel_state().set_pc(0x100);
+
+        EXPECT_EQ(perf->run(1), 1u);
+        EXPECT_EQ(perf->time(), 1u);
+        EXPECT_EQ(perf->state().get_reg(0), 5u);
+
+        EXPECT_EQ(mcu->run(1, quantum), 1u);
+        EXPECT_EQ(mcu->time(), 1u);
+        EXPECT_EQ(mcu->cpu().state.get_reg(0), 5u);
+
+        EXPECT_EQ(conv->run(1, quantum), 1u);
+        EXPECT_EQ(conv->time(), 1u);
+        EXPECT_EQ(conv->host_cpu().state.get_reg(0), 5u);
+        EXPECT_EQ(conv->accelerator().accel_state().get_reg(1), 10u);
+
+        EXPECT_EQ(perf->run(10), 1u);
+        EXPECT_EQ(perf->time(), 2u);
+        EXPECT_EQ(perf->state().get_reg(0), 8u);
+
+        EXPECT_EQ(mcu->run(10, quantum), 1u);
+        EXPECT_EQ(mcu->time(), 2u);
+        EXPECT_EQ(mcu->cpu().state.get_reg(0), 8u);
+
+        EXPECT_EQ(conv->run(10, quantum), 1u);
+        EXPECT_EQ(conv->time(), 2u);
+        EXPECT_EQ(conv->host_cpu().state.get_reg(0), 8u);
+        EXPECT_EQ(conv->accelerator().accel_state().get_reg(1), 15u);
+    }
+}
