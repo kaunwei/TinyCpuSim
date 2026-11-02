@@ -258,6 +258,12 @@ def handle_nightshift_protocol(selected_tests):
 
         # Emit the CTest test name as an ID
         case_ids = [t["name"]]
+        # If test name has a prefix (e.g. test_binary.Suite.Case), also emit bare Suite.Case
+        parts = t["name"].split(".")
+        if len(parts) >= 3:
+            bare_id = ".".join(parts[1:])
+            if bare_id not in case_ids:
+                case_ids.append(bare_id)
         # If the binary is a GTest executable registered via add_test, also emit its individual test cases
         subcases = get_subcase_ids(t)
         for sc in subcases:

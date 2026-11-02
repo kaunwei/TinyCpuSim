@@ -25,7 +25,7 @@ commits and scores on the same current branch. Successful tasks need no manual r
 
    Score 5: L1 vertical slice. Score 3-4: L2 one module/seam. Score 1-2: L3 exact
    behavior, inputs/outputs and red/green steps. Shrink scope as score falls.
-3. Queue blockers first. Include product, tests and permanent hot wiring in TARGET:
+3. Always queue the entire unblocked frontier at once; never dispatch piecemeal. Queue blockers first. Include product, tests and permanent hot wiring in TARGET:
 
        TASK-ID [CODE: FIX] | LEVEL: 2 | TARGET: src,test | ACTION: behavior | CASES: stable.case.id | VERIFY: command
 
@@ -38,16 +38,16 @@ commits and scores on the same current branch. Successful tasks need no manual r
 
 ## Supervise
 
-Delegate queue monitoring to Queue Sentinel and end the turn. Never poll status or chat loops.
+Delegate queue monitoring to Queue Sentinel and end the turn silently without chat messages:
 
     WORKER_INACTIVE_REPEAT=1 bash nightshift/watch_worker.sh 0 5
 
-Worker owns execution and drains tasks autonomously. Wake Planner **only** on:
+Omit task ID to drain the whole queue. Worker runs unattended. Wake Planner **only** on:
 - `[SENTINEL_COMPLETED]`: Entire queue drained (`IDLE`).
 - `[BLOCKED]` / `PAUSED_FOR_PLANNER`: Unrecoverable failure or needs decomposition.
 - `[SENTINEL_INACTIVE]`: Stale heartbeat (relay note and keep waiting).
 
-Normal task completions and heartbeats require zero Planner intervention. Stale timeout is not task failure—require fresh evidence before acting.
+Normal task completions, running status, and heartbeats need zero chat messages or intervention. Stale timeout is not task failure—require fresh evidence before acting.
 
 ## Recover
 
