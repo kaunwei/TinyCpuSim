@@ -1,6 +1,6 @@
 #include <cassert>
 #include <memory>
-#include "tinyarmsim/platform/accelerator_subsystem.hpp"
+#include "platforms/03_coprocessor_accel/devices/accelerator_subsystem.hpp"
 
 using namespace tinyarmsim;
 using namespace tinyarmsim::platform;
