@@ -20,6 +20,10 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Core Library (Interface & Static)
+add_library(tinyarmsim_time INTERFACE)
+add_library(TinyCpuSim::Time ALIAS tinyarmsim_time)
+target_include_directories(tinyarmsim_time INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 add_library(tinyarmsim_core INTERFACE)
 target_include_directories(tinyarmsim_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -30,7 +34,7 @@ add_library(tinyarmsim_core_static STATIC
     src/uarch/stats.cpp
 )
 target_include_directories(tinyarmsim_core_static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(tinyarmsim_core_static PUBLIC tinyarmsim_core)
+target_link_libraries(tinyarmsim_core_static PUBLIC tinyarmsim_core tinyarmsim_time)
 
 # Main Executable CLIs
 add_executable(tinycpusim src/main.cpp)
@@ -503,6 +507,12 @@ if(NOT TARGET TinyCpuSim::Core)
     add_library(TinyCpuSim::Core STATIC IMPORTED GLOBAL)
     set_target_properties(TinyCpuSim::Core PROPERTIES
         IMPORTED_LOCATION "${_TINYCPUSIM_SDK_DIR}/lib/libtinyarmsim_core_static.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${_TINYCPUSIM_SDK_DIR}/include"
+    )
+endif()
+if(NOT TARGET TinyCpuSim::Time)
+    add_library(TinyCpuSim::Time INTERFACE IMPORTED GLOBAL)
+    set_target_properties(TinyCpuSim::Time PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${_TINYCPUSIM_SDK_DIR}/include"
     )
 endif()
