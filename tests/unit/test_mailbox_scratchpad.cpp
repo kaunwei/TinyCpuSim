@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "tinyarmsim/mmio/mailbox_scratchpad.h"
-#include "tinyarmsim/mmio/mailbox_scratchpad.hpp"
+#include "platforms/03_coprocessor_accel/devices/mailbox_scratchpad.h"
+#include "platforms/03_coprocessor_accel/devices/mailbox_scratchpad.hpp"
 #include "tinyarmsim/memory_bus.hpp"
 
 using namespace tinyarmsim;

@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "platform.h"
-#include "tinyarmsim/mmio/mailbox_scratchpad.h"
+#include "../../03_coprocessor_accel/devices/mailbox_scratchpad.h"
 
 #define MAILBOX_BASE 0x50000000U
 #define MAILBOX_SCRATCHPAD ((volatile uint8_t*)(MAILBOX_BASE + MB_SCRATCHPAD_OFFSET))
