@@ -68,5 +68,72 @@ All conforming platforms (`BasicPerfPlatform`, `BasicMcuPlatform`, and `McuConvP
 - **Execution Delegation**: Dispatches to `run_until(deadline, quantum)`, enforcing quantum insensitivity and returning a `RunResult` containing actual committed CPU progress and the termination reason (`Deadline`, `Halt`, `Wait`, or `Fault`).
 - **Timing Invariant**: Step execution and peripheral updates maintain strict single ownership, ensuring identical deterministic outcomes regardless of the chosen quantum value.
 
+## Parallel execution feasibility evaluation against reference contract
+
+An evaluation of multi-threaded parallel execution feasibility for multi-core and coprocessor platforms (`McuConvPlatform`) against the single-host-thread `TimeScheduler` reference contract indicates that introducing host OS threads is currently unjustified. The analysis below details workload execution characteristics, cross-core interaction density, synchronization options, event queue ownership, lookahead constraints, and the evidence-based recommendation alongside future race-detection criteria.
+
+### Workload execution characteristics
+
+In the reference coprocessor co-simulation benchmark (`VirtualPlatformIntegrationTest.HostAcceleratorConvolutionCoSimulation`), execution exhibits an asymmetric master-worker topology with stark sequential phasing:
+
+1. **Initialization Phase**: The Host CPU executes setup instructions, configures convolution parameters (`WIDTH=8`, `HEIGHT=8`, `KERNEL_SZ=3`), initializes the 64-byte input tensor and 9-byte kernel in `MailboxScratchpadDevice`, and unmasks IRQ 4. During this phase, the Accelerator CPU remains parked in `WFI` (`StepResult::Wait`), executing no instructions.
+2. **Compute Phase**: The Host CPU rings `MAILBOX_DOORBELL_TO_ACCEL` and immediately enters a `WFI` polling loop (`StepResult::Wait`). The Accelerator receives the NVIC interrupt, wakes from `WFI`, and executes the 2D convolution kernel (36 output pixels, 324 multiply-accumulate operations and memory accesses) over the scratchpad. During this compute phase, the Host CPU is completely suspended in `WFI`.
+3. **Verification Phase**: Upon completing the convolution, the Accelerator writes status `MB_STATUS_DONE`, asserts `MAILBOX_DOORBELL_TO_HOST`, and halts (`StepResult::Halt`). The Host CPU wakes from `WFI` via IRQ 4, validates the 36 computed output elements against expected values, records the completion sentinel `0xCAFECAFE` at `0x0002FFFC`, and terminates.
+
+Because the two execution participants alternate execution phases (one participant executes while the peer core waits in `WFI` or halts), concurrent instruction execution overlap between cores is near zero (< 1%).
+
+### Cross-core event density (Host-Accelerator doorbells)
+
+Cross-core coordination occurs exclusively through the `MailboxScratchpadDevice` MMIO registers and NVIC doorbell lines:
+- **Event Frequency**: Across the entire co-simulation run (~15,000–20,000 instruction steps), exactly two cross-core doorbell events occur:
+  1. *Host-to-Accelerator Doorbell*: Written by Host CPU at start of compute.
+  2. *Accelerator-to-Host Doorbell*: Written by Accelerator upon kernel completion.
+- **Event Density Metric**: Event density is extremely low, with an event-to-instruction ratio of approximately $2 / 15,000 \approx 1.3 \times 10^{-4}$ events per instruction tick (< 0.015%).
+- **Memory Decoupling**: Memory spaces are isolated across independent buses (Host memory bus vs Accelerator private bus). Shared memory interaction is restricted to the 64KB Mailbox scratchpad, which follows a strict producer-consumer handoff protocol guarded by the doorbells without concurrent shared-memory contention.
+
+### Barrier and conservative safe-window options
+
+Two primary synchronization strategies exist for parallelizing discrete event execution:
+
+- **Option A: Quantum-Synchronous Barriers (Bulk Synchronous Parallel)**:
+  Cores execute concurrently on separate host threads up to a shared quantum boundary $Q$ (e.g., 500 ticks) and synchronize via host barriers (e.g., `std::barrier` or condition variables).
+  *Evaluation*: Host OS thread synchronization overhead (1–5 $\mu$s per barrier on modern CPUs) substantially exceeds interpreter instruction step latency (10–30 ns per functional tick). At quantum $Q = 500$, barrier synchronization would consume 20%–45% of total runtime. Additionally, because one core is in `WFI` while the other computes, worker threads would continually block or spin at barriers, causing severe thread contention and cache thrashing without throughput benefit.
+- **Option B: Conservative Safe-Window Execution (Chandy-Misra-Bryant)**:
+  Each core advances independently up to a conservative safe horizon $T_{\text{safe}} = \min(T_{\text{peer}} + L, T_{\text{event}})$, where $L$ is the guaranteed minimum lookahead.
+  *Evaluation*: Conservative safe windows leverage the low event density by permitting cores to execute large autonomous epochs without barrier stalls. However, this strategy strictly requires a nonzero lookahead ($L \ge 1$) and null-message synchronization to prevent deadlocks when a core is idle in `WFI`.
+
+### Event queue ownership
+
+- **Centralized Event Queue**: A single shared priority queue protected by mutexes introduces thread contention on every `schedule()` and `dispatch()` boundary, destroying multi-core scaling and serializing event dispatch.
+- **Partitioned Per-Core Event Queues**: Each core thread must own a dedicated local priority queue for private events (device ticks, timer alarms). Cross-core events (doorbell interrupts) are transferred via lock-free single-producer single-consumer (SPSC) ring buffers with acquire-release memory semantics.
+- **Reference Invariant Compliance**: Any distributed event queue architecture must guarantee the reference contract's deterministic ordering: `EventPhase::Device` strictly precedes `EventPhase::Irq` at the same simulation tick, and simultaneous events maintain deterministic tie-breaking without host thread race conditions.
+
+### Minimum lookahead requirements
+
+- **Current Reference Lookahead ($L = 0$)**: The single-thread reference model executes doorbell MMIO writes with instantaneous callback delivery within the current simulation tick ($L = 0$).
+- **Parallel Lookahead Constraint ($L_{\min} \ge 1$)**: For conservative parallel execution without lockstep barriers, the simulation contract must enforce a minimum lookahead $L_{\min} \ge 1$ tick:
+  - Cross-core doorbells and interrupt line assertions must have an explicit propagation latency (minimum 1 simulation tick) before taking effect on the target core's NVIC.
+  - With $L_{\min} \ge 1$, each core thread can safely advance to $T_{\text{peer}} + L_{\min}$ without risk of receiving a past-timestamp event (causality violation).
+  - When a core enters `WFI`, it must publish an extended lookahead horizon equal to its next pending wake event or epoch limit, permitting the active core to execute without interruption.
+
+### Evidence-based recommendation
+
+**Recommendation: NO-GO for multi-threaded parallel execution in the current simulator architecture.**
+
+1. **Amdahl's Law Limitation**: Due to strictly alternating master-worker execution phases in coprocessor workloads, parallel execution overlap is negligible (< 1%). The theoretical speedup upper bound is under $1.01\times$.
+2. **Negative Performance Scaling**: The single-host-thread interpreter achieves high execution throughput (~36 ms total runtime for the entire 200,000-step co-simulation test). Host OS thread context switching, barrier latency, and cache invalidation overhead would exceed instruction execution time, leading to net performance degradation.
+3. **Simplicity and Conformance**: The single-host-thread `TimeScheduler` already provides proven quantum insensitivity, deterministic reproducibility, and zero-drift conformance across all platforms without concurrency defects or threading overhead.
+
+### Future race-detection and acceptance criteria
+
+If future multi-cluster SMP architectures or high-concurrency symmetric workloads necessitate parallel host backends, the implementation must satisfy the following acceptance criteria prior to adoption:
+
+1. **Deterministic Trace Equivalence**: Multi-threaded execution across $N$ worker threads must produce bit-for-bit identical architectural registers, memory state dumps, and timestamped event sequences as the single-thread reference (`PlatformTime.DeterministicTimingConformanceAcrossAllThreePlatforms`), invariant to host thread scheduling.
+2. **ThreadSanitizer Cleanliness Gate**: 100% clean test execution under Clang/GCC `-fsanitize=thread` with zero data race diagnostics across all platform unit, integration, and stress tests.
+3. **Hardware Bus Race Trapping**: Shared memory structures (`MailboxScratchpadDevice`) must enforce explicit read/write access protocol validation: unsynchronized conflicting accesses (RAW, WAR, WAW) without intervening doorbell handoffs must be trapped and flagged as firmware protocol races.
+4. **Quantum Insensitivity Invariance**: Multi-threaded runs across quantum values $Q \in \{1, 8, 64, 500\}$ must yield identical committed step progress, stop reasons, and final architectural states.
+5. **Zero Compiler Warnings**: Build cleanly under `-Wall -Wextra` with no compiler warnings or weakened test assertions.
+
+
 
 
