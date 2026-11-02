@@ -202,6 +202,36 @@ def run_ctest_subset(selected_tests, all_tests, extra_args=None):
     return res.returncode
 
 
+def get_subcase_ids(test):
+    """If a test executable supports GoogleTest --gtest_list_tests, query its test cases."""
+    cmd = test.get("command", [])
+    if not cmd:
+        return []
+    exe = cmd[0]
+    if not os.path.isfile(exe) or not os.access(exe, os.X_OK):
+        return []
+    # If CTest already passes --gtest_filter, the test name is already the exact subcase
+    if any("--gtest_filter" in arg for arg in cmd):
+        return []
+    try:
+        res = subprocess.run([exe, "--gtest_list_tests"], capture_output=True, text=True, timeout=5)
+        if res.returncode != 0:
+            return []
+        current_suite = ""
+        subcases = []
+        for line in res.stdout.splitlines():
+            if not line.strip() or line.startswith("Running main"):
+                continue
+            if not line.startswith(" ") and line.endswith("."):
+                current_suite = line.strip()[:-1]
+            elif line.startswith("  ") and current_suite:
+                test_name = line.strip().split()[0]
+                subcases.append(f"{current_suite}.{test_name}")
+        return subcases
+    except Exception:
+        return []
+
+
 def handle_nightshift_protocol(selected_tests):
     """Handle NightShift framework discovery and run phases with TDD evidence."""
     phase = os.environ.get("NIGHTSHIFT_PHASE")
@@ -213,8 +243,8 @@ def handle_nightshift_protocol(selected_tests):
         return None
 
     cases = []
+    seen_ids = set()
     for t in selected_tests:
-        case_id = t["name"]
         src = resolve_source(t) or "tests/smoke_test.cpp"
         src_path = PROJECT_ROOT / src
         fingerprint = hashlib.sha256(src_path.read_bytes()).hexdigest() if src_path.is_file() else "0" * 64
@@ -226,13 +256,25 @@ def handle_nightshift_protocol(selected_tests):
         if git_show.returncode == 0:
             baseline = hashlib.sha256(git_show.stdout).hexdigest()
 
-        case_entry = {
-            "id": case_id,
-            "source": src,
-            "fingerprint": fingerprint,
-            "baseline_fingerprint": baseline
-        }
-        cases.append(case_entry)
+        # Emit the CTest test name as an ID
+        case_ids = [t["name"]]
+        # If the binary is a GTest executable registered via add_test, also emit its individual test cases
+        subcases = get_subcase_ids(t)
+        for sc in subcases:
+            if sc not in case_ids:
+                case_ids.append(sc)
+
+        for cid in case_ids:
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            case_entry = {
+                "id": cid,
+                "source": src,
+                "fingerprint": fingerprint,
+                "baseline_fingerprint": baseline
+            }
+            cases.append(case_entry)
 
     if phase == "discover":
         payload = {"run": nonce, "cases": cases}
