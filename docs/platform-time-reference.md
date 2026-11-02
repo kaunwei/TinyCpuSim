@@ -28,3 +28,8 @@ A transmitted frame costs `10 * clkdiv` device ticks. The baud register is store
 The standalone participant checks can be run with `c++ -std=c++20 -Wall -Wextra -Iinclude -I. tests/test_coprocessor_accel.cpp -o /tmp/tinycpu_accel_participant_test && /tmp/tinycpu_accel_participant_test`; the existing CTest coprocessor target uses the platform's separate test source.
 
 The participant scenarios also run as always-active GTest checks in `tests/unit/test_accelerator_subsystem.cpp`. The standalone `tests/test_coprocessor_accel.cpp` remains in place; its cleanup is deferred until the runtime assertion-count guard recognizes GTest assertions.
+
+## Coprocessor accelerator platform
+
+`McuConvPlatform::run_until(deadline, quantum)` and `McuConvPlatform::run(max_cycles, quantum)` coordinate the host CPU and convolution accelerator subsystem under the shared functional `TimeScheduler`. Co-simulation results exhibit quantum insensitivity: executing the convolution co-simulation workload across quantum values 1, 8, 64, and 500 produces identical execution progress and output, verifying output result `0xCAFECAFE` at `0x0002FFFC` and accelerator mailbox status `2`.
+
