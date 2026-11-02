@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <limits>
 #include "tinyarmsim/memory_bus.hpp"
 #include "tinyarmsim/platform/virtual_platform.hpp"
 #include "tinyarmsim/platform/proxy_device.hpp"
@@ -132,15 +133,10 @@ public:
     }
 
     uint64_t run(uint64_t max_cycles, uint64_t quantum_size = 500) {
-        uint64_t total_steps = 0;
-        while (total_steps < max_cycles) {
-            bool active = step_quantum(quantum_size);
-            total_steps += quantum_size * 2;
-            if (!active) {
-                break;
-            }
+        if (max_cycles > std::numeric_limits<uint64_t>::max() - scheduler_.now()) {
+            throw std::overflow_error("platform deadline overflow");
         }
-        return total_steps;
+        return run_until(scheduler_.now() + max_cycles, quantum_size).progress;
     }
 
 private:
