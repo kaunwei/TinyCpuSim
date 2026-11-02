@@ -1,5 +1,10 @@
 {
   "version": 1,
+  "step_base": {
+    "L1": 60,
+    "L2": 40,
+    "L3": 20
+  },
   "acceptance": {
     "hot": "/usr/bin/python3 scripts/nightshift_acceptance.py --suite hot",
     "cold": "/usr/bin/python3 scripts/nightshift_acceptance.py --suite cold",
