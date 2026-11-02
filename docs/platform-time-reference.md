@@ -51,5 +51,22 @@ The participant scenarios also run as always-active GTest checks in `tests/unit/
 4. **Integration Verification**: End-to-end multi-platform conformance is verified by `PlatformTime.DeterministicTimingConformanceAcrossAllThreePlatforms` in `tests/platform_time_test.cpp`. Run the full timing test suite with:
    `cmake --build build -j 4 && ctest --test-dir build --output-on-failure -R 'PlatformTime|BasicPerf|test_mcu_platform|test_coprocessor_accel'`
 
+## Bus ticking single-ownership and standardized platform execution contract
+
+Duplicate bus ticking across `step_quantum` methods has been retired in favor of a strict single-ownership invariant. Under this invariant, bus and peripheral ticking belongs exclusively to one of two mutually exclusive execution authorities:
+
+1. **Internal Execution Single-Ownership**: When running under default internal clocking (`external_clock == false`), each single-instruction step owns advancing the system bus. Wrapper methods (such as `step_quantum`) do not perform auxiliary or duplicate bus ticks per quantum invocation.
+2. **External Scheduler Single-Ownership**: When running under external clock management (`set_external_clock(true)`), bus and peripheral advancement is delegated entirely to the external `TimeScheduler` via registered device event callbacks (e.g., `EventPhase::Device`). Subsystem steps execute without ticking the bus directly.
+
+This invariant eliminates duplicate bus progression, preserves event-phase ordering, and prevents timing drift during multi-step batching.
+
+### Standardized `run(max_steps, quantum)` platform contract
+
+All conforming platforms (`BasicPerfPlatform`, `BasicMcuPlatform`, and `McuConvPlatform`) standardize on the relative-budget entrypoint `run(max_steps, quantum)`:
+- **Relative Budget Conversion**: Computes an absolute deadline `deadline = time() + max_steps`. Detects arithmetic overflow (`max_steps > UINT64_MAX - time()`) and throws `std::overflow_error`.
+- **Quantum Validation**: Validates that `quantum > 0`, throwing `std::invalid_argument` if `quantum == 0`.
+- **Execution Delegation**: Dispatches to `run_until(deadline, quantum)`, enforcing quantum insensitivity and returning a `RunResult` containing actual committed CPU progress and the termination reason (`Deadline`, `Halt`, `Wait`, or `Fault`).
+- **Timing Invariant**: Step execution and peripheral updates maintain strict single ownership, ensuring identical deterministic outcomes regardless of the chosen quantum value.
+
 
 
