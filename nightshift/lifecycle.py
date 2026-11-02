@@ -385,10 +385,12 @@ def run(root, runtime):
                 verify = runtime.task_field(raw, "VERIFY")
                 file_count = sum(max(1, sum(item.is_file() for item in (root / part.strip()).rglob("*")))
                                  if (root / part.strip()).is_dir() else 1 for part in target.split(",") if part.strip())
-                cfg_obj = gate.config(root) if (root / "nightshift/config.json").is_file() else {}
+                cfg_path = root / "nightshift/config.json"
+                cfg_obj = gate.load(cfg_path) if cfg_path.is_file() else {}
                 step_ladder = cfg_obj.get("step_base", {})
                 default_base = step_ladder.get(f"L{level}", {"1": 60, "2": 40, "3": 20}.get(level, 20)) if isinstance(step_ladder, dict) else (step_ladder if isinstance(step_ladder, int) else 20)
-                step_base = int(os.environ.get("STEP_BASE", str(default_base)))
+                env_base = os.environ.get("STEP_BASE", "").strip()
+                step_base = int(env_base) if env_base else int(default_base)
                 step_per_file = int(os.environ.get("STEP_PER_FILE", "5"))
                 budget = step_base + max(1, file_count) * step_per_file
                 directory = state / "runs" / active["event"]

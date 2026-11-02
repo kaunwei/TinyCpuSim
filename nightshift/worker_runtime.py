@@ -1143,7 +1143,18 @@ def poll_next(args):
             research_budget = getattr(args, "research_step_budget", 0) or int(os.environ.get("RESEARCH_STEP_BUDGET", "100"))
             fields[15] = str(research_budget)
         else:
-            fields[15] = str(args.step_base + file_count * args.step_per_file)
+            base = args.step_base
+            if base == 22:
+                ladder = {"1": 60, "2": 40, "3": 20}
+                cfg_path = Path(args.work_dir) / "nightshift/config.json"
+                if cfg_path.is_file():
+                    try:
+                        cfg_json = json.loads(cfg_path.read_text(encoding="utf-8"))
+                        ladder = cfg_json.get("step_base", ladder)
+                    except Exception:
+                        pass
+                base = ladder.get(f"L{fields[9]}", ladder.get(fields[9], 20)) if isinstance(ladder, dict) else (ladder if isinstance(ladder, int) else 20)
+            fields[15] = str(base + file_count * args.step_per_file)
     return fields
 
 
